@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
 import { authApi } from '../api/auth';
 
 const Register = () => {
@@ -9,7 +8,6 @@ const Register = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -21,9 +19,8 @@ const Register = () => {
     setLoading(true);
     setError('');
     try {
-      const response = await authApi.register({ email, password });
-      login(response.data.token, response.data.email);
-      navigate('/');
+      await authApi.register({ email, password });
+      navigate(`/register-success?email=${encodeURIComponent(email)}`);
     } catch {
       setError('Erreur lors de la création du compte.');
     } finally {

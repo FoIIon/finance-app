@@ -14,6 +14,11 @@ public class TransactionDto
     public string CategoryName { get; set; } = string.Empty;
     public string CategoryIcon { get; set; } = string.Empty;
     public string CategoryColor { get; set; } = string.Empty;
+    public int AccountId { get; set; }
+    public string AccountName { get; set; } = string.Empty;
+    public string? ExternalId { get; set; }
+    public bool IsImported { get; set; }
+    public string? CounterpartyName { get; set; }
 }
 
 public class CreateTransactionDto
@@ -34,6 +39,9 @@ public class CreateTransactionDto
 
     [Required]
     public int CategoryId { get; set; }
+
+    [Required]
+    public int AccountId { get; set; }
 }
 
 public class UpdateTransactionDto
@@ -54,6 +62,9 @@ public class UpdateTransactionDto
 
     [Required]
     public int CategoryId { get; set; }
+
+    [Required]
+    public int AccountId { get; set; }
 }
 
 public class TransactionSummaryDto

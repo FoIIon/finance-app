@@ -25,3 +25,20 @@ public class AuthResponseDto
     public string Token { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
 }
+
+public class ConfirmEmailDto
+{
+    [Required]
+    public string Token { get; set; } = string.Empty;
+}
+
+public class ResendConfirmationDto
+{
+    [Required, EmailAddress, MaxLength(254)]
+    public string Email { get; set; } = string.Empty;
+}
+
+public class MessageDto
+{
+    public string Message { get; set; } = string.Empty;
+}

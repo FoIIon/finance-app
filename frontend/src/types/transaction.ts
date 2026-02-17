@@ -15,6 +15,11 @@ export interface Transaction {
   categoryName: string;
   categoryIcon: string;
   categoryColor: string;
+  accountId: number;
+  accountName: string;
+  externalId?: string;
+  isImported: boolean;
+  counterpartyName?: string;
 }
 
 export interface CreateTransaction {
@@ -23,6 +28,7 @@ export interface CreateTransaction {
   date: string;
   type: TransactionType;
   categoryId: number;
+  accountId: number;
 }
 
 export interface UpdateTransaction {
@@ -31,6 +37,7 @@ export interface UpdateTransaction {
   date: string;
   type: TransactionType;
   categoryId: number;
+  accountId: number;
 }
 
 export interface TransactionSummary {
@@ -57,8 +64,13 @@ export interface MonthlyBalance {
 }
 
 export interface TransactionFilters {
+  dashboardId?: number;
   from?: string;
   to?: string;
   categoryId?: number;
   type?: TransactionType;
+  accountId?: number;
+  search?: string;
+  sortBy?: string;
+  sortDesc?: boolean;
 }

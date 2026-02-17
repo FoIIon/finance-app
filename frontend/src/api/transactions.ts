@@ -17,6 +17,6 @@ export const transactionsApi = {
   delete: (id: number) =>
     apiClient.delete(`/transaction/${id}`),
 
-  getSummary: () =>
-    apiClient.get<TransactionSummary>('/transaction/summary'),
+  getSummary: (dashboardId?: number) =>
+    apiClient.get<TransactionSummary>('/transaction/summary', { params: dashboardId ? { dashboardId } : {} }),
 };

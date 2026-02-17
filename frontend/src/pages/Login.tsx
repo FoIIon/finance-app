@@ -2,12 +2,16 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { authApi } from '../api/auth';
+import axios from 'axios';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -15,14 +19,41 @@ const Login = () => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setUnconfirmed(false);
+    setResendMessage('');
     try {
       const response = await authApi.login({ email, password });
       login(response.data.token, response.data.email);
-      navigate('/');
-    } catch {
-      setError('Email ou mot de passe incorrect.');
+      // Rediriger vers l'invitation en attente si présente
+      const pendingToken = sessionStorage.getItem('pendingInvitationToken');
+      if (pendingToken) {
+        sessionStorage.removeItem('pendingInvitationToken');
+        navigate(`/invitation/accept?token=${pendingToken}`);
+      } else {
+        navigate('/');
+      }
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 403) {
+        setUnconfirmed(true);
+        setError('Veuillez confirmer votre adresse email avant de vous connecter.');
+      } else {
+        setError('Email ou mot de passe incorrect.');
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setResending(true);
+    setResendMessage('');
+    try {
+      const response = await authApi.resendConfirmation(email);
+      setResendMessage(response.data.message);
+    } catch {
+      setResendMessage('Erreur lors de l\'envoi. Réessayez plus tard.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -43,6 +74,23 @@ const Login = () => {
           {error && (
             <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
               {error}
+            </div>
+          )}
+
+          {unconfirmed && (
+            <div className="mb-4">
+              {resendMessage && (
+                <div className="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm">
+                  {resendMessage}
+                </div>
+              )}
+              <button
+                onClick={handleResend}
+                disabled={resending || !email}
+                className="w-full py-2 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:bg-white/10 hover:text-white transition-all duration-200 disabled:opacity-50 text-sm"
+              >
+                {resending ? 'Envoi...' : 'Renvoyer l\'email de confirmation'}
+              </button>
             </div>
           )}
 

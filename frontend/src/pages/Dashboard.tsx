@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import { useTransactions } from '../hooks/useTransactions';
+import { useDashboards } from '../hooks/useDashboards';
 import { TransactionType } from '../types/transaction';
 import { formatCurrency } from '../utils/format';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 const Dashboard = () => {
   const { transactions, summary, fetchSummary, loading } = useTransactions();
+  const { currentDashboard } = useDashboards();
 
   useEffect(() => {
     fetchSummary();
@@ -24,7 +26,7 @@ const Dashboard = () => {
   return (
     <div className="space-y-8 animate-[fadeIn_0.5s_ease-out]">
       <h2 className="text-3xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-        Tableau de bord
+        {currentDashboard?.name ?? 'Tableau de bord'}
       </h2>
 
       {/* Cartes résumé */}
@@ -122,7 +124,7 @@ const Dashboard = () => {
                   <span className="text-2xl">{t.categoryIcon}</span>
                   <div>
                     <p className="text-white font-medium">{t.description}</p>
-                    <p className="text-white/40 text-sm">{t.categoryName} · {new Date(t.date).toLocaleDateString('fr-FR')}</p>
+                    <p className="text-white/40 text-sm">{t.categoryName} · {t.accountName} · {new Date(t.date).toLocaleDateString('fr-FR')}</p>
                   </div>
                 </div>
                 <span className={`font-semibold ${t.type === TransactionType.Income ? 'text-emerald-400' : 'text-red-400'}`}>

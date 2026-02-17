@@ -1,7 +1,9 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using FinanceApp.API.Data;
 using FinanceApp.API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -33,6 +35,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddScoped<IAccountService, AccountService>();
+builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IInvitationService, InvitationService>();
+builder.Services.AddHttpClient<GoCardlessClient>();
+builder.Services.AddSingleton<BankSyncService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<BankSyncService>());
 
 builder.Services.AddRateLimiter(options =>
 {

@@ -1,10 +1,13 @@
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import DashboardSelector from './DashboardSelector';
 
 const navItems = [
   { path: '/', label: 'Tableau de bord', icon: '📊' },
   { path: '/transactions', label: 'Transactions', icon: '💳' },
   { path: '/categories', label: 'Catégories', icon: '🏷️' },
+  { path: '/bank', label: 'Banques', icon: '🏦' },
+  { path: '/dashboard-settings', label: 'Paramètres', icon: '⚙️' },
 ];
 
 const Layout = () => {
@@ -26,6 +29,11 @@ const Layout = () => {
             FinanceApp
           </h1>
           <p className="text-sm text-white/40 mt-1">{email}</p>
+        </div>
+
+        {/* Sélecteur de dashboard */}
+        <div className="p-4 border-b border-white/10">
+          <DashboardSelector />
         </div>
 
         <div className="flex-1 p-4 space-y-1">
