@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Corriger le fond blanc des options dans les selects sur thème sombre */
+select option {
+  background-color: #1a1a3e;
+  color: #ffffff;
+}
