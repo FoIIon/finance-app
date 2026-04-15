@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using FinanceApp.API.Data;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Models;
@@ -68,7 +68,9 @@ public class TransactionController : ControllerBase
             AccountName = t.Account.Name,
             ExternalId = t.ExternalId,
             IsImported = t.IsImported,
-            CounterpartyName = t.CounterpartyName
+            CounterpartyName = t.CounterpartyName,
+            BankAccountName = t.BankAccount?.AccountName,
+            BankInstitutionName = t.BankAccount?.BankConnection?.InstitutionName
         };
     }
 
@@ -90,6 +92,7 @@ public class TransactionController : ControllerBase
         var query = _context.Transactions
             .Include(t => t.Category)
             .Include(t => t.Account)
+            .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
             .Where(t => accountIds.Contains(t.AccountId));
 
         if (from.HasValue) query = query.Where(t => t.Date >= from.Value);
@@ -124,6 +127,7 @@ public class TransactionController : ControllerBase
         var transaction = await _context.Transactions
             .Include(t => t.Category)
             .Include(t => t.Account)
+            .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
             .FirstOrDefaultAsync(t => t.Id == id && t.Account.UserId == userId);
 
         if (transaction == null) return NotFound();
@@ -181,6 +185,7 @@ public class TransactionController : ControllerBase
         var userId = GetUserId();
         var transaction = await _context.Transactions
             .Include(t => t.Account)
+            .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
             .FirstOrDefaultAsync(t => t.Id == id && t.Account.UserId == userId);
 
         if (transaction == null) return NotFound();
@@ -216,7 +221,9 @@ public class TransactionController : ControllerBase
             AccountName = account.Name,
             ExternalId = transaction.ExternalId,
             IsImported = transaction.IsImported,
-            CounterpartyName = transaction.CounterpartyName
+            CounterpartyName = transaction.CounterpartyName,
+            BankAccountName = transaction.BankAccount?.AccountName,
+            BankInstitutionName = transaction.BankAccount?.BankConnection?.InstitutionName
         });
     }
 
@@ -314,3 +321,4 @@ public class TransactionController : ControllerBase
         });
     }
 }
+

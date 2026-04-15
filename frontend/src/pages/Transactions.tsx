@@ -220,7 +220,7 @@ const Transactions = () => {
                   Description{renderSortIcon('description')}
                 </th>
                 <th className="text-left p-4 text-white/40 font-medium text-sm cursor-pointer select-none hover:text-white/60 transition-colors" onClick={() => handleSort('account')}>
-                  Tiers{renderSortIcon('account')}
+                  Compte{renderSortIcon('account')}
                 </th>
                 <th className="text-left p-4 text-white/40 font-medium text-sm cursor-pointer select-none hover:text-white/60 transition-colors" onClick={() => handleSort('category')}>
                   Catégorie{renderSortIcon('category')}
@@ -254,8 +254,17 @@ const Transactions = () => {
                       </>
                     )}
                   </td>
-                  <td className="p-4 text-white/50 text-sm">
-                    {t.counterpartyName ? t.counterpartyName : <span className="italic">{t.accountName}</span>}
+                  <td className="p-4">
+                    {t.bankInstitutionName ? (
+                      <div>
+                        <span className="block text-white/80 text-sm font-medium">{t.bankInstitutionName}</span>
+                        {t.bankAccountName && (
+                          <span className="block text-white/40 text-xs truncate max-w-[160px]" title={t.bankAccountName}>{t.bankAccountName}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-white/50 text-sm italic">{t.accountName}</span>
+                    )}
                   </td>
                   <td className="p-4">
                     {editingRowId === t.id ? (

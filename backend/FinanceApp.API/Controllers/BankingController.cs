@@ -1,11 +1,13 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Threading.RateLimiting;
 using FinanceApp.API.Data;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace FinanceApp.API.Controllers;
@@ -18,12 +20,14 @@ public class BankingController : ControllerBase
     private readonly AppDbContext _context;
     private readonly GoCardlessClient _goCardless;
     private readonly IConfiguration _configuration;
+    private readonly TradeRepublicAuthStore _trAuthStore;
 
-    public BankingController(AppDbContext context, GoCardlessClient goCardless, IConfiguration configuration)
+    public BankingController(AppDbContext context, GoCardlessClient goCardless, IConfiguration configuration, TradeRepublicAuthStore trAuthStore)
     {
         _context = context;
         _goCardless = goCardless;
         _configuration = configuration;
+        _trAuthStore = trAuthStore;
     }
 
     private int GetUserId()
@@ -174,6 +178,15 @@ public class BankingController : ControllerBase
 
         if (connection == null) return NotFound();
 
+        // Nullifier BankAccountId sur les transactions liées avant la suppression en cascade
+        var bankAccountIds = connection.BankAccounts.Select(ba => ba.Id).ToList();
+        if (bankAccountIds.Any())
+        {
+            await _context.Transactions
+                .Where(t => t.BankAccountId != null && bankAccountIds.Contains(t.BankAccountId!.Value))
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.BankAccountId, (int?)null));
+        }
+
         _context.BankConnections.Remove(connection);
         await _context.SaveChangesAsync();
 
@@ -229,6 +242,122 @@ public class BankingController : ControllerBase
         await _context.SaveChangesAsync();
 
         return Ok(MapAccountToDto(account));
+    }
+
+    [HttpPost("traderepublic/login")]
+    [EnableRateLimiting("auth")]
+    public async Task<ActionResult<TradeRepublicLoginResponse>> TradeRepublicLogin(
+        TradeRepublicLoginRequest dto,
+        [FromServices] TradeRepublicClient trClient)
+    {
+        var userId = GetUserId();
+
+        // Chercher une connexion TR existante à réutiliser (évite de créer un doublon)
+        var existingConnection = await _context.BankConnections
+            .FirstOrDefaultAsync(bc => bc.UserId == userId && bc.Provider == "TradeRepublic"
+                && (bc.Status == BankConnectionStatus.Linked || bc.Status == BankConnectionStatus.Error));
+
+        // Supprimer les connexions TR en attente de 2FA périmées
+        var staleConnections = await _context.BankConnections
+            .Include(bc => bc.BankAccounts)
+            .Where(bc => bc.UserId == userId && bc.Provider == "TradeRepublic" && bc.Status == BankConnectionStatus.PendingTwoFactor)
+            .ToListAsync();
+
+        // Nullifier BankAccountId sur les transactions liées avant la suppression en cascade
+        var staleBankAccountIds = staleConnections.SelectMany(c => c.BankAccounts.Select(ba => ba.Id)).ToList();
+        if (staleBankAccountIds.Any())
+        {
+            await _context.Transactions
+                .Where(t => t.BankAccountId != null && staleBankAccountIds.Contains(t.BankAccountId!.Value))
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.BankAccountId, (int?)null));
+        }
+
+        _context.BankConnections.RemoveRange(staleConnections);
+
+        // Initier le login via HTTP (déclenche l'envoi d'un SMS)
+        string processId;
+        try
+        {
+            processId = await trClient.InitiateLoginAsync(dto.PhoneNumber, dto.Pin);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
+
+        // Réutiliser la connexion existante si possible, sinon en créer une nouvelle
+        BankConnection connection;
+        if (existingConnection != null)
+        {
+            existingConnection.Status = BankConnectionStatus.PendingTwoFactor;
+            connection = existingConnection;
+        }
+        else
+        {
+            connection = new BankConnection
+            {
+                UserId = userId,
+                InstitutionId = "trade-republic",
+                InstitutionName = "Trade Republic",
+                InstitutionLogo = "",
+                Provider = "TradeRepublic",
+                Status = BankConnectionStatus.PendingTwoFactor
+            };
+            _context.BankConnections.Add(connection);
+        }
+
+        await _context.SaveChangesAsync();
+
+        // Stocker le processId pour la vérification du code SMS
+        _trAuthStore.Store(connection.Id, new PendingLogin
+        {
+            ProcessId = processId,
+            UserId = userId
+        });
+
+        return Ok(new TradeRepublicLoginResponse { ConnectionId = connection.Id });
+    }
+
+    [HttpPost("traderepublic/verify")]
+    [EnableRateLimiting("auth")]
+    public async Task<ActionResult> TradeRepublicVerify(
+        TradeRepublicVerifyRequest dto,
+        [FromServices] TradeRepublicClient trClient)
+    {
+        var userId = GetUserId();
+
+        var connection = await _context.BankConnections
+            .FirstOrDefaultAsync(bc => bc.Id == dto.ConnectionId && bc.UserId == userId);
+
+        if (connection == null) return NotFound();
+
+        var pending = _trAuthStore.Get(dto.ConnectionId);
+        if (pending == null)
+            return BadRequest("Session expirée. Veuillez recommencer la connexion.");
+
+        try
+        {
+            var (sessionToken, refreshToken, deviceToken) = await trClient.ConfirmTwoFactorAsync(pending.ProcessId, dto.Code);
+
+            // Stocker les tokens chiffrés — jamais en clair
+            if (!string.IsNullOrEmpty(sessionToken))
+                connection.EncryptedSessionToken = trClient.EncryptToken(sessionToken);
+            connection.EncryptedRefreshToken = trClient.EncryptToken(refreshToken);
+            if (!string.IsNullOrEmpty(deviceToken))
+                connection.EncryptedDeviceToken = trClient.EncryptToken(deviceToken);
+            connection.Status = BankConnectionStatus.Linked;
+            await _context.SaveChangesAsync();
+
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        finally
+        {
+            _trAuthStore.Remove(dto.ConnectionId);
+        }
     }
 
     private static BankConnectionDto MapConnectionToDto(BankConnection connection) => new()

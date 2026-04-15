@@ -136,6 +136,13 @@ public class AppDbContext : DbContext
             .HasForeignKey(ba => ba.BankConnectionId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        modelBuilder.Entity<Transaction>()
+            .HasOne(t => t.BankAccount)
+            .WithMany()
+            .HasForeignKey(t => t.BankAccountId)
+            .OnDelete(DeleteBehavior.ClientSetNull)
+            .IsRequired(false);
+
         // CategoryRule
         modelBuilder.Entity<CategoryRule>()
             .HasOne(cr => cr.User)

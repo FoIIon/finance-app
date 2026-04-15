@@ -19,11 +19,25 @@ const EU_COUNTRIES = [
   { code: 'FI', label: 'Finlande' },
 ];
 
+// Logo officiel Trade Republic (SVG inline, fond noir, icône blanche)
+const TR_LOGO = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1552 1319'%3E%3Crect width='1552' height='1319' fill='%23000000'/%3E%3Cpath fill='%23ffffff' fill-rule='evenodd' d='m1551 659.5q0-2-1-3v-2c-5-22.9-25.9-35.9-46.9-30.9l-553.5 141.7c-17 5-34 4-50.9-2l-250.4-87.8c-15.9-6-33.9-6-50.8-2l-567.6 146.6c-16.9 4-29.9 21-29.9 40v422q0 1 1 2v3c5 21.9 25.9 35.9 46.9 29.9l548.6-141.7q6-2 12.9-2 7-1 13-1 7 1 13 2 6.9 1 12.9 3l249.4 88.8q6 2 12 3 6.9 2 12.9 2h13q7-1 13-3l571.5-146.6q7-2 12-6 5.9-4 9.9-9 4-5 6-12 2-6 2-12.9l1-1zm-1-619.7v-6.9c-5-22-26.9-36-46.9-31l-552.5 142.7c-17 4-35 3-51.9-3l-249.4-87.8c-16.9-6-34.9-6-51.8-2l-567.6 146.7c-16.9 4-29.9 20.9-29.9 39.9v420.1q0 1 1 2v4.9c5 22 25.9 36 46.9 31l548.6-141.7q6.9-2 12.9-3h13q7 0 13 1 6.9 2 12.9 4l249.4 87.8q7 2 13 3 5.9 2 12.9 2h13q7-1 13-3l570.5-146.7q7-2 13-6 4.9-3 8.9-9 4-4.9 7-11.9 2-6 2-13v-417.1q0-2-1-3z'/%3E%3C/svg%3E";
+
+// Entrée synthétique Trade Republic injectée dans la liste allemande
+const TR_INSTITUTION = {
+  id: 'TRADE_REPUBLIC',
+  name: 'Trade Republic',
+  logo: TR_LOGO,
+  countries: ['DE'],
+};
+
+type TrStep = null | 'credentials' | 'twoFactor' | 'success';
+
 const statusLabel = (status: BankConnectionStatus) => {
   switch (status) {
     case BankConnectionStatus.Linked: return 'Connectée';
     case BankConnectionStatus.Expired: return 'Expirée';
     case BankConnectionStatus.Error: return 'Erreur';
+    case BankConnectionStatus.PendingTwoFactor: return 'En attente 2FA';
   }
 };
 
@@ -32,6 +46,7 @@ const statusColor = (status: BankConnectionStatus) => {
     case BankConnectionStatus.Linked: return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
     case BankConnectionStatus.Expired: return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
     case BankConnectionStatus.Error: return 'bg-red-500/20 text-red-400 border-red-500/30';
+    case BankConnectionStatus.PendingTwoFactor: return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
   }
 };
 
@@ -42,6 +57,7 @@ const Bank = () => {
     fetchInstitutions, connectBank, handleCallback,
     deleteConnection, syncConnection, updateAccount,
     fetchCategoryRules, createCategoryRule, updateCategoryRule, deleteCategoryRule,
+    tradeRepublicLogin, tradeRepublicVerify,
   } = useBanking();
 
   const [categories, setCategories] = useState<Category[]>([]);
@@ -54,6 +70,15 @@ const Bank = () => {
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [callbackProcessing, setCallbackProcessing] = useState(false);
+
+  // État du flow Trade Republic dans le modal
+  const [trStep, setTrStep] = useState<TrStep>(null);
+  const [trPhoneNumber, setTrPhoneNumber] = useState('');
+  const [trPin, setTrPin] = useState('');
+  const [trCode, setTrCode] = useState('');
+  const [trConnectionId, setTrConnectionId] = useState<number | null>(null);
+  const [trLoading, setTrLoading] = useState(false);
+  const [trError, setTrError] = useState<string | null>(null);
 
   // Règles de catégorisation
   const [ruleKeyword, setRuleKeyword] = useState('');
@@ -88,7 +113,22 @@ const Bank = () => {
     }
   }, [showConnectModal, selectedCountry, fetchInstitutions]);
 
+  const handleCloseModal = () => {
+    setShowConnectModal(false);
+    // Réinitialiser le flow Trade Republic
+    setTrStep(null);
+    setTrPhoneNumber('');
+    setTrPin('');
+    setTrCode('');
+    setTrConnectionId(null);
+    setTrError(null);
+  };
+
   const handleConnect = async (institution: { id: string; name: string; logo: string }) => {
+    if (institution.id === 'TRADE_REPUBLIC') {
+      setTrStep('credentials');
+      return;
+    }
     setConnectingInstitution(institution.id);
     try {
       const url = await connectBank({
@@ -99,6 +139,38 @@ const Bank = () => {
       window.location.href = url;
     } catch {
       setConnectingInstitution(null);
+    }
+  };
+
+  const handleTrLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTrLoading(true);
+    setTrError(null);
+    try {
+      const id = await tradeRepublicLogin({ phoneNumber: trPhoneNumber, pin: trPin });
+      setTrConnectionId(id);
+      setTrStep('twoFactor');
+    } catch (err: unknown) {
+      const serverMessage = (err as { response?: { data?: string } })?.response?.data;
+      setTrError(typeof serverMessage === 'string' ? serverMessage : 'Erreur de connexion à Trade Republic.');
+    } finally {
+      setTrLoading(false);
+    }
+  };
+
+  const handleTrVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (trConnectionId === null) return;
+    setTrLoading(true);
+    setTrError(null);
+    try {
+      await tradeRepublicVerify({ connectionId: trConnectionId, code: trCode });
+      setTrStep('success');
+    } catch (err: unknown) {
+      const serverMessage = (err as { response?: { data?: string } })?.response?.data;
+      setTrError(typeof serverMessage === 'string' ? serverMessage : 'Code invalide ou session expirée. Veuillez recommencer.');
+    } finally {
+      setTrLoading(false);
     }
   };
 
@@ -120,6 +192,15 @@ const Bank = () => {
   const handleDelete = async (id: number) => {
     await deleteConnection(id);
     setDeleteConfirm(null);
+  };
+
+  // Ouvre le modal TR directement à l'étape credentials pour re-authentifier
+  const handleReauth = () => {
+    setTrStep('credentials');
+    setTrError(null);
+    setTrCode('');
+    setTrConnectionId(null);
+    setShowConnectModal(true);
   };
 
   const toggleExpanded = (id: number) => {
@@ -161,7 +242,12 @@ const Bank = () => {
     setRuleDeleteConfirm(null);
   };
 
-  const filteredInstitutions = institutions.filter((i) =>
+  // Trade Republic injecté en tête de liste quand l'Allemagne est sélectionnée
+  const allInstitutions = selectedCountry === 'DE'
+    ? [TR_INSTITUTION, ...institutions]
+    : institutions;
+
+  const filteredInstitutions = allInstitutions.filter((i) =>
     i.name.toLowerCase().includes(institutionSearch.toLowerCase())
   );
 
@@ -216,6 +302,7 @@ const Bank = () => {
               onDeleteConfirm={() => handleDelete(conn.id)}
               onDeleteCancel={() => setDeleteConfirm(null)}
               onToggleAccount={handleToggleAccount}
+              onReauth={conn.institutionId === 'trade-republic' && conn.status === BankConnectionStatus.Error ? handleReauth : undefined}
             />
           ))}
         </div>
@@ -341,66 +428,186 @@ const Bank = () => {
           role="dialog"
           aria-modal="true"
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center"
-          onClick={() => setShowConnectModal(false)}
+          onClick={handleCloseModal}
         >
           <div
             className="bg-[#1a1a3e] rounded-2xl border border-white/10 p-8 w-full max-w-2xl max-h-[80vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-xl font-bold text-white mb-6">Connecter une banque</h3>
-
-            <div className="flex gap-4 mb-4">
-              <select
-                value={selectedCountry}
-                onChange={(e) => { setSelectedCountry(e.target.value); setInstitutionSearch(''); }}
-                className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-amber-500/50"
-              >
-                {EU_COUNTRIES.map((c) => (
-                  <option key={c.code} value={c.code}>{c.label}</option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={institutionSearch}
-                onChange={(e) => setInstitutionSearch(e.target.value)}
-                placeholder="Rechercher une banque..."
-                className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-amber-500/50"
-              />
-            </div>
-
-            <div className="flex-1 overflow-y-auto min-h-0">
-              {institutions.length === 0 ? (
-                <div className="p-8 text-center text-white/30">Chargement des banques...</div>
-              ) : filteredInstitutions.length === 0 ? (
-                <div className="p-8 text-center text-white/30">Aucune banque trouvée</div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {filteredInstitutions.map((inst) => (
-                    <button
-                      key={inst.id}
-                      onClick={() => handleConnect(inst)}
-                      disabled={connectingInstitution !== null}
-                      className="flex flex-col items-center gap-2 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-amber-500/30 hover:bg-white/10 transition-all duration-200 disabled:opacity-50"
-                    >
-                      <img src={inst.logo} alt={inst.name} className="w-10 h-10 rounded-lg object-contain" />
-                      <span className="text-white/80 text-sm text-center leading-tight">{inst.name}</span>
-                      {connectingInstitution === inst.id && (
-                        <span className="text-amber-400 text-xs">Redirection...</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
+            {/* En-tête du modal */}
+            <div className="flex items-center gap-3 mb-6">
+              {trStep !== null && trStep !== 'success' && (
+                <button
+                  onClick={() => setTrStep(null)}
+                  className="text-white/40 hover:text-white transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
               )}
+              <h3 className="text-xl font-bold text-white">
+                {trStep ? 'Connecter Trade Republic' : 'Connecter une banque'}
+              </h3>
             </div>
 
-            <div className="mt-4 pt-4 border-t border-white/10">
-              <button
-                onClick={() => setShowConnectModal(false)}
-                className="px-6 py-2.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all"
-              >
-                Fermer
-              </button>
-            </div>
+            {/* Contenu : liste des banques */}
+            {trStep === null && (
+              <>
+                <div className="flex gap-4 mb-4">
+                  <select
+                    value={selectedCountry}
+                    onChange={(e) => { setSelectedCountry(e.target.value); setInstitutionSearch(''); }}
+                    className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-amber-500/50"
+                  >
+                    {EU_COUNTRIES.map((c) => (
+                      <option key={c.code} value={c.code}>{c.label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={institutionSearch}
+                    onChange={(e) => setInstitutionSearch(e.target.value)}
+                    placeholder="Rechercher une banque..."
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+
+                <div className="flex-1 overflow-y-auto min-h-0">
+                  {institutions.length === 0 && selectedCountry !== 'DE' ? (
+                    <div className="p-8 text-center text-white/30">Chargement des banques...</div>
+                  ) : filteredInstitutions.length === 0 ? (
+                    <div className="p-8 text-center text-white/30">Aucune banque trouvée</div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {filteredInstitutions.map((inst) => (
+                        <button
+                          key={inst.id}
+                          onClick={() => handleConnect(inst)}
+                          disabled={connectingInstitution !== null}
+                          className="flex flex-col items-center gap-2 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-amber-500/30 hover:bg-white/10 transition-all duration-200 disabled:opacity-50"
+                        >
+                          <img src={inst.logo} alt={inst.name} className="w-10 h-10 rounded-lg object-contain" />
+                          <span className="text-white/80 text-sm text-center leading-tight">{inst.name}</span>
+                          {connectingInstitution === inst.id && (
+                            <span className="text-amber-400 text-xs">Redirection...</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  <button
+                    onClick={handleCloseModal}
+                    className="px-6 py-2.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Contenu : formulaire identifiants Trade Republic */}
+            {trStep === 'credentials' && (
+              <form onSubmit={handleTrLogin} className="space-y-4">
+                <p className="text-white/60 text-sm">
+                  Entrez vos identifiants Trade Republic pour lier votre compte.
+                </p>
+                {trError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                    {trError}
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm text-white/60 mb-1">Numéro de téléphone</label>
+                  <input
+                    type="tel"
+                    value={trPhoneNumber}
+                    onChange={(e) => setTrPhoneNumber(e.target.value)}
+                    placeholder="+33612345678"
+                    required
+                    autoFocus
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-white/60 mb-1">PIN</label>
+                  <input
+                    type="password"
+                    value={trPin}
+                    onChange={(e) => setTrPin(e.target.value)}
+                    placeholder="****"
+                    required
+                    maxLength={4}
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={trLoading}
+                  className="w-full px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-semibold hover:from-amber-600 hover:to-orange-700 transition-all duration-200 disabled:opacity-50"
+                >
+                  {trLoading ? 'Connexion...' : 'Se connecter'}
+                </button>
+              </form>
+            )}
+
+            {/* Contenu : code 2FA Trade Republic */}
+            {trStep === 'twoFactor' && (
+              <form onSubmit={handleTrVerify} className="space-y-4">
+                <p className="text-white/60 text-sm">
+                  Confirmez la notification push sur votre téléphone, puis entrez le code de vérification.
+                </p>
+                {trError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                    {trError}
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm text-white/60 mb-1">Code de vérification</label>
+                  <input
+                    type="text"
+                    value={trCode}
+                    onChange={(e) => setTrCode(e.target.value)}
+                    placeholder="1234"
+                    required
+                    maxLength={4}
+                    autoFocus
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-center text-2xl tracking-[0.5em] focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={trLoading}
+                  className="w-full px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-semibold hover:from-amber-600 hover:to-orange-700 transition-all duration-200 disabled:opacity-50"
+                >
+                  {trLoading ? 'Vérification...' : 'Vérifier'}
+                </button>
+              </form>
+            )}
+
+            {/* Contenu : succès Trade Republic */}
+            {trStep === 'success' && (
+              <div className="text-center space-y-4">
+                <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center">
+                  <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-white">Compte lié avec succès</h3>
+                <p className="text-white/60 text-sm">
+                  Votre compte Trade Republic est maintenant connecté.
+                </p>
+                <button
+                  onClick={handleCloseModal}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-semibold hover:from-amber-600 hover:to-orange-700 transition-all duration-200"
+                >
+                  Fermer
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -420,16 +627,21 @@ interface ConnectionCardProps {
   onDeleteConfirm: () => void;
   onDeleteCancel: () => void;
   onToggleAccount: (account: BankAccount) => void;
+  onReauth?: () => void;
 }
 
 const ConnectionCard = ({
   connection, expanded, onToggleExpand, onSync, syncing,
-  deleteConfirm, onDeleteRequest, onDeleteConfirm, onDeleteCancel, onToggleAccount,
+  deleteConfirm, onDeleteRequest, onDeleteConfirm, onDeleteCancel, onToggleAccount, onReauth,
 }: ConnectionCardProps) => (
   <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
     <div className="p-5 flex items-center justify-between">
       <div className="flex items-center gap-4">
-        <img src={connection.institutionLogo} alt={connection.institutionName} className="w-10 h-10 rounded-lg object-contain" />
+        <img
+          src={connection.institutionLogo || (connection.institutionId === 'trade-republic' ? TR_LOGO : '')}
+          alt={connection.institutionName}
+          className="w-10 h-10 rounded-lg object-contain"
+        />
         <div>
           <div className="flex items-center gap-3">
             <span className="text-white font-medium">{connection.institutionName}</span>
@@ -445,6 +657,14 @@ const ConnectionCard = ({
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {onReauth && (
+          <button
+            onClick={onReauth}
+            className="px-4 py-2 rounded-xl text-sm text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/30 transition-all"
+          >
+            Re-authentifier
+          </button>
+        )}
         <button
           onClick={onSync}
           disabled={syncing}

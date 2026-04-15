@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { bankingApi, categoryRulesApi } from '../api/banking';
-import type { BankConnection, Institution, CategoryRule, CreateCategoryRule, UpdateCategoryRule } from '../types/banking';
+import type { BankConnection, Institution, CategoryRule, CreateCategoryRule, UpdateCategoryRule, TradeRepublicLoginRequest, TradeRepublicVerifyRequest } from '../types/banking';
 
 export const useBanking = () => {
   const [connections, setConnections] = useState<BankConnection[]>([]);
@@ -84,6 +84,16 @@ export const useBanking = () => {
     setCategoryRules((prev) => prev.filter((r) => r.id !== id));
   };
 
+  const tradeRepublicLogin = async (data: TradeRepublicLoginRequest) => {
+    const response = await bankingApi.tradeRepublicLogin(data);
+    return response.data.connectionId;
+  };
+
+  const tradeRepublicVerify = async (data: TradeRepublicVerifyRequest) => {
+    await bankingApi.tradeRepublicVerify(data);
+    await fetchConnections();
+  };
+
   useEffect(() => {
     fetchConnections();
   }, [fetchConnections]);
@@ -105,5 +115,7 @@ export const useBanking = () => {
     createCategoryRule,
     updateCategoryRule,
     deleteCategoryRule,
+    tradeRepublicLogin,
+    tradeRepublicVerify,
   };
 };

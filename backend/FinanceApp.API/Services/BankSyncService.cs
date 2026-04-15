@@ -68,13 +68,26 @@ public class BankSyncService : BackgroundService
     private async Task SyncConnectionInternalAsync(int connectionId, IServiceProvider serviceProvider, bool rethrow = false)
     {
         var context = serviceProvider.GetRequiredService<AppDbContext>();
-        var goCardless = serviceProvider.GetRequiredService<GoCardlessClient>();
 
         var connection = await context.BankConnections
             .Include(bc => bc.BankAccounts)
             .FirstOrDefaultAsync(bc => bc.Id == connectionId);
 
         if (connection == null) return;
+
+        if (connection.Provider == "TradeRepublic")
+        {
+            await SyncTradeRepublicAsync(connection, context, serviceProvider, rethrow);
+        }
+        else
+        {
+            await SyncGoCardlessAsync(connection, context, serviceProvider, rethrow);
+        }
+    }
+
+    private async Task SyncGoCardlessAsync(BankConnection connection, AppDbContext context, IServiceProvider serviceProvider, bool rethrow)
+    {
+        var goCardless = serviceProvider.GetRequiredService<GoCardlessClient>();
 
         // Vérifier que la réquisition est toujours valide
         try
@@ -85,7 +98,7 @@ public class BankSyncService : BackgroundService
             {
                 connection.Status = BankConnectionStatus.Expired;
                 await context.SaveChangesAsync();
-                _logger.LogWarning("Réquisition expirée pour la connexion {ConnectionId}.", connectionId);
+                _logger.LogWarning("Réquisition expirée pour la connexion {ConnectionId}.", connection.Id);
                 return;
             }
         }
@@ -136,11 +149,6 @@ public class BankSyncService : BackgroundService
 
                 if (!transactions.TryGetProperty("booked", out var booked))
                     continue;
-
-                // Log temporaire : structure JSON d'une transaction GoCardless
-                var firstTx = booked.EnumerateArray().FirstOrDefault();
-                if (firstTx.ValueKind != System.Text.Json.JsonValueKind.Undefined)
-                    _logger.LogInformation("GoCardless transaction sample: {Json}", firstTx.GetRawText());
 
                 foreach (var tx in booked.EnumerateArray())
                 {
@@ -211,7 +219,8 @@ public class BankSyncService : BackgroundService
                         AccountId = defaultAccount.Id,
                         ExternalId = externalId,
                         IsImported = true,
-                        CounterpartyName = counterparty
+                        CounterpartyName = counterparty,
+                        BankAccountId = account.Id
                     };
 
                     context.Transactions.Add(transaction);
@@ -226,5 +235,93 @@ public class BankSyncService : BackgroundService
 
         connection.LastSyncAt = DateTime.UtcNow;
         await context.SaveChangesAsync();
+    }
+
+    private async Task SyncTradeRepublicAsync(BankConnection connection, AppDbContext context, IServiceProvider serviceProvider, bool rethrow)
+    {
+        if (string.IsNullOrEmpty(connection.EncryptedRefreshToken))
+        {
+            _logger.LogWarning("Pas de refresh token pour la connexion Trade Republic {ConnectionId}.", connection.Id);
+            return;
+        }
+
+        using var trClient = serviceProvider.GetRequiredService<TradeRepublicClient>();
+
+        try
+        {
+            if (string.IsNullOrEmpty(connection.EncryptedSessionToken))
+                throw new InvalidOperationException("Session Trade Republic expirée — veuillez relancer la connexion.");
+
+            var sessionToken = trClient.DecryptToken(connection.EncryptedSessionToken);
+
+            // Récupérer les card transactions via HTTP REST (TR a abandonné le WebSocket pour les données)
+            // La déduplication par ExternalId évite les doublons — pas besoin de filtrer par date
+            var cardTransactions = await trClient.GetCardTransactionsHttpAsync(sessionToken);
+
+            // Charger les règles de catégorisation
+            var rules = await context.CategoryRules
+                .Where(cr => cr.UserId == connection.UserId)
+                .ToListAsync();
+
+            var defaultCategory = await context.Categories
+                .FirstOrDefaultAsync(c => c.Name == "Autres" && c.IsDefault);
+            var defaultCategoryId = defaultCategory?.Id ?? 10;
+
+            var defaultAccount = await context.Accounts
+                .Where(a => a.UserId == connection.UserId)
+                .OrderBy(a => a.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (defaultAccount == null)
+            {
+                _logger.LogWarning("Aucun compte trouvé pour l'utilisateur {UserId}.", connection.UserId);
+                return;
+            }
+
+            foreach (var tx in cardTransactions)
+            {
+                var externalId = $"tr-{tx.Id}";
+
+                var existing = await context.Transactions.FirstOrDefaultAsync(t => t.ExternalId == externalId);
+                if (existing != null) continue;
+
+                // Appliquer les règles de catégorisation
+                var categoryId = defaultCategoryId;
+                foreach (var rule in rules)
+                {
+                    if (tx.Title.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase))
+                    {
+                        categoryId = rule.CategoryId;
+                        break;
+                    }
+                }
+
+                var transaction = new Transaction
+                {
+                    Amount = Math.Abs(tx.Amount),
+                    Description = tx.Title,
+                    Date = tx.Date,
+                    Type = tx.Amount >= 0 ? TransactionType.Income : TransactionType.Expense,
+                    CategoryId = categoryId,
+                    AccountId = defaultAccount.Id,
+                    ExternalId = externalId,
+                    IsImported = true,
+                    CounterpartyName = tx.Title,
+                    BankAccountId = connection.BankAccounts.FirstOrDefault(ba => ba.IsActive)?.Id
+                };
+
+                context.Transactions.Add(transaction);
+            }
+
+            connection.LastSyncAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erreur lors de la synchronisation Trade Republic pour la connexion {ConnectionId}.", connection.Id);
+            connection.Status = BankConnectionStatus.Error;
+            await context.SaveChangesAsync();
+            if (rethrow) throw;
+        }
     }
 }

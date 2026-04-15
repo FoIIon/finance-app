@@ -14,6 +14,9 @@ public class Transaction
     public string? CounterpartyName { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    public int? BankAccountId { get; set; }
+
     public Category Category { get; set; } = null!;
     public Account Account { get; set; } = null!;
+    public BankAccount? BankAccount { get; set; }
 }

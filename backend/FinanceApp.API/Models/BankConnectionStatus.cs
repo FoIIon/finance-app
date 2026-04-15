@@ -4,5 +4,6 @@ public enum BankConnectionStatus
 {
     Linked,
     Expired,
-    Error
+    Error,
+    PendingTwoFactor
 }

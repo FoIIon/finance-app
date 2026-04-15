@@ -20,6 +20,8 @@ export interface Transaction {
   externalId?: string;
   isImported: boolean;
   counterpartyName?: string;
+  bankAccountName?: string;
+  bankInstitutionName?: string;
 }
 
 export interface CreateTransaction {

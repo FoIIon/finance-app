@@ -19,6 +19,8 @@ public class TransactionDto
     public string? ExternalId { get; set; }
     public bool IsImported { get; set; }
     public string? CounterpartyName { get; set; }
+    public string? BankAccountName { get; set; }
+    public string? BankInstitutionName { get; set; }
 }
 
 public class CreateTransactionDto

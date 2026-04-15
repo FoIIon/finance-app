@@ -10,6 +10,10 @@ public class BankConnection
     public string RequisitionId { get; set; } = string.Empty;
     public string Reference { get; set; } = string.Empty;
     public BankConnectionStatus Status { get; set; }
+    public string Provider { get; set; } = "GoCardless";
+    public string? EncryptedSessionToken { get; set; }
+    public string? EncryptedRefreshToken { get; set; }
+    public string? EncryptedDeviceToken { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastSyncAt { get; set; }
 

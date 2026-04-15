@@ -4,6 +4,7 @@ using FinanceApp.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FinanceApp.API.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260303103040_AddDeviceToken")]
+    partial class AddDeviceToken
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -103,9 +106,6 @@ namespace FinanceApp.API.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("EncryptedRefreshToken")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("EncryptedSessionToken")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("InstitutionId")
@@ -406,9 +406,6 @@ namespace FinanceApp.API.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<int?>("BankAccountId")
-                        .HasColumnType("int");
-
                     b.Property<int>("CategoryId")
                         .HasColumnType("int");
 
@@ -437,8 +434,6 @@ namespace FinanceApp.API.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AccountId");
-
-                    b.HasIndex("BankAccountId");
 
                     b.HasIndex("CategoryId");
 
@@ -627,11 +622,6 @@ namespace FinanceApp.API.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("FinanceApp.API.Models.BankAccount", "BankAccount")
-                        .WithMany()
-                        .HasForeignKey("BankAccountId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("FinanceApp.API.Models.Category", "Category")
                         .WithMany("Transactions")
                         .HasForeignKey("CategoryId")
@@ -639,8 +629,6 @@ namespace FinanceApp.API.Migrations
                         .IsRequired();
 
                     b.Navigation("Account");
-
-                    b.Navigation("BankAccount");
 
                     b.Navigation("Category");
                 });

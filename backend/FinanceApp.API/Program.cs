@@ -40,6 +40,12 @@ builder.Services.AddScoped<IAccountService, AccountService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IInvitationService, InvitationService>();
 builder.Services.AddHttpClient<GoCardlessClient>();
+builder.Services.AddDataProtection();
+// UseCookies = false : on gère les cookies manuellement via les headers
+// pour pouvoir injecter tr_session dans les requêtes de synchronisation
+builder.Services.AddHttpClient<TradeRepublicClient>()
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false });
+builder.Services.AddSingleton<TradeRepublicAuthStore>();
 builder.Services.AddSingleton<BankSyncService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BankSyncService>());
 

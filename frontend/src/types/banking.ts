@@ -2,6 +2,7 @@ export const BankConnectionStatus = {
   Linked: 0,
   Expired: 1,
   Error: 2,
+  PendingTwoFactor: 3,
 } as const;
 
 export type BankConnectionStatus = (typeof BankConnectionStatus)[keyof typeof BankConnectionStatus];
@@ -49,4 +50,18 @@ export interface CreateCategoryRule {
 export interface UpdateCategoryRule {
   keyword?: string;
   categoryId?: number;
+}
+
+export interface TradeRepublicLoginRequest {
+  phoneNumber: string;
+  pin: string;
+}
+
+export interface TradeRepublicLoginResponse {
+  connectionId: number;
+}
+
+export interface TradeRepublicVerifyRequest {
+  connectionId: number;
+  code: string;
 }

@@ -55,3 +55,31 @@ public class UpdateBankAccountDto
     [Required]
     public bool IsActive { get; set; }
 }
+
+public class TradeRepublicLoginRequest
+{
+    [Required]
+    [RegularExpression(@"^\+[1-9]\d{6,14}$", ErrorMessage = "Format de téléphone invalide")]
+    public string PhoneNumber { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(4, MinimumLength = 4)]
+    [RegularExpression(@"^\d{4}$", ErrorMessage = "Le PIN doit être composé de 4 chiffres")]
+    public string Pin { get; set; } = string.Empty;
+}
+
+public class TradeRepublicLoginResponse
+{
+    public int ConnectionId { get; set; }
+}
+
+public class TradeRepublicVerifyRequest
+{
+    [Required]
+    public int ConnectionId { get; set; }
+
+    [Required]
+    [StringLength(4, MinimumLength = 4)]
+    [RegularExpression(@"^\d{4}$", ErrorMessage = "Le code doit être composé de 4 chiffres")]
+    public string Code { get; set; } = string.Empty;
+}
