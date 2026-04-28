@@ -92,3 +92,31 @@ public class SmtpEmailService : IEmailService
         }
     }
 }
+
+public class DevEmailService : IEmailService
+{
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<DevEmailService> _logger;
+
+    public DevEmailService(IConfiguration configuration, ILogger<DevEmailService> logger)
+    {
+        _configuration = configuration;
+        _logger = logger;
+    }
+
+    public Task SendEmailConfirmationAsync(string toEmail, string confirmationToken)
+    {
+        var frontendUrl = _configuration["FrontendUrl"] ?? "http://localhost:5173";
+        var confirmUrl = $"{frontendUrl}/confirm-email?token={confirmationToken}";
+        _logger.LogWarning("=== [DEV EMAIL] Confirmation pour {Email} ===\nLien : {Url}\n===", toEmail, confirmUrl);
+        return Task.CompletedTask;
+    }
+
+    public Task SendDashboardInvitationAsync(string toEmail, string inviterEmail, string dashboardName, string invitationToken)
+    {
+        var frontendUrl = _configuration["FrontendUrl"] ?? "http://localhost:5173";
+        var acceptUrl = $"{frontendUrl}/invitation/accept?token={invitationToken}";
+        _logger.LogWarning("=== [DEV EMAIL] Invitation de {Inviter} pour {Email} — {Dashboard} ===\nLien : {Url}\n===", inviterEmail, toEmail, dashboardName, acceptUrl);
+        return Task.CompletedTask;
+    }
+}
