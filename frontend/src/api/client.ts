@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { showToastOutsideReact } from './toastBridge';
 
 const apiClient = axios.create({
   baseURL: 'http://localhost:5000/api',
@@ -16,9 +17,12 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && !error.config?.url?.startsWith('/auth/')) {
+      showToastOutsideReact('Session expirée, reconnexion...', 'error');
       localStorage.removeItem('token');
       localStorage.removeItem('email');
-      window.location.href = '/login';
+      setTimeout(() => {
+        window.location.href = '/login';
+      }, 1500);
     }
     return Promise.reject(error);
   }

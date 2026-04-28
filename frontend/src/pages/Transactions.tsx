@@ -8,10 +8,12 @@ import { TransactionType } from '../types/transaction';
 import type { CreateTransaction, Transaction, TransactionFilters } from '../types/transaction';
 import type { Account } from '../types/dashboard';
 import { formatCurrency } from '../utils/format';
+import { useToast } from '../context/ToastContext';
 
 const Transactions = () => {
   const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction } = useTransactions();
   const { currentDashboard } = useDashboards();
+  const { showToast } = useToast();
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -112,7 +114,7 @@ const Transactions = () => {
       });
       setEditingRowId(null);
     } catch {
-      // Erreur silencieuse, la transaction reste en mode édition
+      showToast('Impossible de sauvegarder la modification', 'error');
     }
   };
 
@@ -135,8 +137,10 @@ const Transactions = () => {
     try {
       await createTransaction(formData);
       setShowForm(false);
+      showToast('Transaction ajoutée', 'success');
     } catch {
       setFormError('Erreur lors de la sauvegarde de la transaction');
+      showToast('Erreur lors de la sauvegarde de la transaction', 'error');
     }
   };
 
@@ -144,8 +148,10 @@ const Transactions = () => {
     try {
       await deleteTransaction(id);
       setDeleteConfirm(null);
+      showToast('Transaction supprimée', 'success');
     } catch {
       setDeleteConfirm(null);
+      showToast('Impossible de supprimer la transaction', 'error');
     }
   };
 
@@ -203,8 +209,8 @@ const Transactions = () => {
         </select>
       </div>
 
-      {/* Tableau */}
-      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-x-auto">
+      {/* Vue desktop : tableau */}
+      <div className="hidden md:block bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-x-auto">
         {loading ? (
           <div className="p-8 text-center text-white/40">Chargement...</div>
         ) : transactions.length === 0 ? (
@@ -313,10 +319,55 @@ const Transactions = () => {
         )}
       </div>
 
+      {/* Vue mobile : cartes empilées */}
+      <div className="block md:hidden space-y-3">
+        {loading ? (
+          <div className="p-8 text-center text-white/40">Chargement...</div>
+        ) : transactions.length === 0 ? (
+          <div className="p-8 text-center text-white/30">Aucune transaction</div>
+        ) : (
+          transactions.map((t) => (
+            <div key={t.id} className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-medium truncate">{t.description}</p>
+                  <p className="text-white/40 text-xs mt-0.5">{new Date(t.date).toLocaleDateString('fr-FR')}</p>
+                </div>
+                <span className={`text-lg font-bold flex-shrink-0 ${t.type === TransactionType.Income ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {t.type === TransactionType.Income ? '+' : '-'}{formatCurrency(t.amount)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between mt-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 text-white/70 text-xs border border-white/10">
+                    {t.categoryIcon} {t.categoryName}
+                  </span>
+                  {t.isImported && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                      Importée
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  {deleteConfirm === t.id ? (
+                    <>
+                      <button onClick={() => handleDelete(t.id)} className="text-red-400 hover:text-red-300 text-sm font-medium">Confirmer</button>
+                      <button onClick={() => setDeleteConfirm(null)} className="text-white/40 hover:text-white text-sm">Annuler</button>
+                    </>
+                  ) : (
+                    <button aria-label="Supprimer" onClick={() => setDeleteConfirm(t.id)} className="text-white/40 hover:text-red-400 transition-colors">🗑️</button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
       {/* Modal formulaire */}
       {showForm && (
-        <div role="dialog" aria-modal="true" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowForm(false)}>
-          <div className="bg-[#1a1a3e] rounded-2xl border border-white/10 p-8 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div role="dialog" aria-modal="true" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end md:items-center justify-center" onClick={() => setShowForm(false)}>
+          <div className="bg-[#1a1a3e] rounded-t-2xl md:rounded-2xl border border-white/10 p-6 md:p-8 w-full md:max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-xl font-bold text-white mb-6">
               Nouvelle transaction
             </h3>
