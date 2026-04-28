@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using FinanceApp.API.Data;
 using FinanceApp.API.Models;
 using Microsoft.EntityFrameworkCore;
@@ -44,7 +45,7 @@ public class InvitationService : IInvitationService
             throw new InvalidOperationException("Une invitation est déjà en attente pour cet email.");
 
         var inviter = await _context.Users.FindAsync(invitedByUserId);
-        var token = Guid.NewGuid().ToString();
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
         var invitation = new DashboardInvitation
         {
@@ -87,6 +88,9 @@ public class InvitationService : IInvitationService
         var user = await _context.Users.FindAsync(userId);
         if (user == null || user.Email != invitation.InvitedEmail)
             throw new InvalidOperationException("Cette invitation n'est pas destinée à votre compte.");
+
+        if (!user.EmailConfirmed)
+            throw new InvalidOperationException("Email not confirmed. Please confirm your email before accepting an invitation.");
 
         // Vérifier si déjà membre
         var alreadyMember = await _context.DashboardMembers
