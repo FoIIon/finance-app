@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<DashboardMember> DashboardMembers => Set<DashboardMember>();
     public DbSet<DashboardAccount> DashboardAccounts => Set<DashboardAccount>();
     public DbSet<DashboardInvitation> DashboardInvitations => Set<DashboardInvitation>();
+    public DbSet<RecurringTransaction> RecurringTransactions => Set<RecurringTransaction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -155,6 +156,40 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(cr => cr.CategoryId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // RecurringTransaction
+        modelBuilder.Entity<RecurringTransaction>()
+            .Property(r => r.Amount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<RecurringTransaction>()
+            .HasOne(r => r.User)
+            .WithMany()
+            .HasForeignKey(r => r.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<RecurringTransaction>()
+            .HasOne(r => r.Dashboard)
+            .WithMany()
+            .HasForeignKey(r => r.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<RecurringTransaction>()
+            .HasOne(r => r.Account)
+            .WithMany()
+            .HasForeignKey(r => r.AccountId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .IsRequired(false);
+
+        modelBuilder.Entity<RecurringTransaction>()
+            .HasOne(r => r.Category)
+            .WithMany()
+            .HasForeignKey(r => r.CategoryId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .IsRequired(false);
+
+        modelBuilder.Entity<RecurringTransaction>()
+            .HasIndex(r => r.DashboardId);
 
         modelBuilder.Entity<Category>().HasData(
             new Category { Id = 1, Name = "Alimentation", Icon = "\uD83C\uDF55", Color = "#FF6384", IsDefault = true },

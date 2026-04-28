@@ -7,6 +7,7 @@ const navItems = [
   { path: '/', label: 'Tableau de bord', icon: '📊' },
   { path: '/transactions', label: 'Transactions', icon: '💳' },
   { path: '/categories', label: 'Catégories', icon: '🏷️' },
+  { path: '/recurring', label: 'Récurrentes', icon: '🔁' },
   { path: '/bank', label: 'Banques', icon: '🏦' },
   { path: '/dashboard-settings', label: 'Paramètres', icon: '⚙️' },
 ];

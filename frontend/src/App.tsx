@@ -14,6 +14,7 @@ import Categories from './pages/Categories';
 import Bank from './pages/Bank';
 import DashboardSettings from './pages/DashboardSettings';
 import AcceptInvitation from './pages/AcceptInvitation';
+import RecurringTransactions from './pages/RecurringTransactions';
 
 const App = () => {
   return (
@@ -39,6 +40,7 @@ const App = () => {
               <Route path="/categories" element={<Categories />} />
               <Route path="/bank" element={<Bank />} />
               <Route path="/dashboard-settings" element={<DashboardSettings />} />
+              <Route path="/recurring" element={<RecurringTransactions />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
