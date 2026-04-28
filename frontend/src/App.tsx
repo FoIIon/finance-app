@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { DashboardProvider } from './context/DashboardContext';
+import { ToastProvider } from './context/ToastContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -16,6 +17,7 @@ import AcceptInvitation from './pages/AcceptInvitation';
 
 const App = () => {
   return (
+    <ToastProvider>
     <AuthProvider>
       <DashboardProvider>
         <BrowserRouter>
@@ -43,6 +45,7 @@ const App = () => {
         </BrowserRouter>
       </DashboardProvider>
     </AuthProvider>
+    </ToastProvider>
   );
 };
 

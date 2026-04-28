@@ -427,11 +427,11 @@ const Bank = () => {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end md:items-center justify-center"
           onClick={handleCloseModal}
         >
           <div
-            className="bg-[#1a1a3e] rounded-2xl border border-white/10 p-8 w-full max-w-2xl max-h-[80vh] flex flex-col"
+            className="bg-[#1a1a3e] rounded-t-2xl md:rounded-2xl border border-white/10 p-6 md:p-8 w-full md:max-w-2xl max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             {/* En-tête du modal */}
