@@ -428,6 +428,71 @@ namespace FinanceApp.API.Migrations
                     b.ToTable("Transactions");
                 });
 
+            modelBuilder.Entity("FinanceApp.API.Models.RecurringTransaction", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("AccountId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("CategoryId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DashboardId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("DayOfMonth")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Frequency")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("DashboardId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("RecurringTransactions");
+                });
+
             modelBuilder.Entity("FinanceApp.API.Models.User", b =>
                 {
                     b.Property<int>("Id")
@@ -619,6 +684,39 @@ namespace FinanceApp.API.Migrations
                     b.Navigation("BankAccount");
 
                     b.Navigation("Category");
+                });
+
+            modelBuilder.Entity("FinanceApp.API.Models.RecurringTransaction", b =>
+                {
+                    b.HasOne("FinanceApp.API.Models.Account", "Account")
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("FinanceApp.API.Models.Category", "Category")
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("FinanceApp.API.Models.Dashboard", "Dashboard")
+                        .WithMany()
+                        .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("FinanceApp.API.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Account");
+
+                    b.Navigation("Category");
+
+                    b.Navigation("Dashboard");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("FinanceApp.API.Models.Account", b =>
