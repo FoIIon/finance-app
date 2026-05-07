@@ -19,11 +19,19 @@ export const DashboardContext = createContext<DashboardContextType>({
   loading: false,
 });
 
+const STORAGE_KEY = 'finance-app:currentDashboardId';
+
 export const DashboardProvider = ({ children }: { children: React.ReactNode }) => {
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
-  const [currentDashboard, setCurrentDashboard] = useState<Dashboard | null>(null);
+  const [currentDashboard, setCurrentDashboardState] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(false);
   const { isAuthenticated } = useAuth();
+
+  // Wrapper qui persiste la sélection
+  const setCurrentDashboard = useCallback((dashboard: Dashboard) => {
+    setCurrentDashboardState(dashboard);
+    localStorage.setItem(STORAGE_KEY, String(dashboard.id));
+  }, []);
 
   const refreshDashboards = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -31,9 +39,11 @@ export const DashboardProvider = ({ children }: { children: React.ReactNode }) =
     try {
       const response = await dashboardsApi.getAll();
       setDashboards(response.data);
-      // Sélectionner le premier dashboard si aucun n'est sélectionné
+      // Restaurer la sélection persistée si toujours valide, sinon premier dashboard
+      const storedId = Number(localStorage.getItem(STORAGE_KEY));
+      const stored = storedId ? response.data.find(d => d.id === storedId) : null;
       if (!currentDashboard || !response.data.find(d => d.id === currentDashboard.id)) {
-        setCurrentDashboard(response.data[0] ?? null);
+        setCurrentDashboardState(stored ?? response.data[0] ?? null);
       }
     } catch {
       // Silently fail

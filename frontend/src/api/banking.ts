@@ -20,6 +20,9 @@ export const bankingApi = {
   syncConnection: (id: number) =>
     apiClient.post(`/banking/connections/${id}/sync`),
 
+  reconnectConnection: (id: number) =>
+    apiClient.post<{ authorizationUrl: string }>(`/banking/connections/${id}/reconnect`),
+
   getAccounts: () =>
     apiClient.get<BankAccount[]>('/banking/accounts'),
 
@@ -45,4 +48,7 @@ export const categoryRulesApi = {
 
   delete: (id: number) =>
     apiClient.delete(`/categoryrules/${id}`),
+
+  seedDefaults: () =>
+    apiClient.post<{ created: number; skipped: number }>('/categoryrules/seed-defaults'),
 };

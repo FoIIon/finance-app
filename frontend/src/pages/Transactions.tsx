@@ -251,7 +251,12 @@ const Transactions = () => {
                       />
                     ) : (
                       <>
-                        <span className="block truncate" title={t.description}>{t.description}</span>
+                        <span className="block truncate" title={t.description}>{t.description || <em className="text-white/30">(sans libellé)</em>}</span>
+                        {t.counterpartyName && (
+                          <span className="block text-white/50 text-xs truncate mt-0.5" title={t.counterpartyName}>
+                            {t.type === TransactionType.Income ? '↩ De ' : '↪ Vers '}{t.counterpartyName}
+                          </span>
+                        )}
                         {t.isImported && (
                           <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-500/20 text-teal-400 border border-teal-500/30">
                             Importée
@@ -330,7 +335,12 @@ const Transactions = () => {
             <div key={t.id} className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-white font-medium truncate">{t.description}</p>
+                  <p className="text-white font-medium truncate">{t.description || <em className="text-white/30">(sans libellé)</em>}</p>
+                  {t.counterpartyName && (
+                    <p className="text-white/50 text-xs mt-0.5 truncate">
+                      {t.type === TransactionType.Income ? '↩ De ' : '↪ Vers '}{t.counterpartyName}
+                    </p>
+                  )}
                   <p className="text-white/40 text-xs mt-0.5">{new Date(t.date).toLocaleDateString('fr-FR')}</p>
                 </div>
                 <span className={`text-lg font-bold flex-shrink-0 ${t.type === TransactionType.Income ? 'text-emerald-400' : 'text-red-400'}`}>

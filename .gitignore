@@ -4,6 +4,8 @@ backend/**/obj/
 backend/**/*.user
 backend/**/.vs/
 backend/**/appsettings.Development.json
+backend/**/*.db
+backend/**/*.db-journal
 
 # Frontend
 frontend/node_modules/
@@ -23,3 +25,9 @@ tests/playwright-report/
 # OS
 Thumbs.db
 .DS_Store
+
+# Scripts ad-hoc / one-off
+recategorize.py
+
+# Claude Code local config
+.claude/

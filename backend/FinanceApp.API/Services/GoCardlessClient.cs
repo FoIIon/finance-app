@@ -129,6 +129,17 @@ public class GoCardlessClient
         return doc.RootElement.Clone();
     }
 
+    public async Task<JsonElement> GetBalancesAsync(string accountId)
+    {
+        var request = await CreateAuthenticatedRequest(HttpMethod.Get, $"{_baseUrl}/accounts/{accountId}/balances/");
+        var response = await _httpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
+
     public async Task<JsonElement> GetTransactionsAsync(string accountId, DateTime? dateFrom = null, DateTime? dateTo = null)
     {
         var url = $"{_baseUrl}/accounts/{accountId}/transactions/";

@@ -83,3 +83,51 @@ public class TradeRepublicVerifyRequest
     [RegularExpression(@"^\d{4}$", ErrorMessage = "Le code doit être composé de 4 chiffres")]
     public string Code { get; set; } = string.Empty;
 }
+
+public class ManualAccountDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Iban { get; set; } = string.Empty;
+    public decimal InitialBalance { get; set; }
+    public DateTime InitialBalanceDate { get; set; }
+    public int? SourceBankAccountId { get; set; }
+    public string? SourceBankAccountName { get; set; }
+    public int? IncrementCategoryId { get; set; }
+    public string? IncrementCategoryName { get; set; }
+}
+
+public class CreateManualAccountDto
+{
+    [Required, MaxLength(100)]
+    public string Name { get; set; } = string.Empty;
+
+    [MaxLength(34)]
+    public string? Iban { get; set; }
+
+    [MaxLength(3)]
+    public string? Currency { get; set; }
+
+    [Required]
+    public decimal InitialBalance { get; set; }
+
+    public DateTime? InitialBalanceDate { get; set; }
+
+    /// <summary>BankAccountId source : compte courant qui alimente ce compte (ex: Argenta courant pour Argenta épargne).</summary>
+    public int? SourceBankAccountId { get; set; }
+
+    /// <summary>Catégorie qui marque les transferts (ex: Épargne).</summary>
+    public int? IncrementCategoryId { get; set; }
+}
+
+public class UpdateManualAccountDto
+{
+    [MaxLength(100)]
+    public string? Name { get; set; }
+    [MaxLength(34)]
+    public string? Iban { get; set; }
+    public decimal? InitialBalance { get; set; }
+    public DateTime? InitialBalanceDate { get; set; }
+    public int? SourceBankAccountId { get; set; }
+    public int? IncrementCategoryId { get; set; }
+}

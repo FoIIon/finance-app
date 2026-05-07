@@ -372,62 +372,6 @@ namespace FinanceApp.API.Migrations
                     b.ToTable("DashboardMembers");
                 });
 
-            modelBuilder.Entity("FinanceApp.API.Models.Transaction", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("AccountId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<decimal>("Amount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("BankAccountId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CategoryId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("CounterpartyName")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("Date")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ExternalId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsImported")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Type")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AccountId");
-
-                    b.HasIndex("BankAccountId");
-
-                    b.HasIndex("CategoryId");
-
-                    b.HasIndex("ExternalId")
-                        .IsUnique()
-                        .HasFilter("[ExternalId] IS NOT NULL");
-
-                    b.ToTable("Transactions");
-                });
-
             modelBuilder.Entity("FinanceApp.API.Models.RecurringTransaction", b =>
                 {
                     b.Property<int>("Id")
@@ -491,6 +435,62 @@ namespace FinanceApp.API.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("RecurringTransactions");
+                });
+
+            modelBuilder.Entity("FinanceApp.API.Models.Transaction", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AccountId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("BankAccountId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CategoryId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CounterpartyName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsImported")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("BankAccountId");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("ExternalId")
+                        .IsUnique()
+                        .HasFilter("[ExternalId] IS NOT NULL");
+
+                    b.ToTable("Transactions");
                 });
 
             modelBuilder.Entity("FinanceApp.API.Models.User", b =>
@@ -661,31 +661,6 @@ namespace FinanceApp.API.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("FinanceApp.API.Models.Transaction", b =>
-                {
-                    b.HasOne("FinanceApp.API.Models.Account", "Account")
-                        .WithMany("Transactions")
-                        .HasForeignKey("AccountId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("FinanceApp.API.Models.BankAccount", "BankAccount")
-                        .WithMany()
-                        .HasForeignKey("BankAccountId");
-
-                    b.HasOne("FinanceApp.API.Models.Category", "Category")
-                        .WithMany("Transactions")
-                        .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Account");
-
-                    b.Navigation("BankAccount");
-
-                    b.Navigation("Category");
-                });
-
             modelBuilder.Entity("FinanceApp.API.Models.RecurringTransaction", b =>
                 {
                     b.HasOne("FinanceApp.API.Models.Account", "Account")
@@ -717,6 +692,31 @@ namespace FinanceApp.API.Migrations
                     b.Navigation("Dashboard");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("FinanceApp.API.Models.Transaction", b =>
+                {
+                    b.HasOne("FinanceApp.API.Models.Account", "Account")
+                        .WithMany("Transactions")
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("FinanceApp.API.Models.BankAccount", "BankAccount")
+                        .WithMany()
+                        .HasForeignKey("BankAccountId");
+
+                    b.HasOne("FinanceApp.API.Models.Category", "Category")
+                        .WithMany("Transactions")
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Account");
+
+                    b.Navigation("BankAccount");
+
+                    b.Navigation("Category");
                 });
 
             modelBuilder.Entity("FinanceApp.API.Models.Account", b =>

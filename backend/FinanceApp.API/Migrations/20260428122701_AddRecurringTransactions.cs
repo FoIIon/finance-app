@@ -30,11 +30,23 @@ namespace FinanceApp.API.Migrations
                     EndDate = table.Column<DateOnly>(type: "TEXT", nullable: true),
                     IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_RecurringTransactions", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_RecurringTransactions_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_RecurringTransactions_Dashboards_DashboardId",
+                        column: x => x.DashboardId,
+                        principalTable: "Dashboards",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "FK_RecurringTransactions_Accounts_AccountId",
                         column: x => x.AccountId,
@@ -47,29 +59,7 @@ namespace FinanceApp.API.Migrations
                         principalTable: "Categories",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
-                    table.ForeignKey(
-                        name: "FK_RecurringTransactions_Dashboards_DashboardId",
-                        column: x => x.DashboardId,
-                        principalTable: "Dashboards",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_RecurringTransactions_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
                 });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RecurringTransactions_AccountId",
-                table: "RecurringTransactions",
-                column: "AccountId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RecurringTransactions_CategoryId",
-                table: "RecurringTransactions",
-                column: "CategoryId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_RecurringTransactions_DashboardId",
@@ -80,13 +70,22 @@ namespace FinanceApp.API.Migrations
                 name: "IX_RecurringTransactions_UserId",
                 table: "RecurringTransactions",
                 column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RecurringTransactions_AccountId",
+                table: "RecurringTransactions",
+                column: "AccountId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RecurringTransactions_CategoryId",
+                table: "RecurringTransactions",
+                column: "CategoryId");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "RecurringTransactions");
+            migrationBuilder.DropTable(name: "RecurringTransactions");
         }
     }
 }

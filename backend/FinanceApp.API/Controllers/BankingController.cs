@@ -39,8 +39,10 @@ public class BankingController : ControllerBase
     }
 
     [HttpGet("institutions")]
-    public async Task<ActionResult<List<InstitutionDto>>> GetInstitutions([FromQuery] string country = "FR")
+    public async Task<ActionResult<List<InstitutionDto>>> GetInstitutions([FromQuery] string country = "BE")
     {
+        // Restreindre aux banques belges uniquement (Trade Republic géré séparément)
+        country = "BE";
         var result = await _goCardless.GetInstitutionsAsync(country);
         var institutions = new List<InstitutionDto>();
 
@@ -166,6 +168,39 @@ public class BankingController : ControllerBase
             .ToListAsync();
 
         return Ok(connections.Select(MapConnectionToDto).ToList());
+    }
+
+    /// <summary>
+    /// Régénère un lien d'authentification GoCardless pour une connexion existante (Error/Expired).
+    /// Préserve les BankAccounts (matchés par ExternalAccountId au callback) et donc les transactions.
+    /// </summary>
+    [HttpPost("connections/{id}/reconnect")]
+    public async Task<ActionResult<ConnectBankResponse>> ReconnectConnection(int id)
+    {
+        var userId = GetUserId();
+        var connection = await _context.BankConnections
+            .FirstOrDefaultAsync(bc => bc.Id == id && bc.UserId == userId);
+        if (connection == null) return NotFound();
+
+        var reference = Guid.NewGuid().ToString();
+        var agreement = await _goCardless.CreateAgreementAsync(connection.InstitutionId);
+        var agreementId = agreement.GetProperty("id").GetString()!;
+
+        var frontendUrl = _configuration["FrontendUrl"] ?? "http://localhost:5173";
+        var redirectUrl = $"{frontendUrl}/bank?ref={reference}";
+
+        var requisition = await _goCardless.CreateRequisitionAsync(
+            connection.InstitutionId, agreementId, redirectUrl, reference);
+
+        connection.RequisitionId = requisition.GetProperty("id").GetString()!;
+        connection.Reference = reference;
+        connection.Status = BankConnectionStatus.Linked;
+        await _context.SaveChangesAsync();
+
+        return Ok(new ConnectBankResponse
+        {
+            AuthorizationUrl = requisition.GetProperty("link").GetString()!
+        });
     }
 
     [HttpDelete("connections/{id}")]
@@ -358,6 +393,137 @@ public class BankingController : ControllerBase
         {
             _trAuthStore.Remove(dto.ConnectionId);
         }
+    }
+
+    // === Comptes manuels (non connectables via Open Banking) ===
+
+    [HttpGet("manual-accounts")]
+    public async Task<ActionResult<List<ManualAccountDto>>> GetManualAccounts()
+    {
+        var userId = GetUserId();
+        var accounts = await _context.BankAccounts
+            .Include(ba => ba.SourceBankAccount)
+            .Include(ba => ba.IncrementCategory)
+            .Where(ba => ba.IsManual && ba.UserId == userId && ba.IsActive)
+            .ToListAsync();
+
+        return Ok(accounts.Select(a => new ManualAccountDto
+        {
+            Id = a.Id,
+            Name = a.AccountName,
+            Iban = a.Iban,
+            InitialBalance = a.InitialBalance ?? 0,
+            InitialBalanceDate = a.InitialBalanceDate ?? DateTime.UtcNow,
+            SourceBankAccountId = a.SourceBankAccountId,
+            SourceBankAccountName = a.SourceBankAccount?.AccountName ?? a.SourceBankAccount?.Iban,
+            IncrementCategoryId = a.IncrementCategoryId,
+            IncrementCategoryName = a.IncrementCategory?.Name,
+        }).ToList());
+    }
+
+    [HttpPost("manual-accounts")]
+    public async Task<ActionResult<ManualAccountDto>> CreateManualAccount(CreateManualAccountDto dto)
+    {
+        var userId = GetUserId();
+
+        // Trouver / créer la BankConnection "Manual" du user (placeholder requis par le schéma)
+        var manualConn = await _context.BankConnections.FirstOrDefaultAsync(bc => bc.UserId == userId && bc.Provider == "Manual");
+        if (manualConn == null)
+        {
+            manualConn = new BankConnection
+            {
+                UserId = userId,
+                Provider = "Manual",
+                InstitutionId = "MANUAL",
+                InstitutionName = "Comptes manuels",
+                InstitutionLogo = "",
+                RequisitionId = "manual-" + Guid.NewGuid(),
+                Reference = Guid.NewGuid().ToString(),
+                Status = BankConnectionStatus.Linked,
+            };
+            _context.BankConnections.Add(manualConn);
+            await _context.SaveChangesAsync();
+        }
+
+        // Vérifier que SourceBankAccount appartient au user
+        if (dto.SourceBankAccountId.HasValue)
+        {
+            var src = await _context.BankAccounts
+                .Include(b => b.BankConnection)
+                .FirstOrDefaultAsync(b => b.Id == dto.SourceBankAccountId.Value);
+            if (src == null || (src.BankConnection?.UserId != userId && src.UserId != userId))
+                return BadRequest("Compte source invalide.");
+        }
+
+        var account = new BankAccount
+        {
+            BankConnectionId = manualConn.Id,
+            IsManual = true,
+            UserId = userId,
+            AccountName = dto.Name,
+            Iban = dto.Iban ?? string.Empty,
+            ExternalAccountId = "manual-" + Guid.NewGuid(),
+            Currency = dto.Currency ?? "EUR",
+            IsActive = true,
+            InitialBalance = dto.InitialBalance,
+            InitialBalanceDate = dto.InitialBalanceDate ?? DateTime.UtcNow,
+            SourceBankAccountId = dto.SourceBankAccountId,
+            IncrementCategoryId = dto.IncrementCategoryId,
+        };
+
+        _context.BankAccounts.Add(account);
+        await _context.SaveChangesAsync();
+
+        return Ok(new ManualAccountDto
+        {
+            Id = account.Id,
+            Name = account.AccountName,
+            Iban = account.Iban,
+            InitialBalance = account.InitialBalance ?? 0,
+            InitialBalanceDate = account.InitialBalanceDate ?? DateTime.UtcNow,
+            SourceBankAccountId = account.SourceBankAccountId,
+            IncrementCategoryId = account.IncrementCategoryId,
+        });
+    }
+
+    [HttpPut("manual-accounts/{id}")]
+    public async Task<ActionResult<ManualAccountDto>> UpdateManualAccount(int id, UpdateManualAccountDto dto)
+    {
+        var userId = GetUserId();
+        var account = await _context.BankAccounts.FirstOrDefaultAsync(b => b.Id == id && b.IsManual && b.UserId == userId);
+        if (account == null) return NotFound();
+
+        if (dto.Name != null) account.AccountName = dto.Name;
+        if (dto.Iban != null) account.Iban = dto.Iban;
+        if (dto.InitialBalance.HasValue) account.InitialBalance = dto.InitialBalance.Value;
+        if (dto.InitialBalanceDate.HasValue) account.InitialBalanceDate = dto.InitialBalanceDate.Value;
+        if (dto.SourceBankAccountId.HasValue) account.SourceBankAccountId = dto.SourceBankAccountId;
+        if (dto.IncrementCategoryId.HasValue) account.IncrementCategoryId = dto.IncrementCategoryId;
+
+        await _context.SaveChangesAsync();
+
+        return Ok(new ManualAccountDto
+        {
+            Id = account.Id,
+            Name = account.AccountName,
+            Iban = account.Iban,
+            InitialBalance = account.InitialBalance ?? 0,
+            InitialBalanceDate = account.InitialBalanceDate ?? DateTime.UtcNow,
+            SourceBankAccountId = account.SourceBankAccountId,
+            IncrementCategoryId = account.IncrementCategoryId,
+        });
+    }
+
+    [HttpDelete("manual-accounts/{id}")]
+    public async Task<ActionResult> DeleteManualAccount(int id)
+    {
+        var userId = GetUserId();
+        var account = await _context.BankAccounts.FirstOrDefaultAsync(b => b.Id == id && b.IsManual && b.UserId == userId);
+        if (account == null) return NotFound();
+
+        _context.BankAccounts.Remove(account);
+        await _context.SaveChangesAsync();
+        return NoContent();
     }
 
     private static BankConnectionDto MapConnectionToDto(BankConnection connection) => new()

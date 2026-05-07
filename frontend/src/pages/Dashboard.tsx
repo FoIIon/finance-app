@@ -1,142 +1,90 @@
-import { useEffect } from 'react';
-import { useTransactions } from '../hooks/useTransactions';
+import { Outlet, NavLink } from 'react-router-dom';
 import { useDashboards } from '../hooks/useDashboards';
-import { TransactionType } from '../types/transaction';
-import { formatCurrency } from '../utils/format';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PeriodSelector } from '../components/dashboard/PeriodSelector';
+import { BankAccountSelector } from '../components/dashboard/BankAccountSelector';
+import { useAccountBalancesQuery } from '../hooks/queries';
+import { usePeriod } from '../context/PeriodContext';
+
+const tabs = [
+  { to: 'overview', label: 'Ce mois-ci', icon: '📊' },
+  { to: 'categories', label: 'Catégories', icon: '📂' },
+  { to: 'projects', label: 'Projets', icon: '🏖️' },
+  { to: 'triage', label: 'À traiter', icon: '✅' },
+];
 
 const Dashboard = () => {
-  const { transactions, summary, fetchSummary, loading } = useTransactions();
   const { currentDashboard } = useDashboards();
+  const { bankAccountFilter, period } = usePeriod();
+  const { data: accounts } = useAccountBalancesQuery(currentDashboard?.id);
 
-  useEffect(() => {
-    fetchSummary();
-  }, [fetchSummary]);
-
-  const recentTransactions = transactions.slice(0, 5);
-
-  if (loading && !summary) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-white/40">Chargement...</div>
-      </div>
-    );
-  }
+  const accountCount = accounts?.length ?? 0;
+  const filteredAccount = bankAccountFilter ? accounts?.find(a => a.accountId === bankAccountFilter) : null;
+  const scopeLabel = filteredAccount
+    ? `${filteredAccount.bankInstitutionName ?? 'Compte'} · ${period.label.toLowerCase()}`
+    : accountCount > 1
+    ? `${accountCount} comptes consolidés · ${period.label.toLowerCase()}`
+    : period.label;
 
   return (
-    <div className="space-y-8 animate-[fadeIn_0.5s_ease-out]">
-      <h2 className="text-3xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-        {currentDashboard?.name ?? 'Tableau de bord'}
-      </h2>
-
-      {/* Cartes résumé */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6 hover:border-amber-500/30 transition-all duration-300">
-          <p className="text-white/40 text-sm mb-1">Solde total</p>
-          <p className={`text-3xl font-bold ${(summary?.balance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            {formatCurrency(summary?.balance ?? 0)}
-          </p>
+    <div className="space-y-5 md:space-y-6 animate-[fadeIn_0.15s_ease-out]">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 md:gap-4">
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+            {currentDashboard?.name ?? 'Tableau de bord'}
+          </h2>
+          <p className="text-white/40 text-xs md:text-sm mt-1">{scopeLabel}</p>
         </div>
-        <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6 hover:border-emerald-500/30 transition-all duration-300">
-          <p className="text-white/40 text-sm mb-1">Revenus</p>
-          <p className="text-3xl font-bold text-emerald-400">
-            {formatCurrency(summary?.totalIncome ?? 0)}
-          </p>
-        </div>
-        <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6 hover:border-red-500/30 transition-all duration-300">
-          <p className="text-white/40 text-sm mb-1">Dépenses</p>
-          <p className="text-3xl font-bold text-red-400">
-            {formatCurrency(summary?.totalExpenses ?? 0)}
-          </p>
+        <div className="flex flex-col items-end gap-2">
+          <BankAccountSelector />
+          <PeriodSelector />
         </div>
       </div>
 
-      {/* Graphiques */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Camembert dépenses par catégorie */}
-        <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Dépenses par catégorie</h3>
-          {summary?.categoryBreakdown && summary.categoryBreakdown.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={summary.categoryBreakdown}
-                  dataKey="amount"
-                  nameKey="categoryName"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  strokeWidth={2}
-                  stroke="#0a0a1a"
-                >
-                  {summary.categoryBreakdown.map((entry, index) => (
-                    <Cell key={index} fill={entry.categoryColor} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1a1a3e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff' }}
-                  itemStyle={{ color: '#fff' }}
-                  formatter={(value) => formatCurrency(value as number)}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-[300px] text-white/30">
-              Aucune dépense enregistrée
-            </div>
-          )}
-        </div>
+      {/* Tabs — top sur md+, bottom-fixed sur mobile */}
+      <nav className="hidden md:flex gap-1 p-1 rounded-2xl bg-white/5 border border-white/10 w-fit">
+        {tabs.map((t) => (
+          <NavLink
+            key={t.to}
+            to={t.to}
+            className={({ isActive }) =>
+              `px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
+                isActive
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                  : 'text-white/60 hover:text-white hover:bg-white/5 border border-transparent'
+              }`
+            }
+          >
+            <span aria-hidden="true">{t.icon}</span>
+            <span>{t.label}</span>
+          </NavLink>
+        ))}
+      </nav>
 
-        {/* Courbe évolution mensuelle */}
-        <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Évolution sur 6 mois</h3>
-          {summary?.monthlyBalance && summary.monthlyBalance.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={summary.monthlyBalance}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="month" stroke="rgba(255,255,255,0.3)" fontSize={12} />
-                <YAxis stroke="rgba(255,255,255,0.3)" fontSize={12} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1a1a3e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff' }}
-                  itemStyle={{ color: '#fff' }}
-                  formatter={(value) => formatCurrency(value as number)}
-                />
-                <Line type="monotone" dataKey="income" stroke="#34d399" strokeWidth={2} dot={{ fill: '#34d399' }} name="Revenus" />
-                <Line type="monotone" dataKey="expenses" stroke="#f87171" strokeWidth={2} dot={{ fill: '#f87171' }} name="Dépenses" />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-[300px] text-white/30">
-              Aucune donnée disponible
-            </div>
-          )}
-        </div>
+      <div className="pb-20 md:pb-0">
+        <Outlet />
       </div>
 
-      {/* Dernières transactions */}
-      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Dernières transactions</h3>
-        {recentTransactions.length > 0 ? (
-          <div className="space-y-3">
-            {recentTransactions.map((t) => (
-              <div key={t.id} className="flex items-center justify-between py-3 border-b border-white/5 last:border-0">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{t.categoryIcon}</span>
-                  <div>
-                    <p className="text-white font-medium">{t.description}</p>
-                    <p className="text-white/40 text-sm">{t.categoryName} · {t.accountName} · {new Date(t.date).toLocaleDateString('fr-FR')}</p>
-                  </div>
-                </div>
-                <span className={`font-semibold ${t.type === TransactionType.Income ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {t.type === TransactionType.Income ? '+' : '-'}{formatCurrency(t.amount)}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-white/30 text-center py-8">Aucune transaction enregistrée</p>
-        )}
-      </div>
+      {/* Bottom-nav mobile */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0a0a1a]/95 backdrop-blur-xl border-t border-white/10 z-30">
+        <div className="grid grid-cols-4 gap-1 p-2">
+          {tabs.map((t) => (
+            <NavLink
+              key={t.to}
+              to={t.to}
+              className={({ isActive }) =>
+                `flex flex-col items-center justify-center py-2 rounded-xl transition-all ${
+                  isActive
+                    ? 'bg-amber-500/20 text-amber-300'
+                    : 'text-white/60'
+                }`
+              }
+            >
+              <span className="text-lg" aria-hidden="true">{t.icon}</span>
+              <span className="text-[10px] font-medium mt-0.5">{t.label}</span>
+            </NavLink>
+          ))}
+        </div>
+      </nav>
     </div>
   );
 };

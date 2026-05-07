@@ -19,6 +19,8 @@ public class AppDbContext : DbContext
     public DbSet<DashboardAccount> DashboardAccounts => Set<DashboardAccount>();
     public DbSet<DashboardInvitation> DashboardInvitations => Set<DashboardInvitation>();
     public DbSet<RecurringTransaction> RecurringTransactions => Set<RecurringTransaction>();
+    public DbSet<Budget> Budgets => Set<Budget>();
+    public DbSet<SavingsGoal> SavingsGoals => Set<SavingsGoal>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -190,6 +192,79 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<RecurringTransaction>()
             .HasIndex(r => r.DashboardId);
+
+        // BankAccount
+        modelBuilder.Entity<BankAccount>()
+            .Property(ba => ba.RealBalance)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<BankAccount>()
+            .Property(ba => ba.InitialBalance)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<BankAccount>()
+            .HasOne(ba => ba.User)
+            .WithMany()
+            .HasForeignKey(ba => ba.UserId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired(false);
+
+        modelBuilder.Entity<BankAccount>()
+            .HasOne(ba => ba.SourceBankAccount)
+            .WithMany()
+            .HasForeignKey(ba => ba.SourceBankAccountId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .IsRequired(false);
+
+        modelBuilder.Entity<BankAccount>()
+            .HasOne(ba => ba.IncrementCategory)
+            .WithMany()
+            .HasForeignKey(ba => ba.IncrementCategoryId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .IsRequired(false);
+
+        // Budget
+        modelBuilder.Entity<Budget>()
+            .Property(b => b.Amount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Budget>()
+            .HasOne(b => b.Dashboard)
+            .WithMany()
+            .HasForeignKey(b => b.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Budget>()
+            .HasOne(b => b.Category)
+            .WithMany()
+            .HasForeignKey(b => b.CategoryId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<Budget>()
+            .HasIndex(b => new { b.DashboardId, b.CategoryId, b.Period })
+            .IsUnique();
+
+        // SavingsGoal
+        modelBuilder.Entity<SavingsGoal>()
+            .Property(s => s.TargetAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SavingsGoal>()
+            .Property(s => s.CurrentAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SavingsGoal>()
+            .HasOne(s => s.Dashboard)
+            .WithMany()
+            .HasForeignKey(s => s.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<SavingsGoal>()
+            .HasOne(s => s.Category)
+            .WithMany()
+            .HasForeignKey(s => s.CategoryId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .IsRequired(false);
 
         modelBuilder.Entity<Category>().HasData(
             new Category { Id = 1, Name = "Alimentation", Icon = "\uD83C\uDF55", Color = "#FF6384", IsDefault = true },

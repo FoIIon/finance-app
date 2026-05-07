@@ -127,4 +127,87 @@ public class CategoryRuleController : ControllerBase
 
         return NoContent();
     }
+
+    [HttpPost("seed-defaults")]
+    public async Task<ActionResult<object>> SeedDefaults()
+    {
+        var userId = GetUserId();
+
+        var defaults = new List<(string Keyword, int CategoryId)>
+        {
+            // Alimentation (1)
+            ("COLRUYT", 1), ("CARREFOUR", 1), ("DELHAIZE", 1), ("LIDL", 1), ("ALDI", 1),
+            ("SPAR", 1), ("CORA", 1), ("PROXY DELHAIZE", 1), ("ALBERT HEIJN", 1),
+            ("INTERMARCHE", 1), ("MAKRO", 1), ("PICARD", 1),
+
+            // Transport (2)
+            ("SNCB", 2), ("NMBS", 2), ("STIB", 2), ("DE LIJN", 2),
+            ("SHELL", 2), ("TOTAL ENERGIES", 2), ("Q8", 2), ("ESSO", 2), ("TEXACO", 2),
+            ("IONITY", 2), ("BLUPOINT", 2),
+
+            // Logement (3)
+            ("LOYER", 3), ("SYNDIC", 3), ("HYPOTHECAIRE", 3), ("COPROPRIETE", 3),
+
+            // Loisirs (4)
+            ("KINEPOLIS", 4), ("UGC", 4), ("PATHÉ", 4), ("THEATRE", 4), ("CONCERT", 4),
+
+            // Santé (5)
+            ("PHARMACIE", 5), ("APOTHEEK", 5), ("MUTUALITE", 5), ("MUTUELLE", 5),
+            ("KINESITHERAPEUTE", 5), ("DENTISTE", 5), ("OPTICIEN", 5),
+            ("LABORATOIRE", 5), ("MEDISPRING", 5),
+
+            // Shopping (7)
+            ("AMAZON", 7), ("BOL.COM", 7), ("ZALANDO", 7), ("IKEA", 7), ("ACTION", 7),
+            ("PRIMARK", 7), ("MEDIAMARKT", 7), ("ZARA", 7), ("H&M", 7), ("FNAC", 7),
+
+            // Salaire (8)
+            ("SALAIRE", 8), ("LOON", 8),
+
+            // Restaurants (11)
+            ("MCDONALD", 11), ("BURGER KING", 11), ("QUICK RESTAURANT", 11),
+            ("DELIVEROO", 11), ("UBER EATS", 11), ("TAKEAWAY", 11),
+            ("STARBUCKS", 11), ("DOMINOS", 11), ("LE PAIN QUOTIDIEN", 11),
+
+            // Abonnements (12)
+            ("NETFLIX", 12), ("SPOTIFY", 12), ("DISNEY+", 12), ("DEEZER", 12),
+            ("YOUTUBE PREMIUM", 12), ("APPLE.COM/BILL", 12), ("MICROSOFT 365", 12),
+            ("ADOBE", 12), ("PROXIMUS", 12), ("TELENET", 12), ("VOO", 12),
+            ("ORANGE BELGIUM", 12), ("BASE COMPANY", 12), ("AMAZON PRIME", 12),
+
+            // Assurances (13)
+            ("AXA", 13), ("AG INSURANCE", 13), ("ETHIAS", 13), ("FEDERALE ASSURANCE", 13),
+            ("BALOISE", 13), ("ALLIANZ", 13), ("DVV", 13), ("P&V ASSURANCES", 13),
+            ("BELFIUS INSURANCE", 13),
+
+            // Énergie (14)
+            ("ENGIE", 14), ("LUMINUS", 14), ("FLUVIUS", 14), ("ORES", 14), ("ELIA", 14),
+
+            // Enfants (15)
+            ("CRECHE", 15), ("CRÈCHE", 15), ("GARDERIE", 15),
+            ("ACCUEIL EXTRASCOLAIRE", 15), ("CENTRE CULTUREL", 15),
+
+            // Épargne (16)
+            ("EPARGNE", 16), ("SPAARREKENING", 16), ("ARGENTA", 16),
+        };
+
+        var existingKeywords = await _context.CategoryRules
+            .Where(cr => cr.UserId == userId)
+            .Select(cr => cr.Keyword.ToLower())
+            .ToListAsync();
+
+        var newRules = defaults
+            .Where(d => !existingKeywords.Contains(d.Keyword.ToLower()))
+            .Select(d => new CategoryRule
+            {
+                UserId = userId,
+                Keyword = d.Keyword,
+                CategoryId = d.CategoryId
+            })
+            .ToList();
+
+        _context.CategoryRules.AddRange(newRules);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { created = newRules.Count, skipped = defaults.Count - newRules.Count });
+    }
 }

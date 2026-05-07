@@ -4,8 +4,9 @@ import { useAuth } from '../hooks/useAuth';
 import DashboardSelector from './DashboardSelector';
 
 const navItems = [
-  { path: '/', label: 'Tableau de bord', icon: '📊' },
+  { path: '/dashboard/overview', label: 'Tableau de bord', icon: '📊' },
   { path: '/transactions', label: 'Transactions', icon: '💳' },
+  { path: '/budgets', label: 'Budgets', icon: '💰' },
   { path: '/categories', label: 'Catégories', icon: '🏷️' },
   { path: '/recurring', label: 'Récurrentes', icon: '🔁' },
   { path: '/bank', label: 'Banques', icon: '🏦' },
@@ -37,7 +38,9 @@ const SidebarContent = ({ email, pathname, onNavClick, onLogout }: SidebarConten
 
     <div className="flex-1 p-4 space-y-1">
       {navItems.map((item) => {
-        const isActive = pathname === item.path;
+        const isActive = item.path.startsWith('/dashboard')
+          ? pathname.startsWith('/dashboard')
+          : pathname === item.path;
         return (
           <Link
             key={item.path}

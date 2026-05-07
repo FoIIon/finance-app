@@ -75,7 +75,12 @@ public class BankSyncService : BackgroundService
 
         if (connection == null) return;
 
-        if (connection.Provider == "TradeRepublic")
+        if (connection.Provider == "Manual")
+        {
+            // Comptes manuels : pas de sync externe, le solde est calculé dynamiquement
+            return;
+        }
+        else if (connection.Provider == "TradeRepublic")
         {
             await SyncTradeRepublicAsync(connection, context, serviceProvider, rethrow);
         }
@@ -142,6 +147,50 @@ public class BankSyncService : BackgroundService
         {
             try
             {
+                // Récupérer le solde réel (balances GoCardless)
+                try
+                {
+                    var balancesData = await goCardless.GetBalancesAsync(account.ExternalAccountId);
+                    if (balancesData.TryGetProperty("balances", out var balancesArray))
+                    {
+                        // Préférer interimAvailable (= solde dispo), sinon expected, sinon premier
+                        var balanceTypes = new[] { "interimAvailable", "expected", "interimBooked", "closingBooked" };
+                        JsonElement bal = default;
+                        bool found = false;
+                        foreach (var prefType in balanceTypes)
+                        {
+                            foreach (var b in balancesArray.EnumerateArray())
+                            {
+                                if (b.TryGetProperty("balanceType", out var t) && t.GetString() == prefType)
+                                {
+                                    bal = b;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (found) break;
+                        }
+                        if (!found)
+                        {
+                            foreach (var b in balancesArray.EnumerateArray()) { bal = b; found = true; break; }
+                        }
+                        if (found && bal.TryGetProperty("balanceAmount", out var amountObj)
+                            && amountObj.TryGetProperty("amount", out var amountVal))
+                        {
+                            var amountStr = amountVal.GetString();
+                            if (decimal.TryParse(amountStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var bookedBalance))
+                            {
+                                account.RealBalance = bookedBalance;
+                                account.BalanceUpdatedAt = DateTime.UtcNow;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Erreur récupération solde réel pour {AccountId}.", account.ExternalAccountId);
+                }
+
                 var transactionsData = await goCardless.GetTransactionsAsync(account.ExternalAccountId, dateFrom);
 
                 if (!transactionsData.TryGetProperty("transactions", out var transactions))
@@ -192,22 +241,23 @@ public class BankSyncService : BackgroundService
                         ? DateTime.Parse(date.GetString()!)
                         : DateTime.UtcNow;
 
-                    // Appliquer les règles de catégorisation
-                    var categoryId = defaultCategoryId;
-                    foreach (var rule in rules)
-                    {
-                        if (description.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase))
-                        {
-                            categoryId = rule.CategoryId;
-                            break;
-                        }
-                    }
-
                     var counterparty = tx.TryGetProperty("creditorName", out var cred)
                         ? cred.GetString()
                         : tx.TryGetProperty("debtorName", out var deb)
                             ? deb.GetString()
                             : null;
+
+                    // Appliquer les règles : description en priorité, puis counterparty
+                    var categoryId = defaultCategoryId;
+                    foreach (var rule in rules)
+                    {
+                        if (description.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase) ||
+                            (counterparty != null && counterparty.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            categoryId = rule.CategoryId;
+                            break;
+                        }
+                    }
 
                     var transaction = new Transaction
                     {
@@ -285,7 +335,6 @@ public class BankSyncService : BackgroundService
                 var existing = await context.Transactions.FirstOrDefaultAsync(t => t.ExternalId == externalId);
                 if (existing != null) continue;
 
-                // Appliquer les règles de catégorisation
                 var categoryId = defaultCategoryId;
                 foreach (var rule in rules)
                 {

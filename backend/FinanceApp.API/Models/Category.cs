@@ -7,6 +7,8 @@ public class Category
     public string Icon { get; set; } = string.Empty;
     public string Color { get; set; } = string.Empty;
     public bool IsDefault { get; set; }
+    /// <summary>Marque les catégories qui ne sont PAS des vraies dépenses (transferts internes : épargne, comptes joints, etc.). Exclues des stats dépenses.</summary>
+    public bool IsTransfer { get; set; }
     public int? UserId { get; set; }
 
     public User? User { get; set; }

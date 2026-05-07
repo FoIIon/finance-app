@@ -3,31 +3,21 @@ import { useSearchParams } from 'react-router-dom';
 import { useBanking } from '../hooks/useBanking';
 import { categoriesApi } from '../api/categories';
 import { BankConnectionStatus } from '../types/banking';
+import ManualAccountsSection from '../components/ManualAccountsSection';
 import type { BankConnection, BankAccount, CategoryRule, CreateCategoryRule } from '../types/banking';
 import type { Category } from '../types/category';
 
-const EU_COUNTRIES = [
-  { code: 'FR', label: 'France' },
-  { code: 'DE', label: 'Allemagne' },
-  { code: 'ES', label: 'Espagne' },
-  { code: 'IT', label: 'Italie' },
-  { code: 'BE', label: 'Belgique' },
-  { code: 'NL', label: 'Pays-Bas' },
-  { code: 'PT', label: 'Portugal' },
-  { code: 'AT', label: 'Autriche' },
-  { code: 'IE', label: 'Irlande' },
-  { code: 'FI', label: 'Finlande' },
-];
+// Seules les banques belges + Trade Republic sont disponibles
 
 // Logo officiel Trade Republic (SVG inline, fond noir, icône blanche)
 const TR_LOGO = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1552 1319'%3E%3Crect width='1552' height='1319' fill='%23000000'/%3E%3Cpath fill='%23ffffff' fill-rule='evenodd' d='m1551 659.5q0-2-1-3v-2c-5-22.9-25.9-35.9-46.9-30.9l-553.5 141.7c-17 5-34 4-50.9-2l-250.4-87.8c-15.9-6-33.9-6-50.8-2l-567.6 146.6c-16.9 4-29.9 21-29.9 40v422q0 1 1 2v3c5 21.9 25.9 35.9 46.9 29.9l548.6-141.7q6-2 12.9-2 7-1 13-1 7 1 13 2 6.9 1 12.9 3l249.4 88.8q6 2 12 3 6.9 2 12.9 2h13q7-1 13-3l571.5-146.6q7-2 12-6 5.9-4 9.9-9 4-5 6-12 2-6 2-12.9l1-1zm-1-619.7v-6.9c-5-22-26.9-36-46.9-31l-552.5 142.7c-17 4-35 3-51.9-3l-249.4-87.8c-16.9-6-34.9-6-51.8-2l-567.6 146.7c-16.9 4-29.9 20.9-29.9 39.9v420.1q0 1 1 2v4.9c5 22 25.9 36 46.9 31l548.6-141.7q6.9-2 12.9-3h13q7 0 13 1 6.9 2 12.9 4l249.4 87.8q7 2 13 3 5.9 2 12.9 2h13q7-1 13-3l570.5-146.7q7-2 13-6 4.9-3 8.9-9 4-4.9 7-11.9 2-6 2-13v-417.1q0-2-1-3z'/%3E%3C/svg%3E";
 
-// Entrée synthétique Trade Republic injectée dans la liste allemande
+// Trade Republic toujours affiché en tête (broker belge/européen)
 const TR_INSTITUTION = {
   id: 'TRADE_REPUBLIC',
   name: 'Trade Republic',
   logo: TR_LOGO,
-  countries: ['DE'],
+  countries: ['BE'],
 };
 
 type TrStep = null | 'credentials' | 'twoFactor' | 'success';
@@ -55,14 +45,14 @@ const Bank = () => {
   const {
     connections, institutions, categoryRules, loading, error,
     fetchInstitutions, connectBank, handleCallback,
-    deleteConnection, syncConnection, updateAccount,
+    deleteConnection, syncConnection, reconnectConnection, updateAccount,
     fetchCategoryRules, createCategoryRule, updateCategoryRule, deleteCategoryRule,
     tradeRepublicLogin, tradeRepublicVerify,
   } = useBanking();
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [selectedCountry, setSelectedCountry] = useState('FR');
+  const [selectedCountry] = useState('BE');
   const [institutionSearch, setInstitutionSearch] = useState('');
   const [connectingInstitution, setConnectingInstitution] = useState<string | null>(null);
   const [expandedConnections, setExpandedConnections] = useState<Set<number>>(new Set());
@@ -203,6 +193,16 @@ const Bank = () => {
     setShowConnectModal(true);
   };
 
+  // Reconnecter une banque GoCardless (Error/Expired) sans perdre les transactions historiques
+  const handleReconnect = async (id: number) => {
+    try {
+      const url = await reconnectConnection(id);
+      window.location.href = url;
+    } catch {
+      setSyncError('Impossible de générer un nouveau lien de reconnexion.');
+    }
+  };
+
   const toggleExpanded = (id: number) => {
     setExpandedConnections((prev) => {
       const next = new Set(prev);
@@ -242,10 +242,8 @@ const Bank = () => {
     setRuleDeleteConfirm(null);
   };
 
-  // Trade Republic injecté en tête de liste quand l'Allemagne est sélectionnée
-  const allInstitutions = selectedCountry === 'DE'
-    ? [TR_INSTITUTION, ...institutions]
-    : institutions;
+  // Trade Republic toujours en tête, suivi des banques belges (GoCardless)
+  const allInstitutions = [TR_INSTITUTION, ...institutions];
 
   const filteredInstitutions = allInstitutions.filter((i) =>
     i.name.toLowerCase().includes(institutionSearch.toLowerCase())
@@ -303,10 +301,19 @@ const Bank = () => {
               onDeleteCancel={() => setDeleteConfirm(null)}
               onToggleAccount={handleToggleAccount}
               onReauth={conn.institutionId === 'trade-republic' && conn.status === BankConnectionStatus.Error ? handleReauth : undefined}
+              onReconnect={
+                conn.institutionId !== 'trade-republic' &&
+                (conn.status === BankConnectionStatus.Error || conn.status === BankConnectionStatus.Expired)
+                  ? () => handleReconnect(conn.id)
+                  : undefined
+              }
             />
           ))}
         </div>
       )}
+
+      {/* Section comptes manuels */}
+      <ManualAccountsSection />
 
       {/* Section règles de catégorisation */}
       <div className="pt-4">
@@ -455,26 +462,17 @@ const Bank = () => {
             {trStep === null && (
               <>
                 <div className="flex gap-4 mb-4">
-                  <select
-                    value={selectedCountry}
-                    onChange={(e) => { setSelectedCountry(e.target.value); setInstitutionSearch(''); }}
-                    className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-amber-500/50"
-                  >
-                    {EU_COUNTRIES.map((c) => (
-                      <option key={c.code} value={c.code}>{c.label}</option>
-                    ))}
-                  </select>
                   <input
                     type="text"
                     value={institutionSearch}
                     onChange={(e) => setInstitutionSearch(e.target.value)}
-                    placeholder="Rechercher une banque..."
+                    placeholder="Rechercher une banque belge..."
                     className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-amber-500/50"
                   />
                 </div>
 
                 <div className="flex-1 overflow-y-auto min-h-0">
-                  {institutions.length === 0 && selectedCountry !== 'DE' ? (
+                  {institutions.length === 0 ? (
                     <div className="p-8 text-center text-white/30">Chargement des banques...</div>
                   ) : filteredInstitutions.length === 0 ? (
                     <div className="p-8 text-center text-white/30">Aucune banque trouvée</div>
@@ -628,11 +626,12 @@ interface ConnectionCardProps {
   onDeleteCancel: () => void;
   onToggleAccount: (account: BankAccount) => void;
   onReauth?: () => void;
+  onReconnect?: () => void;
 }
 
 const ConnectionCard = ({
   connection, expanded, onToggleExpand, onSync, syncing,
-  deleteConfirm, onDeleteRequest, onDeleteConfirm, onDeleteCancel, onToggleAccount, onReauth,
+  deleteConfirm, onDeleteRequest, onDeleteConfirm, onDeleteCancel, onToggleAccount, onReauth, onReconnect,
 }: ConnectionCardProps) => (
   <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
     <div className="p-5 flex items-center justify-between">
@@ -663,6 +662,14 @@ const ConnectionCard = ({
             className="px-4 py-2 rounded-xl text-sm text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/30 transition-all"
           >
             Re-authentifier
+          </button>
+        )}
+        {onReconnect && (
+          <button
+            onClick={onReconnect}
+            className="px-4 py-2 rounded-xl text-sm text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/30 transition-all"
+          >
+            Reconnecter
           </button>
         )}
         <button

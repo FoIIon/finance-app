@@ -52,6 +52,11 @@ export const useBanking = () => {
     await fetchConnections();
   };
 
+  const reconnectConnection = async (id: number) => {
+    const response = await bankingApi.reconnectConnection(id);
+    return response.data.authorizationUrl;
+  };
+
   const updateAccount = async (id: number, isActive: boolean) => {
     await bankingApi.updateAccount(id, { isActive });
     await fetchConnections();
@@ -110,6 +115,7 @@ export const useBanking = () => {
     handleCallback,
     deleteConnection,
     syncConnection,
+    reconnectConnection,
     updateAccount,
     fetchCategoryRules,
     createCategoryRule,

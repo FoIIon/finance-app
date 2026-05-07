@@ -74,7 +74,11 @@ public class TransactionSummaryDto
     public decimal TotalIncome { get; set; }
     public decimal TotalExpenses { get; set; }
     public decimal Balance { get; set; }
+    /// <summary>Somme des dépenses catégorisées comme transfert interne (épargne, etc.) sur la période.</summary>
+    public decimal TotalSavings { get; set; }
     public List<CategoryBreakdownDto> CategoryBreakdown { get; set; } = new();
+    /// <summary>Détail des mises de côté par catégorie de transfert.</summary>
+    public List<CategoryBreakdownDto> SavingsBreakdown { get; set; } = new();
     public List<MonthlyBalanceDto> MonthlyBalance { get; set; } = new();
 }
 
@@ -93,4 +97,17 @@ public class MonthlyBalanceDto
     public decimal Income { get; set; }
     public decimal Expenses { get; set; }
     public decimal Balance { get; set; }
+}
+
+public class AccountBalanceDto
+{
+    public int AccountId { get; set; }
+    public string AccountName { get; set; } = string.Empty;
+    public string? BankInstitutionName { get; set; }
+    public decimal Balance { get; set; }
+    /// <summary>true = solde réel banque (GoCardless), false = calcul.</summary>
+    public bool IsRealBalance { get; set; }
+    public bool IsManual { get; set; }
+    public DateTime? LastTransactionDate { get; set; }
+    public DateTime? BalanceUpdatedAt { get; set; }
 }

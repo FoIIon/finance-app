@@ -46,7 +46,11 @@ export interface TransactionSummary {
   totalIncome: number;
   totalExpenses: number;
   balance: number;
+  /** Somme des dépenses sur catégories transfert (Épargne, etc.) — exclues du Balance. */
+  totalSavings: number;
   categoryBreakdown: CategoryBreakdown[];
+  /** Détail des mises de côté par catégorie de transfert. */
+  savingsBreakdown: CategoryBreakdown[];
   monthlyBalance: MonthlyBalance[];
 }
 
