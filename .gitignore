@@ -6,6 +6,8 @@ backend/**/.vs/
 backend/**/appsettings.Development.json
 backend/**/*.db
 backend/**/*.db-journal
+backend/**/*.db-shm
+backend/**/*.db-wal
 
 # Frontend
 frontend/node_modules/
