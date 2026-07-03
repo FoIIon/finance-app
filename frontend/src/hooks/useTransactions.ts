@@ -61,6 +61,14 @@ export const useTransactions = () => {
     return response.data;
   };
 
+  const setEnvelope = async (id: number, projectEnvelopeId: number | null) => {
+    const response = await transactionsApi.setEnvelope(id, projectEnvelopeId);
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === id ? response.data : t))
+    );
+    return response.data;
+  };
+
   useEffect(() => {
     if (dashboardId) {
       fetchTransactions();
@@ -78,5 +86,6 @@ export const useTransactions = () => {
     updateTransaction,
     deleteTransaction,
     setExceptional,
+    setEnvelope,
   };
 };

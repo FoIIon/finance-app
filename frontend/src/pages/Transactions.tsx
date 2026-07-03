@@ -4,6 +4,8 @@ import { useTransactions } from '../hooks/useTransactions';
 import { useDashboards } from '../hooks/useDashboards';
 import { categoriesApi } from '../api/categories';
 import { accountsApi } from '../api/accounts';
+import { projectEnvelopesApi } from '../api/projectEnvelopes';
+import type { ProjectEnvelopeProgress } from '../types/projectEnvelope';
 import type { Category } from '../types/category';
 import { TransactionType } from '../types/transaction';
 import type { CreateTransaction, Transaction, TransactionFilters } from '../types/transaction';
@@ -12,12 +14,13 @@ import { formatCurrency } from '../utils/format';
 import { useToast } from '../context/ToastContext';
 
 const Transactions = () => {
-  const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional } = useTransactions();
+  const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setEnvelope } = useTransactions();
   const { currentDashboard } = useDashboards();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [envelopes, setEnvelopes] = useState<ProjectEnvelopeProgress[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -36,7 +39,7 @@ const Transactions = () => {
 
   // Édition inline
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
-  const [editValues, setEditValues] = useState({ description: '', categoryId: 0 });
+  const [editValues, setEditValues] = useState<{ description: string; categoryId: number; projectEnvelopeId: number | null }>({ description: '', categoryId: 0, projectEnvelopeId: null });
 
   // Formulaire
   const [formData, setFormData] = useState<CreateTransaction>({
@@ -62,6 +65,13 @@ const Transactions = () => {
     categoriesApi.getAll().then((res) => setCategories(res.data));
     accountsApi.getAll().then((res) => setAccounts(res.data));
   }, []);
+
+  useEffect(() => {
+    if (!currentDashboard) { setEnvelopes([]); return; }
+    projectEnvelopesApi.getAll(currentDashboard.id)
+      .then((res) => setEnvelopes(res.data.filter((e) => !e.isArchived)))
+      .catch(() => setEnvelopes([]));
+  }, [currentDashboard]);
 
   useEffect(() => {
     const filters: TransactionFilters = { sortBy, sortDesc };
@@ -97,7 +107,7 @@ const Transactions = () => {
 
   const startInlineEdit = (t: Transaction) => {
     setEditingRowId(t.id);
-    setEditValues({ description: t.description, categoryId: t.categoryId });
+    setEditValues({ description: t.description, categoryId: t.categoryId, projectEnvelopeId: t.projectEnvelopeId ?? null });
   };
 
   const cancelInlineEdit = () => {
@@ -114,6 +124,12 @@ const Transactions = () => {
         categoryId: editValues.categoryId,
         accountId: t.accountId,
       });
+      // Rattachement enveloppe : appel dédié seulement si le lien a changé
+      const before = t.projectEnvelopeId ?? null;
+      if (editValues.projectEnvelopeId !== before) {
+        await setEnvelope(t.id, editValues.projectEnvelopeId);
+        queryClient.invalidateQueries({ queryKey: ['project-envelopes'] });
+      }
       setEditingRowId(null);
     } catch {
       showToast('Impossible de sauvegarder la modification', 'error');
@@ -292,19 +308,39 @@ const Transactions = () => {
                   </td>
                   <td className="p-4">
                     {editingRowId === t.id ? (
-                      <select
-                        value={editValues.categoryId}
-                        onChange={(e) => setEditValues({ ...editValues, categoryId: Number(e.target.value) })}
-                        className="px-3 py-1.5 rounded-lg bg-white/10 border border-amber-500/50 text-white focus:outline-none"
-                      >
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
-                        ))}
-                      </select>
+                      <div className="space-y-1.5">
+                        <select
+                          value={editValues.categoryId}
+                          onChange={(e) => setEditValues({ ...editValues, categoryId: Number(e.target.value) })}
+                          className="px-3 py-1.5 rounded-lg bg-white/10 border border-amber-500/50 text-white focus:outline-none"
+                        >
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={editValues.projectEnvelopeId ?? ''}
+                          onChange={(e) => setEditValues({ ...editValues, projectEnvelopeId: e.target.value === '' ? null : Number(e.target.value) })}
+                          aria-label="Enveloppe projet"
+                          className="block px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-amber-500/50"
+                        >
+                          <option value="">✉️ Aucune enveloppe</option>
+                          {envelopes.map((e) => (
+                            <option key={e.id} value={e.id}>{e.icon} {e.name}</option>
+                          ))}
+                        </select>
+                      </div>
                     ) : (
-                      <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 text-white/70 text-sm">
-                        {t.categoryIcon} {t.categoryName}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 text-white/70 text-sm">
+                          {t.categoryIcon} {t.categoryName}
+                        </span>
+                        {t.projectEnvelopeName && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300/80 text-xs border border-amber-500/20" title={`Enveloppe : ${t.projectEnvelopeName}`}>
+                            ✉️ {t.projectEnvelopeName}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </td>
                   <td className={`p-4 text-right font-semibold ${t.type === TransactionType.Income ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -371,6 +407,11 @@ const Transactions = () => {
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 text-white/70 text-xs border border-white/10">
                     {t.categoryIcon} {t.categoryName}
                   </span>
+                  {t.projectEnvelopeName && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300/80 text-xs border border-amber-500/20" title={`Enveloppe : ${t.projectEnvelopeName}`}>
+                      ✉️ {t.projectEnvelopeName}
+                    </span>
+                  )}
                   {t.isImported && (
                     <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-teal-500/20 text-teal-400 border border-teal-500/30">
                       Importée

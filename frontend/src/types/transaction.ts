@@ -23,6 +23,8 @@ export interface Transaction {
   isExceptional: boolean;
   bankAccountName?: string;
   bankInstitutionName?: string;
+  projectEnvelopeId?: number | null;
+  projectEnvelopeName?: string | null;
 }
 
 export interface CreateTransaction {

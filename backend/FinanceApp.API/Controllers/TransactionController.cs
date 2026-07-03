@@ -31,6 +31,9 @@ public class TransactionController : ControllerBase
         return userId;
     }
 
+    private async Task<bool> UserCanAccessDashboard(int dashboardId, int userId) =>
+        await _context.DashboardMembers.AnyAsync(m => m.DashboardId == dashboardId && m.UserId == userId);
+
     // Récupère les IDs de comptes visibles : soit via dashboardId, soit le dashboard personnel
     private async Task<List<int>> GetAccountIds(int? dashboardId)
     {
@@ -71,7 +74,9 @@ public class TransactionController : ControllerBase
             CounterpartyName = t.CounterpartyName,
             IsExceptional = t.IsExceptional,
             BankAccountName = t.BankAccount?.AccountName,
-            BankInstitutionName = t.BankAccount?.BankConnection?.InstitutionName
+            BankInstitutionName = t.BankAccount?.BankConnection?.InstitutionName,
+            ProjectEnvelopeId = t.ProjectEnvelopeId,
+            ProjectEnvelopeName = t.ProjectEnvelope?.Name
         };
     }
 
@@ -96,6 +101,7 @@ public class TransactionController : ControllerBase
             .Include(t => t.Category)
             .Include(t => t.Account)
             .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
             .Where(t => accountIds.Contains(t.AccountId));
 
         if (from.HasValue) query = query.Where(t => t.Date >= from.Value);
@@ -133,6 +139,7 @@ public class TransactionController : ControllerBase
             .Include(t => t.Category)
             .Include(t => t.Account)
             .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
             .FirstOrDefaultAsync(t => t.Id == id && t.Account.UserId == userId);
 
         if (transaction == null) return NotFound();
@@ -192,6 +199,7 @@ public class TransactionController : ControllerBase
         var transaction = await _context.Transactions
             .Include(t => t.Account)
             .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
             .FirstOrDefaultAsync(t => t.Id == id && t.Account.UserId == userId);
 
         if (transaction == null) return NotFound();
@@ -230,7 +238,9 @@ public class TransactionController : ControllerBase
             CounterpartyName = transaction.CounterpartyName,
             IsExceptional = transaction.IsExceptional,
             BankAccountName = transaction.BankAccount?.AccountName,
-            BankInstitutionName = transaction.BankAccount?.BankConnection?.InstitutionName
+            BankInstitutionName = transaction.BankAccount?.BankConnection?.InstitutionName,
+            ProjectEnvelopeId = transaction.ProjectEnvelopeId,
+            ProjectEnvelopeName = transaction.ProjectEnvelope?.Name
         });
     }
 
@@ -242,12 +252,48 @@ public class TransactionController : ControllerBase
             .Include(t => t.Category)
             .Include(t => t.Account)
             .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
             .FirstOrDefaultAsync(t => t.Id == id && t.Account.UserId == userId);
 
         if (transaction == null) return NotFound();
 
         transaction.IsExceptional = dto.IsExceptional;
         await _context.SaveChangesAsync();
+
+        return Ok(MapToDto(transaction));
+    }
+
+    /// <summary>Rattache (ou détache si null) une transaction à une enveloppe projet.</summary>
+    [HttpPut("{id}/envelope")]
+    public async Task<ActionResult<TransactionDto>> SetEnvelope(int id, SetEnvelopeDto dto)
+    {
+        var userId = GetUserId();
+        var transaction = await _context.Transactions
+            .Include(t => t.Category)
+            .Include(t => t.Account)
+            .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
+            .FirstOrDefaultAsync(t => t.Id == id && t.Account.UserId == userId);
+
+        if (transaction == null) return NotFound();
+
+        if (dto.ProjectEnvelopeId.HasValue)
+        {
+            // Valider que l'enveloppe existe et appartient à un dashboard accessible par le user
+            var envelope = await _context.ProjectEnvelopes
+                .FirstOrDefaultAsync(e => e.Id == dto.ProjectEnvelopeId.Value);
+            if (envelope == null) return BadRequest("Enveloppe projet introuvable.");
+            if (!await UserCanAccessDashboard(envelope.DashboardId, userId)) return Forbid();
+
+            transaction.ProjectEnvelopeId = envelope.Id;
+        }
+        else
+        {
+            transaction.ProjectEnvelopeId = null;
+        }
+
+        await _context.SaveChangesAsync();
+        await _context.Entry(transaction).Reference(t => t.ProjectEnvelope).LoadAsync();
 
         return Ok(MapToDto(transaction));
     }
@@ -890,6 +936,7 @@ public class TransactionController : ControllerBase
             .Include(t => t.Category)
             .Include(t => t.Account)
             .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
             .Where(t => accountIds.Contains(t.AccountId) && t.CategoryId == othersCategoryId);
         if (bankAccountId.HasValue) query = query.Where(t => t.BankAccountId == bankAccountId.Value);
 
@@ -912,6 +959,7 @@ public class TransactionController : ControllerBase
             .Include(t => t.Category)
             .Include(t => t.Account)
             .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
             .Where(t => accountIds.Contains(t.AccountId));
         if (bankAccountId.HasValue) query = query.Where(t => t.BankAccountId == bankAccountId.Value);
 
@@ -969,6 +1017,7 @@ public class TransactionController : ControllerBase
             .Include(t => t.Category)
             .Include(t => t.Account)
             .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
             .Where(t => anomalyIds.Contains(t.Id))
             .ToListAsync();
         var txns = rawTxns.OrderByDescending(t => t.Amount).ToList();

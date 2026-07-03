@@ -21,6 +21,8 @@ public class AppDbContext : DbContext
     public DbSet<RecurringTransaction> RecurringTransactions => Set<RecurringTransaction>();
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<SavingsGoal> SavingsGoals => Set<SavingsGoal>();
+    public DbSet<ProjectEnvelope> ProjectEnvelopes => Set<ProjectEnvelope>();
+    public DbSet<ShoppingItem> ShoppingItems => Set<ShoppingItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -265,6 +267,36 @@ public class AppDbContext : DbContext
             .HasForeignKey(s => s.CategoryId)
             .OnDelete(DeleteBehavior.SetNull)
             .IsRequired(false);
+
+        // ProjectEnvelope
+        modelBuilder.Entity<ProjectEnvelope>()
+            .Property(p => p.TargetBudget)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<ProjectEnvelope>()
+            .HasOne(p => p.Dashboard)
+            .WithMany()
+            .HasForeignKey(p => p.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Transaction → ProjectEnvelope (rattachement d'une dépense, détachée si l'enveloppe est supprimée)
+        modelBuilder.Entity<Transaction>()
+            .HasOne(t => t.ProjectEnvelope)
+            .WithMany()
+            .HasForeignKey(t => t.ProjectEnvelopeId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .IsRequired(false);
+
+        // ShoppingItem
+        modelBuilder.Entity<ShoppingItem>()
+            .Property(s => s.EstimatedCost)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<ShoppingItem>()
+            .HasOne(s => s.Dashboard)
+            .WithMany()
+            .HasForeignKey(s => s.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<Category>().HasData(
             new Category { Id = 1, Name = "Alimentation", Icon = "\uD83C\uDF55", Color = "#FF6384", IsDefault = true },
