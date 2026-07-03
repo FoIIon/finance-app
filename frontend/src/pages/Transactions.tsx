@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTransactions } from '../hooks/useTransactions';
 import { useDashboards } from '../hooks/useDashboards';
 import { categoriesApi } from '../api/categories';
@@ -11,9 +12,10 @@ import { formatCurrency } from '../utils/format';
 import { useToast } from '../context/ToastContext';
 
 const Transactions = () => {
-  const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction } = useTransactions();
+  const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional } = useTransactions();
   const { currentDashboard } = useDashboards();
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -152,6 +154,17 @@ const Transactions = () => {
     } catch {
       setDeleteConfirm(null);
       showToast('Impossible de supprimer la transaction', 'error');
+    }
+  };
+
+  const handleToggleExceptional = async (t: Transaction) => {
+    try {
+      const updated = await setExceptional(t.id, !t.isExceptional);
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
+      queryClient.invalidateQueries({ queryKey: ['category-detail'] });
+      showToast(updated.isExceptional ? 'Marquée comme exceptionnelle' : 'Retirée des exceptionnelles', 'success');
+    } catch {
+      showToast('Impossible de modifier la transaction', 'error');
     }
   };
 
@@ -305,6 +318,12 @@ const Transactions = () => {
                       </>
                     ) : (
                       <>
+                        <button
+                          aria-label="Dépense exceptionnelle"
+                          title="Dépense exceptionnelle"
+                          onClick={() => handleToggleExceptional(t)}
+                          className={`transition-colors ${t.isExceptional ? 'text-amber-400' : 'text-white/40 hover:text-amber-400'}`}
+                        >⚡</button>
                         <button aria-label="Édition rapide" onClick={() => startInlineEdit(t)} className="text-white/40 hover:text-amber-400 transition-colors">✏️</button>
                         {deleteConfirm === t.id ? (
                           <>
@@ -365,7 +384,15 @@ const Transactions = () => {
                       <button onClick={() => setDeleteConfirm(null)} className="text-white/40 hover:text-white text-sm">Annuler</button>
                     </>
                   ) : (
-                    <button aria-label="Supprimer" onClick={() => setDeleteConfirm(t.id)} className="text-white/40 hover:text-red-400 transition-colors">🗑️</button>
+                    <>
+                      <button
+                        aria-label="Dépense exceptionnelle"
+                        title="Dépense exceptionnelle"
+                        onClick={() => handleToggleExceptional(t)}
+                        className={`transition-colors ${t.isExceptional ? 'text-amber-400' : 'text-white/40 hover:text-amber-400'}`}
+                      >⚡</button>
+                      <button aria-label="Supprimer" onClick={() => setDeleteConfirm(t.id)} className="text-white/40 hover:text-red-400 transition-colors">🗑️</button>
+                    </>
                   )}
                 </div>
               </div>

@@ -12,12 +12,13 @@ const useBankFilter = () => useContext(PeriodContext).bankAccountFilter;
 
 export const useSummaryQuery = (dashboardId: number | undefined, period: Period) => {
   const bankAccountId = useBankFilter();
+  const includeExceptional = useContext(PeriodContext).includeExceptional;
   return useQuery({
-    queryKey: ['summary', dashboardId, period.key, bankAccountId],
+    queryKey: ['summary', dashboardId, period.key, bankAccountId, includeExceptional],
     enabled: !!dashboardId,
     queryFn: async () => {
       const { from, to } = periodToRange(period);
-      const res = await transactionsApi.getSummary(dashboardId, from, to, bankAccountId);
+      const res = await transactionsApi.getSummary(dashboardId, from, to, bankAccountId, includeExceptional);
       return res.data;
     },
   });

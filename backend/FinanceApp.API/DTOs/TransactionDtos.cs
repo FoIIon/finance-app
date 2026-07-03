@@ -19,8 +19,14 @@ public class TransactionDto
     public string? ExternalId { get; set; }
     public bool IsImported { get; set; }
     public string? CounterpartyName { get; set; }
+    public bool IsExceptional { get; set; }
     public string? BankAccountName { get; set; }
     public string? BankInstitutionName { get; set; }
+}
+
+public class SetExceptionalDto
+{
+    public bool IsExceptional { get; set; }
 }
 
 public class CreateTransactionDto
@@ -76,6 +82,8 @@ public class TransactionSummaryDto
     public decimal Balance { get; set; }
     /// <summary>Somme des dépenses catégorisées comme transfert interne (épargne, etc.) sur la période.</summary>
     public decimal TotalSavings { get; set; }
+    /// <summary>Somme des dépenses exceptionnelles (non-transfert) sur la période. Toujours calculée, indépendamment du filtre includeExceptional.</summary>
+    public decimal ExceptionalExpenses { get; set; }
     public List<CategoryBreakdownDto> CategoryBreakdown { get; set; } = new();
     /// <summary>Détail des mises de côté par catégorie de transfert.</summary>
     public List<CategoryBreakdownDto> SavingsBreakdown { get; set; } = new();

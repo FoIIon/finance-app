@@ -17,9 +17,12 @@ export const transactionsApi = {
   delete: (id: number) =>
     apiClient.delete(`/transaction/${id}`),
 
-  getSummary: (dashboardId?: number, from?: string, to?: string, bankAccountId?: number) =>
+  setExceptional: (id: number, isExceptional: boolean) =>
+    apiClient.put<Transaction>(`/transaction/${id}/exceptional`, { isExceptional }),
+
+  getSummary: (dashboardId?: number, from?: string, to?: string, bankAccountId?: number, includeExceptional?: boolean) =>
     apiClient.get<TransactionSummary>('/transaction/summary', {
-      params: { dashboardId, from, to, bankAccountId },
+      params: { dashboardId, from, to, bankAccountId, includeExceptional },
     }),
 
   recategorize: () =>

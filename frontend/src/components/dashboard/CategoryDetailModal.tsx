@@ -90,6 +90,7 @@ export const CategoryDetailModal = ({ categoryId, categoryName, categoryIcon, to
                 <li key={t.id} className="py-3 flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-white text-sm truncate">
+                      {t.isExceptional && <span className="text-amber-400 mr-1" title="Dépense exceptionnelle" aria-label="Dépense exceptionnelle">⚡</span>}
                       {t.description || <em className="text-white/30">(sans libellé)</em>}
                     </p>
                     {t.counterpartyName && (

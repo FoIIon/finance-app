@@ -69,6 +69,7 @@ public class TransactionController : ControllerBase
             ExternalId = t.ExternalId,
             IsImported = t.IsImported,
             CounterpartyName = t.CounterpartyName,
+            IsExceptional = t.IsExceptional,
             BankAccountName = t.BankAccount?.AccountName,
             BankInstitutionName = t.BankAccount?.BankConnection?.InstitutionName
         };
@@ -83,6 +84,7 @@ public class TransactionController : ControllerBase
         [FromQuery] TransactionType? type,
         [FromQuery] int? accountId,
         [FromQuery] int? bankAccountId,
+        [FromQuery] bool? isExceptional,
         [FromQuery] string? search,
         [FromQuery] string? sortBy,
         [FromQuery] bool? sortDesc)
@@ -102,6 +104,7 @@ public class TransactionController : ControllerBase
         if (type.HasValue) query = query.Where(t => t.Type == type.Value);
         if (accountId.HasValue) query = query.Where(t => t.AccountId == accountId.Value);
         if (bankAccountId.HasValue) query = query.Where(t => t.BankAccountId == bankAccountId.Value);
+        if (isExceptional.HasValue) query = query.Where(t => t.IsExceptional == isExceptional.Value);
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(t => t.Description.Contains(search) || t.Category.Name.Contains(search) || t.Account.Name.Contains(search));
 
@@ -177,7 +180,8 @@ public class TransactionController : ControllerBase
             AccountName = account.Name,
             ExternalId = transaction.ExternalId,
             IsImported = transaction.IsImported,
-            CounterpartyName = transaction.CounterpartyName
+            CounterpartyName = transaction.CounterpartyName,
+            IsExceptional = transaction.IsExceptional
         });
     }
 
@@ -224,9 +228,28 @@ public class TransactionController : ControllerBase
             ExternalId = transaction.ExternalId,
             IsImported = transaction.IsImported,
             CounterpartyName = transaction.CounterpartyName,
+            IsExceptional = transaction.IsExceptional,
             BankAccountName = transaction.BankAccount?.AccountName,
             BankInstitutionName = transaction.BankAccount?.BankConnection?.InstitutionName
         });
+    }
+
+    [HttpPut("{id}/exceptional")]
+    public async Task<ActionResult<TransactionDto>> SetExceptional(int id, SetExceptionalDto dto)
+    {
+        var userId = GetUserId();
+        var transaction = await _context.Transactions
+            .Include(t => t.Category)
+            .Include(t => t.Account)
+            .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .FirstOrDefaultAsync(t => t.Id == id && t.Account.UserId == userId);
+
+        if (transaction == null) return NotFound();
+
+        transaction.IsExceptional = dto.IsExceptional;
+        await _context.SaveChangesAsync();
+
+        return Ok(MapToDto(transaction));
     }
 
     [HttpDelete("{id}")]
@@ -293,7 +316,8 @@ public class TransactionController : ControllerBase
         [FromQuery] int? dashboardId,
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
-        [FromQuery] int? bankAccountId)
+        [FromQuery] int? bankAccountId,
+        [FromQuery] bool includeExceptional = true)
     {
         var accountIds = await GetAccountIds(dashboardId);
         if (!accountIds.Any())
@@ -324,16 +348,24 @@ public class TransactionController : ControllerBase
                 CategoryIcon = t.Category.Icon,
                 CategoryColor = t.Category.Color,
                 IsTransfer = t.Category.IsTransfer,
+                t.IsExceptional,
             })
             .ToListAsync();
 
-        // Exclure les transferts internes (épargne, comptes joints) des stats dépenses/revenus
-        var totalIncome = rawAll.Where(t => t.Type == TransactionType.Income && !t.IsTransfer).Sum(t => t.Amount);
-        var totalExpenses = rawAll.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer).Sum(t => t.Amount);
-        // Mise de côté = dépenses sur catégories transfert (Épargne perso, etc.) — exposée séparément pour visibilité
-        var totalSavings = rawAll.Where(t => t.Type == TransactionType.Expense && t.IsTransfer).Sum(t => t.Amount);
+        // Dépenses exceptionnelles (non-transfert) de la période — toujours calculée, sert au libellé "dont X € exceptionnels"
+        var exceptionalExpenses = rawAll.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer && t.IsExceptional).Sum(t => t.Amount);
 
-        var expensesByCategory = rawAll
+        // Filtre flux : quand includeExceptional == false, on retire les transactions exceptionnelles des agrégats de flux
+        // (mais PAS de la courbe solde total plus bas — ces dépenses ont réellement eu lieu)
+        var flux = includeExceptional ? rawAll : rawAll.Where(t => !t.IsExceptional).ToList();
+
+        // Exclure les transferts internes (épargne, comptes joints) des stats dépenses/revenus
+        var totalIncome = flux.Where(t => t.Type == TransactionType.Income && !t.IsTransfer).Sum(t => t.Amount);
+        var totalExpenses = flux.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer).Sum(t => t.Amount);
+        // Mise de côté = dépenses sur catégories transfert (Épargne perso, etc.) — exposée séparément pour visibilité
+        var totalSavings = flux.Where(t => t.Type == TransactionType.Expense && t.IsTransfer).Sum(t => t.Amount);
+
+        var expensesByCategory = flux
             .Where(t => t.Type == TransactionType.Expense && !t.IsTransfer)
             .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
             .Select(g =>
@@ -352,7 +384,7 @@ public class TransactionController : ControllerBase
             .OrderByDescending(c => c.Amount)
             .ToList();
 
-        var savingsByCategory = rawAll
+        var savingsByCategory = flux
             .Where(t => t.Type == TransactionType.Expense && t.IsTransfer)
             .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
             .Select(g =>
@@ -377,11 +409,12 @@ public class TransactionController : ControllerBase
         // SQLite : agrégation client (exclut transferts internes)
         var rawMonthly = await _context.Transactions
             .Where(t => accountIds.Contains(t.AccountId) && t.Date >= startOfMonth)
-            .Select(t => new { t.Date.Year, t.Date.Month, t.Type, t.Amount, t.Category.IsTransfer })
+            .Select(t => new { t.Date.Year, t.Date.Month, t.Type, t.Amount, t.Category.IsTransfer, t.IsExceptional })
             .ToListAsync();
 
+        // Barres Income/Expenses : mêmes exclusions que les KPI (transferts + exceptionnelles si includeExceptional == false)
         var monthlyData = rawMonthly
-            .Where(t => !t.IsTransfer)
+            .Where(t => !t.IsTransfer && (includeExceptional || !t.IsExceptional))
             .GroupBy(t => new { t.Year, t.Month })
             .Select(g => new
             {
@@ -436,6 +469,7 @@ public class TransactionController : ControllerBase
             TotalExpenses = totalExpenses,
             Balance = totalIncome - totalExpenses,
             TotalSavings = totalSavings,
+            ExceptionalExpenses = exceptionalExpenses,
             CategoryBreakdown = expensesByCategory,
             SavingsBreakdown = savingsByCategory,
             MonthlyBalance = monthlyBalance
