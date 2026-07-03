@@ -20,6 +20,7 @@ export interface Transaction {
   externalId?: string;
   isImported: boolean;
   counterpartyName?: string;
+  isExceptional: boolean;
   bankAccountName?: string;
   bankInstitutionName?: string;
 }
@@ -48,6 +49,8 @@ export interface TransactionSummary {
   balance: number;
   /** Somme des dépenses sur catégories transfert (Épargne, etc.) — exclues du Balance. */
   totalSavings: number;
+  /** Somme des dépenses exceptionnelles (non-transfert) de la période — toujours calculée. */
+  exceptionalExpenses: number;
   categoryBreakdown: CategoryBreakdown[];
   /** Détail des mises de côté par catégorie de transfert. */
   savingsBreakdown: CategoryBreakdown[];
@@ -79,6 +82,7 @@ export interface TransactionFilters {
   type?: TransactionType;
   accountId?: number;
   bankAccountId?: number;
+  isExceptional?: boolean;
   search?: string;
   sortBy?: string;
   sortDesc?: boolean;

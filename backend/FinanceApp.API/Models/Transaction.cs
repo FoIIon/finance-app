@@ -12,6 +12,7 @@ public class Transaction
     public string? ExternalId { get; set; }
     public bool IsImported { get; set; }
     public string? CounterpartyName { get; set; }
+    public bool IsExceptional { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public int? BankAccountId { get; set; }

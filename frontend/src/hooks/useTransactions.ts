@@ -53,6 +53,14 @@ export const useTransactions = () => {
     setTransactions((prev) => prev.filter((t) => t.id !== id));
   };
 
+  const setExceptional = async (id: number, isExceptional: boolean) => {
+    const response = await transactionsApi.setExceptional(id, isExceptional);
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === id ? response.data : t))
+    );
+    return response.data;
+  };
+
   useEffect(() => {
     if (dashboardId) {
       fetchTransactions();
@@ -69,5 +77,6 @@ export const useTransactions = () => {
     createTransaction,
     updateTransaction,
     deleteTransaction,
+    setExceptional,
   };
 };

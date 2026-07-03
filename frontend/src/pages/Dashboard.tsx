@@ -2,6 +2,7 @@ import { Outlet, NavLink } from 'react-router-dom';
 import { useDashboards } from '../hooks/useDashboards';
 import { PeriodSelector } from '../components/dashboard/PeriodSelector';
 import { BankAccountSelector } from '../components/dashboard/BankAccountSelector';
+import { ExceptionalToggle } from '../components/dashboard/ExceptionalToggle';
 import { useAccountBalancesQuery } from '../hooks/queries';
 import { usePeriod } from '../context/PeriodContext';
 
@@ -37,6 +38,7 @@ const Dashboard = () => {
         <div className="flex flex-col items-end gap-2">
           <BankAccountSelector />
           <PeriodSelector />
+          <ExceptionalToggle />
         </div>
       </div>
 
