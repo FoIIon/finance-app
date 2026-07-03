@@ -124,6 +124,32 @@ public class CategoryMonthHistoryDto
     public decimal ExceptionalTotal { get; set; }
 }
 
+/// <summary>
+/// Bilan mensuel en blocs, calqué sur le modèle Excel d'Audrey :
+/// ENTRÉES − FIXE − MISES DE CÔTÉ − VARIABLE = TOTAL (le « reste » du mois).
+/// </summary>
+public class MonthlyReportDto
+{
+    public int Year { get; set; }
+    public int Month { get; set; }
+    /// <summary>Revenus non-transfert du mois.</summary>
+    public decimal Entrees { get; set; }
+    /// <summary>Dépenses non-transfert sur catégories marquées « charge fixe ».</summary>
+    public decimal Fixe { get; set; }
+    /// <summary>Dépenses sur catégories transfert (épargne, virements perso) — les « mises de côté » d'Audrey.</summary>
+    public decimal MisesDeCote { get; set; }
+    /// <summary>Dépenses non-transfert non-fixes — le reste variable.</summary>
+    public decimal Variable { get; set; }
+    /// <summary>Part exceptionnelle du bloc variable (dépenses IsExceptional).</summary>
+    public decimal VariableExceptionnel { get; set; }
+    /// <summary>Entrées − Fixe − MisesDeCote − Variable : ce qu'il reste sur le mois.</summary>
+    public decimal Total { get; set; }
+    public List<CategoryBreakdownDto> EntreesByCategory { get; set; } = new();
+    public List<CategoryBreakdownDto> FixeByCategory { get; set; } = new();
+    public List<CategoryBreakdownDto> MisesDeCoteByCategory { get; set; } = new();
+    public List<CategoryBreakdownDto> VariableByCategory { get; set; } = new();
+}
+
 public class AccountBalanceDto
 {
     public int AccountId { get; set; }

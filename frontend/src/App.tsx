@@ -14,6 +14,7 @@ import Dashboard from './pages/Dashboard';
 import AcceptInvitation from './pages/AcceptInvitation';
 
 const DashboardOverview = lazy(() => import('./pages/dashboard/Overview'));
+const DashboardBilan = lazy(() => import('./pages/dashboard/Bilan'));
 const DashboardCategories = lazy(() => import('./pages/dashboard/Categories'));
 const DashboardProjects = lazy(() => import('./pages/dashboard/Projects'));
 const DashboardTriage = lazy(() => import('./pages/dashboard/Triage'));
@@ -56,6 +57,7 @@ const App = () => {
                   <Route path="/dashboard" element={<Dashboard />}>
                     <Route index element={<Navigate to="overview" replace />} />
                     <Route path="overview" element={<DashboardOverview />} />
+                    <Route path="bilan" element={<DashboardBilan />} />
                     <Route path="categories" element={<DashboardCategories />} />
                     <Route path="projects" element={<DashboardProjects />} />
                     <Route path="triage" element={<DashboardTriage />} />

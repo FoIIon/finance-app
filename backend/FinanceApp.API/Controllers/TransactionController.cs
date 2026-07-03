@@ -477,6 +477,88 @@ public class TransactionController : ControllerBase
     }
 
     /// <summary>
+    /// Bilan mensuel en blocs (modèle Excel d'Audrey) : ENTRÉES − FIXE − MISES DE CÔTÉ − VARIABLE = TOTAL.
+    /// Agrégation client (pattern SQLite de GetSummary — SQLite ne sait pas Sum(decimal) en SQL).
+    /// </summary>
+    [HttpGet("monthly-report")]
+    public async Task<ActionResult<MonthlyReportDto>> GetMonthlyReport(
+        [FromQuery] int? dashboardId,
+        [FromQuery] int year,
+        [FromQuery] int month)
+    {
+        if (month < 1 || month > 12) return BadRequest("Mois invalide (1-12).");
+
+        var accountIds = await GetAccountIds(dashboardId);
+        if (!accountIds.Any())
+            return Ok(new MonthlyReportDto { Year = year, Month = month });
+
+        var start = new DateTime(year, month, 1);
+        var end = start.AddMonths(1);
+
+        var raw = await _context.Transactions
+            .Where(t => accountIds.Contains(t.AccountId) && t.Date >= start && t.Date < end)
+            .Select(t => new
+            {
+                t.Type,
+                t.Amount,
+                t.IsExceptional,
+                CategoryId = t.Category.Id,
+                CategoryName = t.Category.Name,
+                CategoryIcon = t.Category.Icon,
+                CategoryColor = t.Category.Color,
+                IsTransfer = t.Category.IsTransfer,
+                IsFixed = t.Category.IsFixed,
+            })
+            .ToListAsync();
+
+        // Bloc ENTRÉES : revenus non-transfert
+        var entreesItems = raw.Where(t => t.Type == TransactionType.Income && !t.IsTransfer).ToList();
+        // Bloc FIXE : dépenses non-transfert sur catégories marquées charge fixe
+        var fixeItems = raw.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer && t.IsFixed).ToList();
+        // Bloc MISES DE CÔTÉ : dépenses sur catégories transfert (épargne, virements perso)
+        var misesItems = raw.Where(t => t.Type == TransactionType.Expense && t.IsTransfer).ToList();
+        // Bloc VARIABLE : dépenses non-transfert non-fixes (le reste)
+        var variableItems = raw.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer && !t.IsFixed).ToList();
+
+        var entrees = entreesItems.Sum(t => t.Amount);
+        var fixe = fixeItems.Sum(t => t.Amount);
+        var mises = misesItems.Sum(t => t.Amount);
+        var variable = variableItems.Sum(t => t.Amount);
+        var variableExceptionnel = variableItems.Where(t => t.IsExceptional).Sum(t => t.Amount);
+
+        static List<CategoryBreakdownDto> Breakdown(IEnumerable<(int Id, string Name, string Icon, string Color, decimal Amount)> items) =>
+            items
+                .GroupBy(x => new { x.Id, x.Name, x.Icon, x.Color })
+                .Select(g => new CategoryBreakdownDto
+                {
+                    CategoryId = g.Key.Id,
+                    CategoryName = g.Key.Name,
+                    CategoryIcon = g.Key.Icon,
+                    CategoryColor = g.Key.Color,
+                    Amount = g.Sum(x => x.Amount),
+                    Percentage = 0,
+                })
+                .OrderByDescending(c => c.Amount)
+                .ToList();
+
+        return Ok(new MonthlyReportDto
+        {
+            Year = year,
+            Month = month,
+            Entrees = entrees,
+            Fixe = fixe,
+            MisesDeCote = mises,
+            Variable = variable,
+            VariableExceptionnel = variableExceptionnel,
+            Total = entrees - fixe - mises - variable,
+            EntreesByCategory = Breakdown(entreesItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
+            FixeByCategory = Breakdown(fixeItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
+            MisesDeCoteByCategory = Breakdown(misesItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
+            VariableByCategory = Breakdown(variableItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
+        });
+    }
+
+    /// <summary>
     /// Historique mensuel des dépenses d'une catégorie sur les N derniers mois calendaires (mois courant inclus,
     /// mois vides à 0). Sépare courant / exceptionnel pour barres empilées côté front. Exclut les transferts internes.
     /// </summary>

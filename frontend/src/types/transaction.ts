@@ -87,6 +87,27 @@ export interface CategoryMonthHistory {
   exceptionalTotal: number;
 }
 
+export interface MonthlyReport {
+  year: number;
+  month: number;
+  /** Revenus non-transfert du mois. */
+  entrees: number;
+  /** Dépenses non-transfert sur catégories marquées « charge fixe ». */
+  fixe: number;
+  /** Dépenses sur catégories transfert (épargne, virements perso). */
+  misesDeCote: number;
+  /** Dépenses non-transfert non-fixes (le reste). */
+  variable: number;
+  /** Part exceptionnelle du bloc variable. */
+  variableExceptionnel: number;
+  /** entrees − fixe − misesDeCote − variable. */
+  total: number;
+  entreesByCategory: CategoryBreakdown[];
+  fixeByCategory: CategoryBreakdown[];
+  misesDeCoteByCategory: CategoryBreakdown[];
+  variableByCategory: CategoryBreakdown[];
+}
+
 export interface TransactionFilters {
   dashboardId?: number;
   from?: string;

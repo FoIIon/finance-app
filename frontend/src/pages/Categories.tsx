@@ -20,7 +20,7 @@ const Categories = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [formData, setFormData] = useState<CreateCategory>({ name: '', icon: '', color: '#E74C3C' });
+  const [formData, setFormData] = useState<CreateCategory>({ name: '', icon: '', color: '#E74C3C', isFixed: false });
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,13 +39,13 @@ const Categories = () => {
 
   const openCreateForm = () => {
     setEditingCategory(null);
-    setFormData({ name: '', icon: '', color: getNextColor(categories) });
+    setFormData({ name: '', icon: '', color: getNextColor(categories), isFixed: false });
     setShowForm(true);
   };
 
   const openEditForm = (c: Category) => {
     setEditingCategory(c);
-    setFormData({ name: c.name, icon: c.icon, color: c.color });
+    setFormData({ name: c.name, icon: c.icon, color: c.color, isFixed: c.isFixed });
     setShowForm(true);
   };
 
@@ -58,7 +58,7 @@ const Categories = () => {
       } else {
         await categoriesApi.create(formData);
       }
-      setFormData({ name: '', icon: '', color: getNextColor(categories) });
+      setFormData({ name: '', icon: '', color: getNextColor(categories), isFixed: false });
       setEditingCategory(null);
       setShowForm(false);
       fetchCategories();
@@ -70,6 +70,16 @@ const Categories = () => {
   const handleCancel = () => {
     setEditingCategory(null);
     setShowForm(false);
+  };
+
+  const handleToggleFixed = async (c: Category) => {
+    setError(null);
+    try {
+      await categoriesApi.setFixed(c.id, !c.isFixed);
+      fetchCategories();
+    } catch {
+      setError('Erreur lors de la mise à jour de la charge fixe');
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -136,6 +146,15 @@ const Categories = () => {
                 className="w-full h-[42px] rounded-xl bg-white/5 border border-white/10 cursor-pointer"
               />
             </div>
+            <label className="flex items-center gap-2 h-[42px] px-3 rounded-xl bg-white/5 border border-white/10 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={formData.isFixed}
+                onChange={(e) => setFormData({ ...formData, isFixed: e.target.checked })}
+                className="w-4 h-4 accent-amber-500"
+              />
+              <span className="text-sm text-white/80 whitespace-nowrap" title="Prêt, énergie, crèche, assurances… — comptée dans le bloc FIXE du bilan mensuel">Charge fixe</span>
+            </label>
             <button type="submit" className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-semibold hover:from-amber-600 hover:to-orange-700 transition-all">
               {editingCategory ? 'Enregistrer' : 'Créer'}
             </button>
@@ -167,7 +186,23 @@ const Categories = () => {
                 {c.icon}
               </div>
               <div>
-                <p className="text-white font-medium">{c.name}</p>
+                <p className="text-white font-medium flex items-center gap-2">
+                  {c.name}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleFixed(c)}
+                    aria-pressed={c.isFixed}
+                    title={c.isFixed ? 'Charge fixe — cliquer pour retirer du bloc FIXE du bilan' : 'Marquer comme charge fixe (bloc FIXE du bilan mensuel)'}
+                    className={
+                      'px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide border transition-colors ' +
+                      (c.isFixed
+                        ? 'bg-blue-500/15 border-blue-500/30 text-blue-300 hover:bg-blue-500/25'
+                        : 'bg-white/5 border-white/10 text-white/30 hover:text-white/60 hover:border-white/20')
+                    }
+                  >
+                    fixe
+                  </button>
+                </p>
                 <p className="text-white/30 text-xs">{c.isDefault ? 'Par défaut' : 'Personnalisée'}</p>
               </div>
             </div>
