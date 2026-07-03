@@ -108,6 +108,43 @@ export interface MonthlyReport {
   variableByCategory: CategoryBreakdown[];
 }
 
+export interface BurndownDay {
+  /** Jour du mois (1 → dernier jour). */
+  day: number;
+  /** Date ISO "yyyy-MM-dd". */
+  date: string;
+  /** Cumul dépenses non-transfert jusqu'à ce jour inclus. null si jour futur. */
+  spent: number | null;
+  /** Cumul entrées non-transfert jusqu'à ce jour inclus. null si jour futur. */
+  income: number | null;
+  /** income − spent. null si jour futur. */
+  remaining: number | null;
+}
+
+export interface Burndown {
+  year: number;
+  month: number;
+  days: BurndownDay[];
+  /** Reste au jour courant (mois courant) ou valeur finale (mois passé). */
+  remainingToday: number;
+  /** Moyenne journalière des dépenses variables des 14 derniers jours. */
+  dailyPaceVariable: number;
+  /** Dépenses récurrentes restant à tomber ce mois-ci. */
+  upcomingRecurringExpenses: number;
+  /** Entrées récurrentes restant à tomber ce mois-ci. */
+  upcomingRecurringIncome: number;
+  /** true si les récurrentes ont pu être intégrées à la projection. */
+  recurringIncluded: boolean;
+  /** Projection de fin de mois (valeur finale réelle si mois passé). */
+  projectedEndOfMonth: number;
+  /** Jours restants après aujourd'hui (0 si mois passé). */
+  daysRemaining: number;
+  /** true = mois entièrement passé. */
+  isPast: boolean;
+  /** Jour « aujourd'hui », ancre de la projection. null hors mois courant. */
+  todayDay: number | null;
+}
+
 export interface TransactionFilters {
   dashboardId?: number;
   from?: string;

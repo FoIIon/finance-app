@@ -613,6 +613,191 @@ public class TransactionController : ControllerBase
     }
 
     /// <summary>
+    /// Burn-down du « reste du mois » : courbe jour par jour du reste (entrées − dépenses non-transfert)
+    /// + projection de fin de mois. Agrégation client (pattern SQLite de GetSummary).
+    /// Remplace la note manuelle d'Audrey (ce qui reste pour finir le mois).
+    /// </summary>
+    [HttpGet("burndown")]
+    public async Task<ActionResult<BurndownDto>> GetBurndown(
+        [FromQuery] int? dashboardId,
+        [FromQuery] int year,
+        [FromQuery] int month)
+    {
+        if (month < 1 || month > 12) return BadRequest("Mois invalide (1-12).");
+
+        var lastDay = DateTime.DaysInMonth(year, month);
+        var accountIds = await GetAccountIds(dashboardId);
+        if (!accountIds.Any())
+            return Ok(new BurndownDto { Year = year, Month = month, RecurringIncluded = true });
+
+        var start = new DateTime(year, month, 1);
+        var end = start.AddMonths(1);
+        var now = DateTime.UtcNow;
+
+        var isPast = end <= now;
+        var isCurrent = start <= now && now < end;
+        var isFuture = start > now;
+
+        // Jour de référence « aujourd'hui » dans ce mois : courant → now.Day, passé → dernier jour, futur → 0
+        var todayDay = isCurrent ? now.Day : (isPast ? lastDay : 0);
+
+        // Transactions du mois, hors transferts internes (mêmes filtres que GetSummary)
+        var raw = await _context.Transactions
+            .Where(t => accountIds.Contains(t.AccountId) && t.Date >= start && t.Date < end && !t.Category.IsTransfer)
+            .Select(t => new { t.Date, t.Type, t.Amount })
+            .ToListAsync();
+
+        var spentDelta = new decimal[lastDay + 1];
+        var incomeDelta = new decimal[lastDay + 1];
+        foreach (var t in raw)
+        {
+            var d = t.Date.Day;
+            if (d < 1 || d > lastDay) continue;
+            if (t.Type == TransactionType.Expense) spentDelta[d] += t.Amount;
+            else if (t.Type == TransactionType.Income) incomeDelta[d] += t.Amount;
+        }
+
+        var days = new List<BurndownDayDto>(lastDay);
+        decimal cumSpent = 0, cumIncome = 0, remainingToday = 0;
+        for (var d = 1; d <= lastDay; d++)
+        {
+            cumSpent += spentDelta[d];
+            cumIncome += incomeDelta[d];
+            var isFutureDay = isFuture || (isCurrent && d > todayDay);
+            days.Add(new BurndownDayDto
+            {
+                Day = d,
+                Date = start.AddDays(d - 1).ToString("yyyy-MM-dd"),
+                Spent = isFutureDay ? null : cumSpent,
+                Income = isFutureDay ? null : cumIncome,
+                Remaining = isFutureDay ? null : cumIncome - cumSpent,
+            });
+            if (!isFutureDay) remainingToday = cumIncome - cumSpent; // dernière valeur non-future = aujourd'hui / fin de mois passé
+        }
+
+        var daysRemaining = isCurrent ? lastDay - todayDay : (isFuture ? lastDay : 0);
+
+        // Rythme variable : moyenne journalière des dépenses variables (non-transfert, catégorie non-fixe) sur 14 jours glissants
+        var paceStart = now.Date.AddDays(-13);
+        var paceEnd = now.Date.AddDays(1);
+        var paceRaw = await _context.Transactions
+            .Where(t => accountIds.Contains(t.AccountId)
+                     && t.Type == TransactionType.Expense
+                     && !t.Category.IsTransfer
+                     && !t.Category.IsFixed
+                     && t.Date >= paceStart && t.Date < paceEnd)
+            .Select(t => t.Amount)
+            .ToListAsync();
+        var dailyPaceVariable = paceRaw.Sum() / 14m;
+
+        // Récurrentes restant à tomber ce mois-ci. Modèle exploitable (Frequency + DayOfMonth/StartDate) → toujours calculable.
+        decimal upcomingExpenses = 0, upcomingIncome = 0;
+        var recurringIncluded = true;
+        if (!isPast)
+        {
+            var effectiveDashboardId = dashboardId;
+            if (effectiveDashboardId == null)
+            {
+                var userId = GetUserId();
+                var personal = await _context.Dashboards
+                    .Where(d => d.CreatorId == userId)
+                    .OrderBy(d => d.CreatedAt)
+                    .FirstOrDefaultAsync();
+                effectiveDashboardId = personal?.Id;
+            }
+
+            if (effectiveDashboardId.HasValue)
+            {
+                // Include Category pour exclure les transferts internes, cohérent avec la courbe (qui filtre !IsTransfer)
+                var recs = await _context.RecurringTransactions
+                    .Include(r => r.Category)
+                    .Where(r => r.DashboardId == effectiveDashboardId.Value && r.IsActive
+                             && (r.Category == null || !r.Category.IsTransfer))
+                    .ToListAsync();
+
+                var fromDay = isCurrent ? todayDay + 1 : 1; // futur : tout le mois est « à venir »
+                foreach (var r in recs)
+                {
+                    foreach (var _ in RecurringOccurrenceDays(r, year, month, fromDay, lastDay))
+                    {
+                        if (r.Type == "Expense") upcomingExpenses += r.Amount;
+                        else if (r.Type == "Income") upcomingIncome += r.Amount;
+                    }
+                }
+            }
+        }
+
+        var projected = isPast
+            ? remainingToday // mois passé : la « projection » est la valeur finale réelle
+            : remainingToday - dailyPaceVariable * daysRemaining - upcomingExpenses + upcomingIncome;
+
+        return Ok(new BurndownDto
+        {
+            Year = year,
+            Month = month,
+            Days = days,
+            RemainingToday = remainingToday,
+            DailyPaceVariable = dailyPaceVariable,
+            UpcomingRecurringExpenses = upcomingExpenses,
+            UpcomingRecurringIncome = upcomingIncome,
+            RecurringIncluded = recurringIncluded,
+            ProjectedEndOfMonth = projected,
+            DaysRemaining = daysRemaining,
+            IsPast = isPast,
+            TodayDay = isCurrent ? todayDay : (int?)null,
+        });
+    }
+
+    /// <summary>
+    /// Jours du mois (year, month) dans [fromDay, toDay] où une récurrente tombe, en respectant Start/End et la fréquence.
+    /// Monthly : DayOfMonth (clampé au dernier jour). Yearly : anniversaire StartDate. Weekly : cadence 7j depuis StartDate.
+    /// </summary>
+    private static IEnumerable<int> RecurringOccurrenceDays(RecurringTransaction r, int year, int month, int fromDay, int toDay)
+    {
+        if (fromDay > toDay) yield break;
+        var lastDay = DateTime.DaysInMonth(year, month);
+        var monthStart = new DateOnly(year, month, 1);
+        var monthEnd = new DateOnly(year, month, lastDay);
+        if (r.StartDate > monthEnd) yield break;
+        if (r.EndDate.HasValue && r.EndDate.Value < monthStart) yield break;
+
+        switch (r.Frequency)
+        {
+            case "Monthly":
+            {
+                var day = Math.Min(r.DayOfMonth ?? r.StartDate.Day, lastDay);
+                var occ = new DateOnly(year, month, day);
+                if (day >= fromDay && day <= toDay && occ >= r.StartDate
+                    && (!r.EndDate.HasValue || occ <= r.EndDate.Value))
+                    yield return day;
+                break;
+            }
+            case "Yearly":
+            {
+                if (r.StartDate.Month != month) break;
+                var day = Math.Min(r.StartDate.Day, lastDay);
+                var occ = new DateOnly(year, month, day);
+                if (day >= fromDay && day <= toDay && occ >= r.StartDate
+                    && (!r.EndDate.HasValue || occ <= r.EndDate.Value))
+                    yield return day;
+                break;
+            }
+            case "Weekly":
+            {
+                for (var day = fromDay; day <= toDay; day++)
+                {
+                    var occ = new DateOnly(year, month, day);
+                    if (occ < r.StartDate) continue;
+                    if (r.EndDate.HasValue && occ > r.EndDate.Value) continue;
+                    if ((occ.DayNumber - r.StartDate.DayNumber) % 7 == 0)
+                        yield return day;
+                }
+                break;
+            }
+        }
+    }
+
+    /// <summary>
     /// Total des soldes du dashboard, ancré sur le solde booké (hors pending) pour les comptes GoCardless.
     /// Réplique la résolution manuel/GoCardless de <see cref="GetAccountBalances"/> (branche non-historique),
     /// mais préfère BookedBalance à RealBalance — RealBalance (interimAvailable) reste utilisé partout ailleurs
