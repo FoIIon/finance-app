@@ -13,6 +13,8 @@ public class BankAccount
     public bool IsActive { get; set; } = true;
     /// <summary>Solde réel récupéré via l'API banque (GoCardless balances). Pour comptes manuels = solde calculé à BalanceUpdatedAt.</summary>
     public decimal? RealBalance { get; set; }
+    /// <summary>Solde booké (hors transactions pending) récupéré via l'API banque (GoCardless balances). Sert d'ancrage stable pour les courbes rétrospectives (RealBalance peut inclure du pending).</summary>
+    public decimal? BookedBalance { get; set; }
     public DateTime? BalanceUpdatedAt { get; set; }
 
     // === Comptes manuels (sans connexion Open Banking) ===

@@ -84,6 +84,7 @@ public class TransactionSummaryDto
 
 public class CategoryBreakdownDto
 {
+    public int CategoryId { get; set; }
     public string CategoryName { get; set; } = string.Empty;
     public string CategoryIcon { get; set; } = string.Empty;
     public string CategoryColor { get; set; } = string.Empty;
@@ -97,6 +98,7 @@ public class MonthlyBalanceDto
     public decimal Income { get; set; }
     public decimal Expenses { get; set; }
     public decimal Balance { get; set; }
+    public decimal TotalBalance { get; set; }
 }
 
 public class AccountBalanceDto

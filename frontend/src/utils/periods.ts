@@ -60,3 +60,20 @@ export const periodToRange = (period: Period): { from?: string; to?: string } =>
 };
 
 export const DEFAULT_PERIOD = PERIODS[0]; // Ce mois-ci (cohérent avec les budgets mensuels)
+
+const MONTH_LABELS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+
+/** Crée une Period pour un mois précis. yearMonth au format "YYYY-MM" (retour d'un <input type="month">). */
+export const makeMonthPeriod = (yearMonth: string): Period => {
+  const [yearStr, monthStr] = yearMonth.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10) - 1; // 0-indexed
+  return {
+    key: `month-${yearMonth}`,
+    label: `${MONTH_LABELS[month]} ${year}`,
+    range: () => ({
+      from: iso(new Date(year, month, 1)),
+      to: iso(new Date(year, month + 1, 0, 23, 59, 59)),
+    }),
+  };
+};

@@ -1,7 +1,7 @@
 import { useDashboards } from '../../hooks/useDashboards';
 import { usePeriod } from '../../context/PeriodContext';
 import { useSummaryQuery } from '../../hooks/queries';
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } from 'recharts';
 import { formatCurrency } from '../../utils/format';
 
 export const MonthlyTrend = () => {
@@ -23,13 +23,16 @@ export const MonthlyTrend = () => {
           <LineChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
             <XAxis dataKey="month" stroke="rgba(255,255,255,0.3)" fontSize={11} />
-            <YAxis stroke="rgba(255,255,255,0.3)" fontSize={11} />
+            <YAxis yAxisId="flow" stroke="rgba(255,255,255,0.3)" fontSize={11} />
+            <YAxis yAxisId="balance" orientation="right" stroke="rgba(255,255,255,0.3)" fontSize={11} />
             <Tooltip
               contentStyle={{ backgroundColor: '#1a1a3e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff' }}
               formatter={(value) => formatCurrency(value as number)}
             />
-            <Line type="monotone" dataKey="income" stroke="#34d399" strokeWidth={2} dot={{ fill: '#34d399', r: 3 }} name="Revenus" />
-            <Line type="monotone" dataKey="expenses" stroke="#f87171" strokeWidth={2} dot={{ fill: '#f87171', r: 3 }} name="Dépenses" />
+            <Legend wrapperStyle={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }} />
+            <Line yAxisId="flow" type="monotone" dataKey="income" stroke="#34d399" strokeWidth={2} dot={{ fill: '#34d399', r: 3 }} name="Revenus" />
+            <Line yAxisId="flow" type="monotone" dataKey="expenses" stroke="#f87171" strokeWidth={2} dot={{ fill: '#f87171', r: 3 }} name="Dépenses" />
+            <Line yAxisId="balance" type="monotone" dataKey="totalBalance" stroke="#a78bfa" strokeWidth={2} strokeDasharray="4 4" dot={{ fill: '#a78bfa', r: 3 }} name="Solde total" />
           </LineChart>
         </ResponsiveContainer>
       )}

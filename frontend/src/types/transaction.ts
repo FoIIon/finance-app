@@ -60,6 +60,7 @@ export interface CategoryBreakdown {
   categoryColor: string;
   amount: number;
   percentage: number;
+  categoryId: number;
 }
 
 export interface MonthlyBalance {
@@ -67,6 +68,7 @@ export interface MonthlyBalance {
   income: number;
   expenses: number;
   balance: number;
+  totalBalance: number;
 }
 
 export interface TransactionFilters {
@@ -76,6 +78,7 @@ export interface TransactionFilters {
   categoryId?: number;
   type?: TransactionType;
   accountId?: number;
+  bankAccountId?: number;
   search?: string;
   sortBy?: string;
   sortDesc?: boolean;

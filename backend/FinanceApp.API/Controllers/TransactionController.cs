@@ -82,6 +82,7 @@ public class TransactionController : ControllerBase
         [FromQuery] int? categoryId,
         [FromQuery] TransactionType? type,
         [FromQuery] int? accountId,
+        [FromQuery] int? bankAccountId,
         [FromQuery] string? search,
         [FromQuery] string? sortBy,
         [FromQuery] bool? sortDesc)
@@ -100,6 +101,7 @@ public class TransactionController : ControllerBase
         if (categoryId.HasValue) query = query.Where(t => t.CategoryId == categoryId.Value);
         if (type.HasValue) query = query.Where(t => t.Type == type.Value);
         if (accountId.HasValue) query = query.Where(t => t.AccountId == accountId.Value);
+        if (bankAccountId.HasValue) query = query.Where(t => t.BankAccountId == bankAccountId.Value);
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(t => t.Description.Contains(search) || t.Category.Name.Contains(search) || t.Account.Name.Contains(search));
 
@@ -261,28 +263,24 @@ public class TransactionController : ControllerBase
             .Select(a => a.Id)
             .ToListAsync();
 
+        // Ne toucher que les transactions encore en catégorie par défaut : tout le reste est
+        // soit un match de règle antérieur, soit une correction manuelle qu'on ne doit pas écraser.
         var transactions = await _context.Transactions
-            .Where(t => accounts.Contains(t.AccountId) && t.IsImported)
+            .Where(t => accounts.Contains(t.AccountId) && t.IsImported && t.CategoryId == defaultCategoryId)
             .ToListAsync();
 
         int updated = 0;
         foreach (var tx in transactions)
         {
-            var matched = defaultCategoryId;
             foreach (var rule in rules)
             {
                 if (tx.Description.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase) ||
                     (tx.CounterpartyName != null && tx.CounterpartyName.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase)))
                 {
-                    matched = rule.CategoryId;
+                    tx.CategoryId = rule.CategoryId;
+                    updated++;
                     break;
                 }
-            }
-
-            if (tx.CategoryId != matched)
-            {
-                tx.CategoryId = matched;
-                updated++;
             }
         }
 
@@ -321,6 +319,7 @@ public class TransactionController : ControllerBase
             {
                 t.Type,
                 t.Amount,
+                CategoryId = t.Category.Id,
                 CategoryName = t.Category.Name,
                 CategoryIcon = t.Category.Icon,
                 CategoryColor = t.Category.Color,
@@ -336,12 +335,13 @@ public class TransactionController : ControllerBase
 
         var expensesByCategory = rawAll
             .Where(t => t.Type == TransactionType.Expense && !t.IsTransfer)
-            .GroupBy(t => new { t.CategoryName, t.CategoryIcon, t.CategoryColor })
+            .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
             .Select(g =>
             {
                 var amount = g.Sum(t => t.Amount);
                 return new CategoryBreakdownDto
                 {
+                    CategoryId = g.Key.CategoryId,
                     CategoryName = g.Key.CategoryName,
                     CategoryIcon = g.Key.CategoryIcon,
                     CategoryColor = g.Key.CategoryColor,
@@ -354,12 +354,13 @@ public class TransactionController : ControllerBase
 
         var savingsByCategory = rawAll
             .Where(t => t.Type == TransactionType.Expense && t.IsTransfer)
-            .GroupBy(t => new { t.CategoryName, t.CategoryIcon, t.CategoryColor })
+            .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
             .Select(g =>
             {
                 var amount = g.Sum(t => t.Amount);
                 return new CategoryBreakdownDto
                 {
+                    CategoryId = g.Key.CategoryId,
                     CategoryName = g.Key.CategoryName,
                     CategoryIcon = g.Key.CategoryIcon,
                     CategoryColor = g.Key.CategoryColor,
@@ -391,17 +392,40 @@ public class TransactionController : ControllerBase
             })
             .ToList();
 
+        // Solde total actuel du dashboard, ancré sur le solde booké (hors pending) plutôt que RealBalance/interimAvailable —
+        // cohérence avec le net mensuel qui n'agrège que des transactions booked (sinon le pending décale tous les points passés).
+        var currentTotalBalance = await GetTotalBookedBalanceAsync(dashboardId);
+
+        // Net mensuel sur tous les comptes du dashboard (ignore le filtre bankAccountId — le solde reste consolidé)
+        // Les IsTransfer s'annulent (transferts internes) ou n'existent pas (alimente un manuel, dont l'effet est dans currentTotal)
+        var rawForBalance = await _context.Transactions
+            .Where(t => accountIds.Contains(t.AccountId) && t.Date >= startOfMonth)
+            .Select(t => new { t.Date.Year, t.Date.Month, t.Type, t.Amount, IsTransfer = t.Category.IsTransfer })
+            .ToListAsync();
+        var monthlyNet = rawForBalance
+            .Where(t => !t.IsTransfer)
+            .GroupBy(t => new { t.Year, t.Month })
+            .ToDictionary(
+                g => (g.Key.Year, g.Key.Month),
+                g => g.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount)
+                   - g.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount));
+
         var monthlyBalance = Enumerable.Range(0, 6)
             .Select(i => startOfMonth.AddMonths(i))
             .Select(month =>
             {
                 var data = monthlyData.FirstOrDefault(d => d.Year == month.Year && d.Month == month.Month);
+                // Solde fin-de-mois = solde actuel - net cumulé des mois strictement postérieurs
+                var netAfter = monthlyNet
+                    .Where(kv => kv.Key.Year > month.Year || (kv.Key.Year == month.Year && kv.Key.Month > month.Month))
+                    .Sum(kv => kv.Value);
                 return new MonthlyBalanceDto
                 {
                     Month = month.ToString("MMM yyyy"),
                     Income = data?.Income ?? 0,
                     Expenses = data?.Expenses ?? 0,
-                    Balance = (data?.Income ?? 0) - (data?.Expenses ?? 0)
+                    Balance = (data?.Income ?? 0) - (data?.Expenses ?? 0),
+                    TotalBalance = currentTotalBalance - netAfter
                 };
             })
             .ToList();
@@ -416,6 +440,84 @@ public class TransactionController : ControllerBase
             SavingsBreakdown = savingsByCategory,
             MonthlyBalance = monthlyBalance
         });
+    }
+
+    /// <summary>
+    /// Total des soldes du dashboard, ancré sur le solde booké (hors pending) pour les comptes GoCardless.
+    /// Réplique la résolution manuel/GoCardless de <see cref="GetAccountBalances"/> (branche non-historique),
+    /// mais préfère BookedBalance à RealBalance — RealBalance (interimAvailable) reste utilisé partout ailleurs
+    /// (KPI, liste de comptes) et n'est pas affecté par ce helper.
+    /// </summary>
+    private async Task<decimal> GetTotalBookedBalanceAsync(int? dashboardId)
+    {
+        var accountIds = await GetAccountIds(dashboardId);
+        if (!accountIds.Any()) return 0m;
+
+        var userId = GetUserId();
+
+        var bankAccounts = await _context.BankAccounts
+            .Include(ba => ba.BankConnection)
+            .Where(ba => ba.IsActive && (
+                (ba.BankConnection != null && ba.BankConnection.UserId == userId)
+                || (ba.IsManual && ba.UserId == userId)
+            ))
+            .ToListAsync();
+
+        if (!bankAccounts.Any())
+        {
+            // Fallback : pas de banque connectée → solde calculé par Account interne (identique à GetAccountBalances)
+            var rawTxns = await _context.Transactions
+                .Where(t => accountIds.Contains(t.AccountId))
+                .Select(t => new { t.Type, t.Amount })
+                .ToListAsync();
+            return rawTxns.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount)
+                 - rawTxns.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount);
+        }
+
+        var bankAccountIds = bankAccounts.Where(ba => !ba.IsManual).Select(ba => ba.Id).ToList();
+        var rawByBank = await _context.Transactions
+            .Where(t => t.BankAccountId != null && bankAccountIds.Contains(t.BankAccountId.Value))
+            .Select(t => new { BankAccountId = t.BankAccountId!.Value, t.Type, t.Amount })
+            .ToListAsync();
+
+        var byBank = rawByBank
+            .GroupBy(t => t.BankAccountId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount)
+                   - g.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount));
+
+        var manualAccounts = bankAccounts.Where(ba => ba.IsManual).ToList();
+        var manualTransfers = new Dictionary<int, decimal>();
+        foreach (var m in manualAccounts)
+        {
+            if (m.SourceBankAccountId == null || m.IncrementCategoryId == null) continue;
+            var transfers = await _context.Transactions
+                .Where(t => t.BankAccountId == m.SourceBankAccountId
+                         && t.CategoryId == m.IncrementCategoryId
+                         && t.Type == TransactionType.Expense
+                         && (m.InitialBalanceDate == null || t.Date >= m.InitialBalanceDate))
+                .Select(t => t.Amount)
+                .ToListAsync();
+            manualTransfers[m.Id] = transfers.Sum();
+        }
+
+        var total = 0m;
+        foreach (var ba in bankAccounts)
+        {
+            if (ba.IsManual)
+            {
+                // Comptes manuels : résolution inchangée (pas de notion de booké/pending côté banque)
+                total += (ba.InitialBalance ?? 0) + manualTransfers.GetValueOrDefault(ba.Id, 0);
+            }
+            else
+            {
+                var netFallback = byBank.GetValueOrDefault(ba.Id, 0);
+                total += ba.BookedBalance ?? ba.RealBalance ?? netFallback;
+            }
+        }
+
+        return total;
     }
 
     /// <summary>Transactions encore catégorisées en "Autres" (CategoryId == 10).</summary>
