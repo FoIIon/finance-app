@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Transaction, CreateTransaction, UpdateTransaction, TransactionSummary, TransactionFilters } from '../types/transaction';
+import type { Transaction, CreateTransaction, UpdateTransaction, TransactionSummary, TransactionFilters, CategoryMonthHistory } from '../types/transaction';
 
 export const transactionsApi = {
   getAll: (filters?: TransactionFilters) =>
@@ -23,6 +23,11 @@ export const transactionsApi = {
   getSummary: (dashboardId?: number, from?: string, to?: string, bankAccountId?: number, includeExceptional?: boolean) =>
     apiClient.get<TransactionSummary>('/transaction/summary', {
       params: { dashboardId, from, to, bankAccountId, includeExceptional },
+    }),
+
+  getCategoryHistory: (dashboardId: number, categoryId: number, months = 12) =>
+    apiClient.get<CategoryMonthHistory[]>('/transaction/category-history', {
+      params: { dashboardId, categoryId, months },
     }),
 
   recategorize: () =>

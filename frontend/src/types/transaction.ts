@@ -74,6 +74,19 @@ export interface MonthlyBalance {
   totalBalance: number;
 }
 
+export interface CategoryMonthHistory {
+  /** Clé triable "yyyy-MM". */
+  month: string;
+  /** Libellé court fr-FR "juil. 2026". */
+  label: string;
+  /** Total dépenses (courant + exceptionnel). */
+  total: number;
+  /** Dépenses hors exceptionnel. */
+  currentTotal: number;
+  /** Dépenses exceptionnelles seules. */
+  exceptionalTotal: number;
+}
+
 export interface TransactionFilters {
   dashboardId?: number;
   from?: string;

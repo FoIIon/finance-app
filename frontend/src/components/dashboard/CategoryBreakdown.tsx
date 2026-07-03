@@ -68,6 +68,7 @@ export const CategoryBreakdownBars = ({ topN = 8 }: { topN?: number }) => {
           categoryId={selected.categoryId}
           categoryName={selected.categoryName}
           categoryIcon={selected.categoryIcon}
+          categoryColor={selected.categoryColor}
           totalAmount={Number(selected.amount)}
           dashboardId={currentDashboard.id}
           period={period}

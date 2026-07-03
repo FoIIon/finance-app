@@ -1,6 +1,7 @@
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { transactionsApi } from '../../api/transactions';
 import { TransactionType } from '../../types/transaction';
 import type { Period } from '../../utils/periods';
@@ -15,13 +16,14 @@ interface Props {
   categoryId: number;
   categoryName: string;
   categoryIcon: string;
+  categoryColor: string;
   totalAmount: number;
   dashboardId: number;
   period: Period;
   onClose: () => void;
 }
 
-export const CategoryDetailModal = ({ categoryId, categoryName, categoryIcon, totalAmount, dashboardId, period, onClose }: Props) => {
+export const CategoryDetailModal = ({ categoryId, categoryName, categoryIcon, categoryColor, totalAmount, dashboardId, period, onClose }: Props) => {
   const { from, to } = periodToRange(period);
   const bankAccountId = useBankFilter();
 
@@ -42,11 +44,37 @@ export const CategoryDetailModal = ({ categoryId, categoryName, categoryIcon, to
     },
   });
 
+  const { data: history, isLoading: historyLoading, isError: historyError } = useQuery({
+    queryKey: ['category-history', dashboardId, categoryId],
+    queryFn: async () => {
+      const res = await transactionsApi.getCategoryHistory(dashboardId, categoryId, 12);
+      return res.data;
+    },
+  });
+
+  // Moyenne des 6 mois révolus (hors mois courant) sur le flux courant (hors exceptionnel)
+  const { avg6, current, deltaPct, hasExceptional } = useMemo(() => {
+    const h = history ?? [];
+    const revolus = h.slice(-7, -1); // 6 mois précédant le mois courant
+    const avg = revolus.length ? revolus.reduce((s, m) => s + m.currentTotal, 0) / revolus.length : 0;
+    const cur = h.length ? h[h.length - 1] : undefined;
+    const curVal = cur?.currentTotal ?? 0;
+    return {
+      avg6: avg,
+      current: cur,
+      deltaPct: avg > 0 ? ((curVal - avg) / avg) * 100 : 0,
+      hasExceptional: h.some(m => m.exceptionalTotal > 0),
+    };
+  }, [history]);
+
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onEsc);
     return () => document.removeEventListener('keydown', onEsc);
   }, [onClose]);
+
+  const showChart = !historyError && history && history.length > 0;
+  const above = current ? (current.currentTotal > avg6) : false;
 
   const modal = (
     <div
@@ -76,6 +104,52 @@ export const CategoryDetailModal = ({ categoryId, categoryName, categoryIcon, to
             ×
           </button>
         </div>
+
+        {/* Évolution 12 mois — barres empilées courant/exceptionnel + moyenne 6 mois glissante */}
+        {historyLoading ? (
+          <div className="h-[200px] rounded bg-white/5 animate-pulse mb-4" />
+        ) : showChart ? (
+          <div className="mb-4">
+            <ResponsiveContainer width="100%" height={190}>
+              <BarChart data={history} margin={{ top: 12, right: 8, left: -8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  stroke="rgba(255,255,255,0.3)"
+                  fontSize={11}
+                  tickFormatter={(v: string) => v.split(' ')[0]}
+                />
+                <YAxis stroke="rgba(255,255,255,0.3)" fontSize={11} width={48} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1a1a3e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff' }}
+                  labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
+                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                  formatter={(value, name) => [formatCurrency(value as number), name as string]}
+                />
+                <Bar dataKey="currentTotal" stackId="a" fill={categoryColor} name="Courant" radius={hasExceptional ? [0, 0, 0, 0] : [3, 3, 0, 0]} />
+                <Bar dataKey="exceptionalTotal" stackId="a" fill={categoryColor} fillOpacity={0.45} name="Exceptionnel" radius={[3, 3, 0, 0]} />
+                {avg6 > 0 && (
+                  <ReferenceLine
+                    y={avg6}
+                    stroke="rgba(255,255,255,0.45)"
+                    strokeDasharray="4 4"
+                    label={{ value: 'moy. 6 mois', position: 'insideTopRight', fill: 'rgba(255,255,255,0.5)', fontSize: 10 }}
+                  />
+                )}
+              </BarChart>
+            </ResponsiveContainer>
+            {current && avg6 > 0 && (
+              <p className="text-xs text-white/50 text-center mt-1">
+                {current.label} : <span className="text-white/80 font-medium">{formatCurrency(current.currentTotal)}</span>
+                {' · moy. 6 mois : '}<span className="text-white/80 font-medium">{formatCurrency(avg6)}</span>
+                {' · '}
+                <span className={above ? 'text-red-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                  {deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(0)} %
+                </span>
+              </p>
+            )}
+          </div>
+        ) : null}
 
         <div className="flex-1 overflow-y-auto -mx-2 px-2">
           {isLoading ? (
