@@ -20,6 +20,9 @@ export const transactionsApi = {
   setExceptional: (id: number, isExceptional: boolean) =>
     apiClient.put<Transaction>(`/transaction/${id}/exceptional`, { isExceptional }),
 
+  setEnvelope: (id: number, projectEnvelopeId: number | null) =>
+    apiClient.put<Transaction>(`/transaction/${id}/envelope`, { projectEnvelopeId }),
+
   getSummary: (dashboardId?: number, from?: string, to?: string, bankAccountId?: number, includeExceptional?: boolean) =>
     apiClient.get<TransactionSummary>('/transaction/summary', {
       params: { dashboardId, from, to, bankAccountId, includeExceptional },

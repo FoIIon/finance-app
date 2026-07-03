@@ -17,7 +17,11 @@ public class Transaction
 
     public int? BankAccountId { get; set; }
 
+    /// <summary>Enveloppe projet à laquelle cette dépense est rattachée (optionnel).</summary>
+    public int? ProjectEnvelopeId { get; set; }
+
     public Category Category { get; set; } = null!;
     public Account Account { get; set; } = null!;
     public BankAccount? BankAccount { get; set; }
+    public ProjectEnvelope? ProjectEnvelope { get; set; }
 }

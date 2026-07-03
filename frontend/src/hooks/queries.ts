@@ -3,6 +3,8 @@ import { useContext } from 'react';
 import { transactionsApi } from '../api/transactions';
 import { budgetsApi } from '../api/budgets';
 import { savingsGoalsApi, dashboardExtrasApi } from '../api/savingsGoals';
+import { projectEnvelopesApi } from '../api/projectEnvelopes';
+import { shoppingItemsApi } from '../api/shoppingItems';
 import type { Period } from '../utils/periods';
 import { periodToRange } from '../utils/periods';
 import { PeriodContext } from '../context/PeriodContext';
@@ -103,6 +105,26 @@ export const useUncategorizedQuery = (dashboardId: number | undefined, limit = 5
     },
   });
 };
+
+export const useProjectEnvelopesQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['project-envelopes', dashboardId],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      const res = await projectEnvelopesApi.getAll(dashboardId!);
+      return res.data;
+    },
+  });
+
+export const useShoppingItemsQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['shopping-items', dashboardId],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      const res = await shoppingItemsApi.getAll(dashboardId!);
+      return res.data;
+    },
+  });
 
 export const useAnomaliesQuery = (dashboardId: number | undefined, period: Period) =>
   useQuery({

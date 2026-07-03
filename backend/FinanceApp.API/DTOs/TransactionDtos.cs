@@ -22,11 +22,19 @@ public class TransactionDto
     public bool IsExceptional { get; set; }
     public string? BankAccountName { get; set; }
     public string? BankInstitutionName { get; set; }
+    public int? ProjectEnvelopeId { get; set; }
+    public string? ProjectEnvelopeName { get; set; }
 }
 
 public class SetExceptionalDto
 {
     public bool IsExceptional { get; set; }
+}
+
+public class SetEnvelopeDto
+{
+    /// <summary>Enveloppe projet à rattacher. null = détacher.</summary>
+    public int? ProjectEnvelopeId { get; set; }
 }
 
 public class CreateTransactionDto
