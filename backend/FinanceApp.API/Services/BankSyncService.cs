@@ -139,10 +139,16 @@ public class BankSyncService : BackgroundService
         // Remonter à 90 jours s'il reste des transactions sans counterparty
         var hasMissingCounterparty = await context.Transactions
             .AnyAsync(t => t.AccountId == defaultAccount.Id && t.IsImported && t.CounterpartyName == null);
+        // Fenêtre glissante de 14 jours minimum : GoCardless filtre par bookingDate, une transaction
+        // bookée tardivement avec une date antérieure à LastSyncAt tomberait hors fenêtre pour toujours.
+        // L'index unique sur ExternalId absorbe les doublons re-fetchés.
+        var slidingWindowStart = DateTime.UtcNow.AddDays(-14);
+        var lastSync = connection.LastSyncAt ?? DateTime.UtcNow.AddDays(-90);
         var dateFrom = hasMissingCounterparty
             ? DateTime.UtcNow.AddDays(-90)
-            : connection.LastSyncAt ?? DateTime.UtcNow.AddDays(-90);
+            : (lastSync < slidingWindowStart ? lastSync : slidingWindowStart);
 
+        var anySyncFailed = false;
         foreach (var account in connection.BankAccounts.Where(a => a.IsActive))
         {
             try
@@ -153,37 +159,16 @@ public class BankSyncService : BackgroundService
                     var balancesData = await goCardless.GetBalancesAsync(account.ExternalAccountId);
                     if (balancesData.TryGetProperty("balances", out var balancesArray))
                     {
-                        // Préférer interimAvailable (= solde dispo), sinon expected, sinon premier
-                        var balanceTypes = new[] { "interimAvailable", "expected", "interimBooked", "closingBooked" };
-                        JsonElement bal = default;
-                        bool found = false;
-                        foreach (var prefType in balanceTypes)
+                        // Préférer interimAvailable (= solde dispo, peut inclure du pending), sinon expected, sinon premier
+                        var realBalance = ExtractPreferredBalance(balancesArray, new[] { "interimAvailable", "expected", "interimBooked", "closingBooked" });
+                        if (realBalance.HasValue)
                         {
-                            foreach (var b in balancesArray.EnumerateArray())
-                            {
-                                if (b.TryGetProperty("balanceType", out var t) && t.GetString() == prefType)
-                                {
-                                    bal = b;
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            if (found) break;
+                            account.RealBalance = realBalance.Value;
+                            account.BalanceUpdatedAt = DateTime.UtcNow;
                         }
-                        if (!found)
-                        {
-                            foreach (var b in balancesArray.EnumerateArray()) { bal = b; found = true; break; }
-                        }
-                        if (found && bal.TryGetProperty("balanceAmount", out var amountObj)
-                            && amountObj.TryGetProperty("amount", out var amountVal))
-                        {
-                            var amountStr = amountVal.GetString();
-                            if (decimal.TryParse(amountStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var bookedBalance))
-                            {
-                                account.RealBalance = bookedBalance;
-                                account.BalanceUpdatedAt = DateTime.UtcNow;
-                            }
-                        }
+
+                        // Solde booké uniquement (exclut le pending) — ancrage stable pour les courbes rétrospectives
+                        account.BookedBalance = ExtractPreferredBalance(balancesArray, new[] { "interimBooked", "closingBooked", "expected" });
                     }
                 }
                 catch (Exception ex)
@@ -279,12 +264,53 @@ public class BankSyncService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Erreur lors de la synchronisation du compte {AccountId}.", account.ExternalAccountId);
+                anySyncFailed = true;
                 if (rethrow) throw;
             }
         }
 
-        connection.LastSyncAt = DateTime.UtcNow;
+        // N'avancer LastSyncAt que si tous les comptes ont synchronisé : une fenêtre manquée
+        // au-delà des 14 jours glissants ne serait jamais re-fetchée sinon.
+        if (!anySyncFailed)
+            connection.LastSyncAt = DateTime.UtcNow;
         await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Extrait le solde GoCardless correspondant au premier balanceType trouvé dans l'ordre de préférence donné
+    /// (fallback sur le premier solde disponible si aucun des types préférés n'est présent).
+    /// </summary>
+    private static decimal? ExtractPreferredBalance(JsonElement balancesArray, string[] preferenceOrder)
+    {
+        JsonElement bal = default;
+        bool found = false;
+        foreach (var prefType in preferenceOrder)
+        {
+            foreach (var b in balancesArray.EnumerateArray())
+            {
+                if (b.TryGetProperty("balanceType", out var t) && t.GetString() == prefType)
+                {
+                    bal = b;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+        if (!found)
+        {
+            foreach (var b in balancesArray.EnumerateArray()) { bal = b; found = true; break; }
+        }
+        if (found && bal.TryGetProperty("balanceAmount", out var amountObj)
+            && amountObj.TryGetProperty("amount", out var amountVal))
+        {
+            var amountStr = amountVal.GetString();
+            if (decimal.TryParse(amountStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var value))
+            {
+                return value;
+            }
+        }
+        return null;
     }
 
     private async Task SyncTradeRepublicAsync(BankConnection connection, AppDbContext context, IServiceProvider serviceProvider, bool rethrow)
