@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Transaction, CreateTransaction, UpdateTransaction, TransactionSummary, TransactionFilters, CategoryMonthHistory, MonthlyReport } from '../types/transaction';
+import type { Transaction, CreateTransaction, UpdateTransaction, TransactionSummary, TransactionFilters, CategoryMonthHistory, MonthlyReport, Burndown } from '../types/transaction';
 
 export const transactionsApi = {
   getAll: (filters?: TransactionFilters) =>
@@ -32,6 +32,11 @@ export const transactionsApi = {
 
   getMonthlyReport: (dashboardId: number | undefined, year: number, month: number) =>
     apiClient.get<MonthlyReport>('/transaction/monthly-report', {
+      params: { dashboardId, year, month },
+    }),
+
+  getBurndown: (dashboardId: number | undefined, year: number, month: number) =>
+    apiClient.get<Burndown>('/transaction/burndown', {
       params: { dashboardId, year, month },
     }),
 

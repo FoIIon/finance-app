@@ -150,6 +150,50 @@ public class MonthlyReportDto
     public List<CategoryBreakdownDto> VariableByCategory { get; set; } = new();
 }
 
+/// <summary>Un point de la courbe burn-down : cumul du mois au soir du jour <see cref="Day"/>.</summary>
+public class BurndownDayDto
+{
+    /// <summary>Jour du mois (1 → dernier jour).</summary>
+    public int Day { get; set; }
+    /// <summary>Date ISO "yyyy-MM-dd".</summary>
+    public string Date { get; set; } = string.Empty;
+    /// <summary>Cumul dépenses non-transfert du 1er à ce jour inclus. null si jour futur (mois courant).</summary>
+    public decimal? Spent { get; set; }
+    /// <summary>Cumul entrées non-transfert du 1er à ce jour inclus. null si jour futur.</summary>
+    public decimal? Income { get; set; }
+    /// <summary>Income − Spent. null si jour futur.</summary>
+    public decimal? Remaining { get; set; }
+}
+
+/// <summary>
+/// Burn-down du « reste du mois » : courbe jour par jour + projection de fin de mois.
+/// Remplace le rituel manuel d'Audrey (note à la main ce qui reste pour finir le mois).
+/// </summary>
+public class BurndownDto
+{
+    public int Year { get; set; }
+    public int Month { get; set; }
+    public List<BurndownDayDto> Days { get; set; } = new();
+    /// <summary>Reste (income − spent) au jour courant (mois courant) ou valeur finale (mois passé).</summary>
+    public decimal RemainingToday { get; set; }
+    /// <summary>Moyenne journalière des dépenses variables (non-transfert, catégorie non-fixe) des 14 derniers jours.</summary>
+    public decimal DailyPaceVariable { get; set; }
+    /// <summary>Dépenses récurrentes connues restant à tomber ce mois-ci. 0 si non calculable.</summary>
+    public decimal UpcomingRecurringExpenses { get; set; }
+    /// <summary>Entrées récurrentes connues restant à tomber ce mois-ci. 0 si non calculable.</summary>
+    public decimal UpcomingRecurringIncome { get; set; }
+    /// <summary>true si les récurrentes ont pu être intégrées à la projection.</summary>
+    public bool RecurringIncluded { get; set; }
+    /// <summary>remainingToday − dailyPaceVariable × joursRestants − upcomingExpenses + upcomingIncome. Mois passé : valeur finale réelle.</summary>
+    public decimal ProjectedEndOfMonth { get; set; }
+    /// <summary>Nombre de jours restants après aujourd'hui (mois courant), 0 si mois passé.</summary>
+    public int DaysRemaining { get; set; }
+    /// <summary>true = mois entièrement passé, projection = valeur finale réelle.</summary>
+    public bool IsPast { get; set; }
+    /// <summary>Jour du mois « aujourd'hui » (ancre de la projection). null hors mois courant.</summary>
+    public int? TodayDay { get; set; }
+}
+
 public class AccountBalanceDto
 {
     public int AccountId { get; set; }
