@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace FinanceApp.API.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class Baseline : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -93,6 +93,7 @@ namespace FinanceApp.API.Migrations
                     Icon = table.Column<string>(type: "TEXT", nullable: false),
                     Color = table.Column<string>(type: "TEXT", nullable: false),
                     IsDefault = table.Column<bool>(type: "INTEGER", nullable: false),
+                    IsTransfer = table.Column<bool>(type: "INTEGER", nullable: false),
                     UserId = table.Column<int>(type: "INTEGER", nullable: true)
                 },
                 constraints: table =>
@@ -133,21 +134,47 @@ namespace FinanceApp.API.Migrations
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    BankConnectionId = table.Column<int>(type: "INTEGER", nullable: false),
+                    BankConnectionId = table.Column<int>(type: "INTEGER", nullable: true),
                     ExternalAccountId = table.Column<string>(type: "TEXT", nullable: false),
                     Iban = table.Column<string>(type: "TEXT", nullable: false),
                     OwnerName = table.Column<string>(type: "TEXT", nullable: false),
                     AccountName = table.Column<string>(type: "TEXT", nullable: false),
                     Currency = table.Column<string>(type: "TEXT", nullable: false),
-                    IsActive = table.Column<bool>(type: "INTEGER", nullable: false)
+                    IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
+                    RealBalance = table.Column<decimal>(type: "TEXT", precision: 18, scale: 2, nullable: true),
+                    BalanceUpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    IsManual = table.Column<bool>(type: "INTEGER", nullable: false),
+                    UserId = table.Column<int>(type: "INTEGER", nullable: true),
+                    InitialBalance = table.Column<decimal>(type: "TEXT", precision: 18, scale: 2, nullable: true),
+                    InitialBalanceDate = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    SourceBankAccountId = table.Column<int>(type: "INTEGER", nullable: true),
+                    IncrementCategoryId = table.Column<int>(type: "INTEGER", nullable: true)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_BankAccounts", x => x.Id);
                     table.ForeignKey(
+                        name: "FK_BankAccounts_BankAccounts_SourceBankAccountId",
+                        column: x => x.SourceBankAccountId,
+                        principalTable: "BankAccounts",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
                         name: "FK_BankAccounts_BankConnections_BankConnectionId",
                         column: x => x.BankConnectionId,
                         principalTable: "BankConnections",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_BankAccounts_Categories_IncrementCategoryId",
+                        column: x => x.IncrementCategoryId,
+                        principalTable: "Categories",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_BankAccounts_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -175,6 +202,35 @@ namespace FinanceApp.API.Migrations
                         name: "FK_CategoryRules_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Budgets",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    DashboardId = table.Column<int>(type: "INTEGER", nullable: false),
+                    CategoryId = table.Column<int>(type: "INTEGER", nullable: false),
+                    Amount = table.Column<decimal>(type: "TEXT", precision: 18, scale: 2, nullable: false),
+                    Period = table.Column<int>(type: "INTEGER", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Budgets", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Budgets_Categories_CategoryId",
+                        column: x => x.CategoryId,
+                        principalTable: "Categories",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_Budgets_Dashboards_DashboardId",
+                        column: x => x.DashboardId,
+                        principalTable: "Dashboards",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -260,6 +316,88 @@ namespace FinanceApp.API.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "RecurringTransactions",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    UserId = table.Column<int>(type: "INTEGER", nullable: false),
+                    DashboardId = table.Column<int>(type: "INTEGER", nullable: false),
+                    AccountId = table.Column<int>(type: "INTEGER", nullable: true),
+                    CategoryId = table.Column<int>(type: "INTEGER", nullable: true),
+                    Description = table.Column<string>(type: "TEXT", nullable: false),
+                    Amount = table.Column<decimal>(type: "TEXT", precision: 18, scale: 2, nullable: false),
+                    Type = table.Column<string>(type: "TEXT", nullable: false),
+                    Frequency = table.Column<string>(type: "TEXT", nullable: false),
+                    DayOfMonth = table.Column<int>(type: "INTEGER", nullable: true),
+                    StartDate = table.Column<DateOnly>(type: "TEXT", nullable: false),
+                    EndDate = table.Column<DateOnly>(type: "TEXT", nullable: true),
+                    IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_RecurringTransactions", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_RecurringTransactions_Accounts_AccountId",
+                        column: x => x.AccountId,
+                        principalTable: "Accounts",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_RecurringTransactions_Categories_CategoryId",
+                        column: x => x.CategoryId,
+                        principalTable: "Categories",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_RecurringTransactions_Dashboards_DashboardId",
+                        column: x => x.DashboardId,
+                        principalTable: "Dashboards",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_RecurringTransactions_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "SavingsGoals",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    DashboardId = table.Column<int>(type: "INTEGER", nullable: false),
+                    Name = table.Column<string>(type: "TEXT", nullable: false),
+                    Icon = table.Column<string>(type: "TEXT", nullable: false),
+                    TargetAmount = table.Column<decimal>(type: "TEXT", precision: 18, scale: 2, nullable: false),
+                    TargetDate = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    CurrentAmount = table.Column<decimal>(type: "TEXT", precision: 18, scale: 2, nullable: false),
+                    CategoryId = table.Column<int>(type: "INTEGER", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_SavingsGoals", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_SavingsGoals_Categories_CategoryId",
+                        column: x => x.CategoryId,
+                        principalTable: "Categories",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_SavingsGoals_Dashboards_DashboardId",
+                        column: x => x.DashboardId,
+                        principalTable: "Dashboards",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Transactions",
                 columns: table => new
                 {
@@ -301,19 +439,19 @@ namespace FinanceApp.API.Migrations
 
             migrationBuilder.InsertData(
                 table: "Categories",
-                columns: new[] { "Id", "Color", "Icon", "IsDefault", "Name", "UserId" },
+                columns: new[] { "Id", "Color", "Icon", "IsDefault", "IsTransfer", "Name", "UserId" },
                 values: new object[,]
                 {
-                    { 1, "#FF6384", "🍕", true, "Alimentation", null },
-                    { 2, "#36A2EB", "🚗", true, "Transport", null },
-                    { 3, "#FFCE56", "🏠", true, "Logement", null },
-                    { 4, "#4BC0C0", "🎮", true, "Loisirs", null },
-                    { 5, "#9966FF", "💊", true, "Santé", null },
-                    { 6, "#FF9F40", "📚", true, "Éducation", null },
-                    { 7, "#FF6384", "🛍️", true, "Shopping", null },
-                    { 8, "#4BC0C0", "💰", true, "Salaire", null },
-                    { 9, "#36A2EB", "💻", true, "Freelance", null },
-                    { 10, "#C9CBCF", "📦", true, "Autres", null }
+                    { 1, "#FF6384", "🍕", true, false, "Alimentation", null },
+                    { 2, "#36A2EB", "🚗", true, false, "Transport", null },
+                    { 3, "#FFCE56", "🏠", true, false, "Logement", null },
+                    { 4, "#4BC0C0", "🎮", true, false, "Loisirs", null },
+                    { 5, "#9966FF", "💊", true, false, "Santé", null },
+                    { 6, "#FF9F40", "📚", true, false, "Éducation", null },
+                    { 7, "#FF6384", "🛍️", true, false, "Shopping", null },
+                    { 8, "#4BC0C0", "💰", true, false, "Salaire", null },
+                    { 9, "#36A2EB", "💻", true, false, "Freelance", null },
+                    { 10, "#C9CBCF", "📦", true, false, "Autres", null }
                 });
 
             migrationBuilder.CreateIndex(
@@ -327,9 +465,35 @@ namespace FinanceApp.API.Migrations
                 column: "BankConnectionId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_BankAccounts_IncrementCategoryId",
+                table: "BankAccounts",
+                column: "IncrementCategoryId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_BankAccounts_SourceBankAccountId",
+                table: "BankAccounts",
+                column: "SourceBankAccountId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_BankAccounts_UserId",
+                table: "BankAccounts",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_BankConnections_UserId",
                 table: "BankConnections",
                 column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Budgets_CategoryId",
+                table: "Budgets",
+                column: "CategoryId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Budgets_DashboardId_CategoryId_Period",
+                table: "Budgets",
+                columns: new[] { "DashboardId", "CategoryId", "Period" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Categories_UserId",
@@ -378,6 +542,36 @@ namespace FinanceApp.API.Migrations
                 column: "CreatorId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_RecurringTransactions_AccountId",
+                table: "RecurringTransactions",
+                column: "AccountId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RecurringTransactions_CategoryId",
+                table: "RecurringTransactions",
+                column: "CategoryId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RecurringTransactions_DashboardId",
+                table: "RecurringTransactions",
+                column: "DashboardId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RecurringTransactions_UserId",
+                table: "RecurringTransactions",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_SavingsGoals_CategoryId",
+                table: "SavingsGoals",
+                column: "CategoryId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_SavingsGoals_DashboardId",
+                table: "SavingsGoals",
+                column: "DashboardId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Transactions_AccountId",
                 table: "Transactions",
                 column: "AccountId");
@@ -417,6 +611,9 @@ namespace FinanceApp.API.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
+                name: "Budgets");
+
+            migrationBuilder.DropTable(
                 name: "CategoryRules");
 
             migrationBuilder.DropTable(
@@ -427,6 +624,12 @@ namespace FinanceApp.API.Migrations
 
             migrationBuilder.DropTable(
                 name: "DashboardMembers");
+
+            migrationBuilder.DropTable(
+                name: "RecurringTransactions");
+
+            migrationBuilder.DropTable(
+                name: "SavingsGoals");
 
             migrationBuilder.DropTable(
                 name: "Transactions");
@@ -441,10 +644,10 @@ namespace FinanceApp.API.Migrations
                 name: "BankAccounts");
 
             migrationBuilder.DropTable(
-                name: "Categories");
+                name: "BankConnections");
 
             migrationBuilder.DropTable(
-                name: "BankConnections");
+                name: "Categories");
 
             migrationBuilder.DropTable(
                 name: "Users");

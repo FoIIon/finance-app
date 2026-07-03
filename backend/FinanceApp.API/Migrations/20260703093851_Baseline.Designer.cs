@@ -11,14 +11,14 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FinanceApp.API.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260428122701_AddRecurringTransactions")]
-    partial class AddRecurringTransactions
+    [Migration("20260703093851_Baseline")]
+    partial class Baseline
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "8.0.26");
+            modelBuilder.HasAnnotation("ProductVersion", "8.0.28");
 
             modelBuilder.Entity("FinanceApp.API.Models.Account", b =>
                 {
@@ -53,7 +53,10 @@ namespace FinanceApp.API.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("BankConnectionId")
+                    b.Property<DateTime?>("BalanceUpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("BankConnectionId")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Currency")
@@ -68,16 +71,45 @@ namespace FinanceApp.API.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("IncrementCategoryId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("InitialBalance")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("InitialBalanceDate")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsManual")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("OwnerName")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<decimal?>("RealBalance")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SourceBankAccountId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("INTEGER");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BankConnectionId");
+
+                    b.HasIndex("IncrementCategoryId");
+
+                    b.HasIndex("SourceBankAccountId");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("BankAccounts");
                 });
@@ -140,6 +172,38 @@ namespace FinanceApp.API.Migrations
                     b.ToTable("BankConnections");
                 });
 
+            modelBuilder.Entity("FinanceApp.API.Models.Budget", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("CategoryId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DashboardId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Period")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("DashboardId", "CategoryId", "Period")
+                        .IsUnique();
+
+                    b.ToTable("Budgets");
+                });
+
             modelBuilder.Entity("FinanceApp.API.Models.Category", b =>
                 {
                     b.Property<int>("Id")
@@ -155,6 +219,9 @@ namespace FinanceApp.API.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("IsDefault")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsTransfer")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Name")
@@ -177,6 +244,7 @@ namespace FinanceApp.API.Migrations
                             Color = "#FF6384",
                             Icon = "🍕",
                             IsDefault = true,
+                            IsTransfer = false,
                             Name = "Alimentation"
                         },
                         new
@@ -185,6 +253,7 @@ namespace FinanceApp.API.Migrations
                             Color = "#36A2EB",
                             Icon = "🚗",
                             IsDefault = true,
+                            IsTransfer = false,
                             Name = "Transport"
                         },
                         new
@@ -193,6 +262,7 @@ namespace FinanceApp.API.Migrations
                             Color = "#FFCE56",
                             Icon = "🏠",
                             IsDefault = true,
+                            IsTransfer = false,
                             Name = "Logement"
                         },
                         new
@@ -201,6 +271,7 @@ namespace FinanceApp.API.Migrations
                             Color = "#4BC0C0",
                             Icon = "🎮",
                             IsDefault = true,
+                            IsTransfer = false,
                             Name = "Loisirs"
                         },
                         new
@@ -209,6 +280,7 @@ namespace FinanceApp.API.Migrations
                             Color = "#9966FF",
                             Icon = "💊",
                             IsDefault = true,
+                            IsTransfer = false,
                             Name = "Santé"
                         },
                         new
@@ -217,6 +289,7 @@ namespace FinanceApp.API.Migrations
                             Color = "#FF9F40",
                             Icon = "📚",
                             IsDefault = true,
+                            IsTransfer = false,
                             Name = "Éducation"
                         },
                         new
@@ -225,6 +298,7 @@ namespace FinanceApp.API.Migrations
                             Color = "#FF6384",
                             Icon = "🛍️",
                             IsDefault = true,
+                            IsTransfer = false,
                             Name = "Shopping"
                         },
                         new
@@ -233,6 +307,7 @@ namespace FinanceApp.API.Migrations
                             Color = "#4BC0C0",
                             Icon = "💰",
                             IsDefault = true,
+                            IsTransfer = false,
                             Name = "Salaire"
                         },
                         new
@@ -241,6 +316,7 @@ namespace FinanceApp.API.Migrations
                             Color = "#36A2EB",
                             Icon = "💻",
                             IsDefault = true,
+                            IsTransfer = false,
                             Name = "Freelance"
                         },
                         new
@@ -249,6 +325,7 @@ namespace FinanceApp.API.Migrations
                             Color = "#C9CBCF",
                             Icon = "📦",
                             IsDefault = true,
+                            IsTransfer = false,
                             Name = "Autres"
                         });
                 });
@@ -440,6 +517,49 @@ namespace FinanceApp.API.Migrations
                     b.ToTable("RecurringTransactions");
                 });
 
+            modelBuilder.Entity("FinanceApp.API.Models.SavingsGoal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("CategoryId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("CurrentAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DashboardId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Icon")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("TargetAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("TargetDate")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("DashboardId");
+
+                    b.ToTable("SavingsGoals");
+                });
+
             modelBuilder.Entity("FinanceApp.API.Models.Transaction", b =>
                 {
                     b.Property<int>("Id")
@@ -550,10 +670,30 @@ namespace FinanceApp.API.Migrations
                     b.HasOne("FinanceApp.API.Models.BankConnection", "BankConnection")
                         .WithMany("BankAccounts")
                         .HasForeignKey("BankConnectionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("FinanceApp.API.Models.Category", "IncrementCategory")
+                        .WithMany()
+                        .HasForeignKey("IncrementCategoryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("FinanceApp.API.Models.BankAccount", "SourceBankAccount")
+                        .WithMany()
+                        .HasForeignKey("SourceBankAccountId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("FinanceApp.API.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("BankConnection");
+
+                    b.Navigation("IncrementCategory");
+
+                    b.Navigation("SourceBankAccount");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("FinanceApp.API.Models.BankConnection", b =>
@@ -565,6 +705,25 @@ namespace FinanceApp.API.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("FinanceApp.API.Models.Budget", b =>
+                {
+                    b.HasOne("FinanceApp.API.Models.Category", "Category")
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FinanceApp.API.Models.Dashboard", "Dashboard")
+                        .WithMany()
+                        .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Category");
+
+                    b.Navigation("Dashboard");
                 });
 
             modelBuilder.Entity("FinanceApp.API.Models.Category", b =>
@@ -695,6 +854,24 @@ namespace FinanceApp.API.Migrations
                     b.Navigation("Dashboard");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("FinanceApp.API.Models.SavingsGoal", b =>
+                {
+                    b.HasOne("FinanceApp.API.Models.Category", "Category")
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("FinanceApp.API.Models.Dashboard", "Dashboard")
+                        .WithMany()
+                        .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Category");
+
+                    b.Navigation("Dashboard");
                 });
 
             modelBuilder.Entity("FinanceApp.API.Models.Transaction", b =>
