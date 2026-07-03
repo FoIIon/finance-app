@@ -477,6 +477,60 @@ public class TransactionController : ControllerBase
     }
 
     /// <summary>
+    /// Historique mensuel des dépenses d'une catégorie sur les N derniers mois calendaires (mois courant inclus,
+    /// mois vides à 0). Sépare courant / exceptionnel pour barres empilées côté front. Exclut les transferts internes.
+    /// </summary>
+    [HttpGet("category-history")]
+    public async Task<ActionResult<List<CategoryMonthHistoryDto>>> GetCategoryHistory(
+        [FromQuery] int? dashboardId,
+        [FromQuery] int categoryId,
+        [FromQuery] int months = 12)
+    {
+        var accountIds = await GetAccountIds(dashboardId);
+        if (!accountIds.Any()) return Ok(new List<CategoryMonthHistoryDto>());
+
+        months = Math.Clamp(months, 1, 36);
+
+        var now = DateTime.UtcNow;
+        var startMonth = new DateTime(now.Year, now.Month, 1).AddMonths(-(months - 1));
+
+        // SQLite ne supporte pas Sum(decimal) en SQL → agrégation client (même pattern que GetSummary)
+        var raw = await _context.Transactions
+            .Where(t => accountIds.Contains(t.AccountId)
+                     && t.CategoryId == categoryId
+                     && t.Type == TransactionType.Expense
+                     && !t.Category.IsTransfer
+                     && t.Date >= startMonth)
+            .Select(t => new { t.Date.Year, t.Date.Month, t.Amount, t.IsExceptional })
+            .ToListAsync();
+
+        var byMonth = raw
+            .GroupBy(t => new { t.Year, t.Month })
+            .ToDictionary(g => (g.Key.Year, g.Key.Month), g => g.ToList());
+
+        var culture = new System.Globalization.CultureInfo("fr-FR");
+        var result = Enumerable.Range(0, months)
+            .Select(i => startMonth.AddMonths(i))
+            .Select(month =>
+            {
+                var txns = byMonth.GetValueOrDefault((month.Year, month.Month)) ?? new();
+                var total = txns.Sum(t => t.Amount);
+                var exceptional = txns.Where(t => t.IsExceptional).Sum(t => t.Amount);
+                return new CategoryMonthHistoryDto
+                {
+                    Month = month.ToString("yyyy-MM"),
+                    Label = month.ToString("MMM yyyy", culture),
+                    Total = total,
+                    CurrentTotal = total - exceptional,
+                    ExceptionalTotal = exceptional,
+                };
+            })
+            .ToList();
+
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Total des soldes du dashboard, ancré sur le solde booké (hors pending) pour les comptes GoCardless.
     /// Réplique la résolution manuel/GoCardless de <see cref="GetAccountBalances"/> (branche non-historique),
     /// mais préfère BookedBalance à RealBalance — RealBalance (interimAvailable) reste utilisé partout ailleurs

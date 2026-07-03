@@ -1,13 +1,17 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useDashboards } from '../../hooks/useDashboards';
 import { usePeriod } from '../../context/PeriodContext';
 import { useBudgetsProgressQuery } from '../../hooks/queries';
 import { formatCurrency } from '../../utils/format';
+import { CategoryDetailModal } from './CategoryDetailModal';
 
 export const BudgetProgressWidget = () => {
   const { currentDashboard } = useDashboards();
   const { period } = usePeriod();
   const { data, isLoading } = useBudgetsProgressQuery(currentDashboard?.id, period);
+  const [selectedBudgetId, setSelectedBudgetId] = useState<number | null>(null);
+  const selected = data?.find((b) => b.budgetId === selectedBudgetId) ?? null;
 
   return (
     <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-5">
@@ -38,7 +42,12 @@ export const BudgetProgressWidget = () => {
               b.status === 'warning' ? 'bg-amber-500' :
               'bg-emerald-500';
             return (
-              <div key={b.budgetId}>
+              <button
+                key={b.budgetId}
+                onClick={() => setSelectedBudgetId(b.budgetId)}
+                className="w-full text-left rounded-lg p-1 -m-1 hover:bg-white/5 transition-colors cursor-pointer"
+                title="Voir l'évolution de la catégorie"
+              >
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2 min-w-0">
                     <span aria-hidden="true">{b.categoryIcon}</span>
@@ -65,10 +74,23 @@ export const BudgetProgressWidget = () => {
                   <span>{b.progressPct.toFixed(0)}%</span>
                   <span>{b.remaining < 0 ? 'Dépassement ' : 'Reste '}{formatCurrency(Math.abs(b.remaining))}</span>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
+      )}
+
+      {selected && currentDashboard && (
+        <CategoryDetailModal
+          categoryId={selected.categoryId}
+          categoryName={selected.categoryName}
+          categoryIcon={selected.categoryIcon}
+          categoryColor={selected.categoryColor || '#f59e0b'}
+          totalAmount={Number(selected.spent)}
+          dashboardId={currentDashboard.id}
+          period={period}
+          onClose={() => setSelectedBudgetId(null)}
+        />
       )}
     </div>
   );

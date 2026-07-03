@@ -109,6 +109,21 @@ public class MonthlyBalanceDto
     public decimal TotalBalance { get; set; }
 }
 
+/// <summary>Dépenses d'une catégorie pour un mois calendaire (courant + exceptionnel séparés).</summary>
+public class CategoryMonthHistoryDto
+{
+    /// <summary>Clé triable "yyyy-MM".</summary>
+    public string Month { get; set; } = string.Empty;
+    /// <summary>Libellé court fr-FR "juil. 2026".</summary>
+    public string Label { get; set; } = string.Empty;
+    /// <summary>Total dépenses de la catégorie (courant + exceptionnel).</summary>
+    public decimal Total { get; set; }
+    /// <summary>Dépenses hors exceptionnel.</summary>
+    public decimal CurrentTotal { get; set; }
+    /// <summary>Dépenses exceptionnelles seules.</summary>
+    public decimal ExceptionalTotal { get; set; }
+}
+
 public class AccountBalanceDto
 {
     public int AccountId { get; set; }
