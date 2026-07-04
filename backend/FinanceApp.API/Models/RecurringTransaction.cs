@@ -15,6 +15,12 @@ public class RecurringTransaction
     public DateOnly StartDate { get; set; }
     public DateOnly? EndDate { get; set; }
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Matérialiser une transaction provisionnelle au 1er du mois (montant = moyenne des
+    /// derniers versements réels), réconciliée automatiquement à l'arrivée du versement réel.
+    /// Pensé pour le salaire versé en fin de mois. Nécessite une catégorie.</summary>
+    public bool ProvisionAtMonthStart { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

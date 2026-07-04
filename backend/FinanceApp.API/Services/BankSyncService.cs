@@ -37,6 +37,17 @@ public class BankSyncService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var provisions = scope.ServiceProvider.GetRequiredService<ProvisionService>();
+
+        // Provisions AVANT la sync : elles doivent exister même si la banque est injoignable
+        try
+        {
+            await provisions.RunAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erreur lors de la création des provisions.");
+        }
 
         var connectionIds = await context.BankConnections
             .Where(bc => bc.Status == BankConnectionStatus.Linked)
@@ -54,6 +65,16 @@ public class BankSyncService : BackgroundService
                 _logger.LogError(ex, "Erreur lors de la synchronisation de la connexion {ConnectionId}.", connectionId);
             }
         }
+
+        // Réconciliation APRÈS la sync : le versement réel vient peut-être d'être importé
+        try
+        {
+            await provisions.RunAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erreur lors de la réconciliation des provisions.");
+        }
     }
 
     /// <summary>
@@ -63,6 +84,16 @@ public class BankSyncService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         await SyncConnectionInternalAsync(connectionId, scope.ServiceProvider, rethrow: true);
+
+        // Une sync manuelle peut avoir importé le versement réel — réconcilier dans la foulée
+        try
+        {
+            await scope.ServiceProvider.GetRequiredService<ProvisionService>().RunAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erreur lors de la réconciliation des provisions après sync manuelle.");
+        }
     }
 
     private async Task SyncConnectionInternalAsync(int connectionId, IServiceProvider serviceProvider, bool rethrow = false)

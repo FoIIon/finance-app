@@ -18,6 +18,8 @@ export interface RecurringTransaction {
   startDate: string; // ISO date string (DateOnly)
   endDate: string | null;
   isActive: boolean;
+  /** Matérialise une provision au 1er du mois, réconciliée à l'arrivée du versement réel. */
+  provisionAtMonthStart: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -33,6 +35,7 @@ export interface CreateRecurringTransaction {
   dayOfMonth?: number | null;
   startDate: string;
   endDate?: string | null;
+  provisionAtMonthStart?: boolean;
 }
 
 export interface UpdateRecurringTransaction {
@@ -46,4 +49,5 @@ export interface UpdateRecurringTransaction {
   startDate?: string;
   endDate?: string | null;
   isActive?: boolean;
+  provisionAtMonthStart?: boolean;
 }

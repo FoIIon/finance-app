@@ -13,6 +13,14 @@ public class Transaction
     public bool IsImported { get; set; }
     public string? CounterpartyName { get; set; }
     public bool IsExceptional { get; set; }
+
+    /// <summary>Transaction provisionnelle (ex: salaire attendu, matérialisé en début de mois).
+    /// Supprimée automatiquement quand le versement réel est importé.</summary>
+    public bool IsProvisional { get; set; }
+
+    /// <summary>Récurrente source de la provision (null pour les transactions normales).</summary>
+    public int? RecurringTransactionId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public int? BankAccountId { get; set; }
@@ -24,4 +32,5 @@ public class Transaction
     public Account Account { get; set; } = null!;
     public BankAccount? BankAccount { get; set; }
     public ProjectEnvelope? ProjectEnvelope { get; set; }
+    public RecurringTransaction? RecurringTransaction { get; set; }
 }

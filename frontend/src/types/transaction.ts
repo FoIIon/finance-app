@@ -21,6 +21,8 @@ export interface Transaction {
   isImported: boolean;
   counterpartyName?: string;
   isExceptional: boolean;
+  /** Transaction provisionnelle (salaire attendu, etc.) — supprimée quand le réel arrive. */
+  isProvisional: boolean;
   bankAccountName?: string;
   bankInstitutionName?: string;
   projectEnvelopeId?: number | null;

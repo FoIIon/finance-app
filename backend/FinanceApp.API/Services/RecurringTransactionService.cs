@@ -40,6 +40,7 @@ public class RecurringTransactionService
             StartDate = r.StartDate,
             EndDate = r.EndDate,
             IsActive = r.IsActive,
+            ProvisionAtMonthStart = r.ProvisionAtMonthStart,
             CreatedAt = r.CreatedAt,
             UpdatedAt = r.UpdatedAt
         };
@@ -107,6 +108,7 @@ public class RecurringTransactionService
             StartDate = dto.StartDate,
             EndDate = dto.EndDate,
             IsActive = true,
+            ProvisionAtMonthStart = dto.ProvisionAtMonthStart,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -158,6 +160,7 @@ public class RecurringTransactionService
         if (dto.StartDate.HasValue) recurring.StartDate = dto.StartDate.Value;
         if (dto.EndDate.HasValue) recurring.EndDate = dto.EndDate;
         if (dto.IsActive.HasValue) recurring.IsActive = dto.IsActive.Value;
+        if (dto.ProvisionAtMonthStart.HasValue) recurring.ProvisionAtMonthStart = dto.ProvisionAtMonthStart.Value;
         if (dto.AccountId != null) recurring.AccountId = dto.AccountId;
         if (dto.CategoryId != null) recurring.CategoryId = dto.CategoryId;
         recurring.UpdatedAt = DateTime.UtcNow;

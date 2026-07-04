@@ -291,6 +291,11 @@ const Transactions = () => {
                             Importée
                           </span>
                         )}
+                        {t.isProvisional && (
+                          <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-violet-500/20 text-violet-300 border border-dashed border-violet-500/40" title="Montant estimé, remplacé automatiquement quand le versement réel arrive">
+                            Prévu
+                          </span>
+                        )}
                       </>
                     )}
                   </td>
@@ -415,6 +420,11 @@ const Transactions = () => {
                   {t.isImported && (
                     <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-teal-500/20 text-teal-400 border border-teal-500/30">
                       Importée
+                    </span>
+                  )}
+                  {t.isProvisional && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-500/20 text-violet-300 border border-dashed border-violet-500/40" title="Montant estimé, remplacé automatiquement quand le versement réel arrive">
+                      Prévu
                     </span>
                   )}
                 </div>
