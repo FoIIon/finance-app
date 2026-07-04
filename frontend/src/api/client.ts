@@ -1,8 +1,10 @@
 import axios from 'axios';
 import { showToastOutsideReact } from './toastBridge';
 
+// En prod le frontend est servi par le backend : même origine, URL relative.
+// En dev, Vite tourne sur 5173 et l'API sur 5000.
 const apiClient = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: import.meta.env.PROD ? '/api' : 'http://localhost:5000/api',
 });
 
 apiClient.interceptors.request.use((config) => {

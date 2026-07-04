@@ -98,8 +98,17 @@ app.Use(async (context, next) =>
 
 app.UseCors("Frontend");
 app.UseRateLimiter();
+
+// Sert le build frontend depuis wwwroot/ (déploiement Pi : backend + frontend sur la même origine)
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// SPA fallback : toute route non-API renvoie index.html (React Router gère le reste)
+if (File.Exists(Path.Combine(app.Environment.WebRootPath ?? "", "index.html")))
+    app.MapFallbackToFile("index.html");
 
 app.Run();
