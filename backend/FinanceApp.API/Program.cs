@@ -48,6 +48,7 @@ builder.Services.AddScoped<IAccountService, AccountService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IInvitationService, InvitationService>();
 builder.Services.AddScoped<RecurringTransactionService>();
+builder.Services.AddScoped<ProvisionService>();
 builder.Services.AddHttpClient<GoCardlessClient>();
 builder.Services.AddDataProtection();
 // UseCookies = false : on gère les cookies manuellement via les headers

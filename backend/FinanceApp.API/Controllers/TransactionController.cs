@@ -73,6 +73,7 @@ public class TransactionController : ControllerBase
             IsImported = t.IsImported,
             CounterpartyName = t.CounterpartyName,
             IsExceptional = t.IsExceptional,
+            IsProvisional = t.IsProvisional,
             BankAccountName = t.BankAccount?.AccountName,
             BankInstitutionName = t.BankAccount?.BankConnection?.InstitutionName,
             ProjectEnvelopeId = t.ProjectEnvelopeId,
@@ -188,7 +189,8 @@ public class TransactionController : ControllerBase
             ExternalId = transaction.ExternalId,
             IsImported = transaction.IsImported,
             CounterpartyName = transaction.CounterpartyName,
-            IsExceptional = transaction.IsExceptional
+            IsExceptional = transaction.IsExceptional,
+            IsProvisional = transaction.IsProvisional
         });
     }
 
@@ -237,6 +239,7 @@ public class TransactionController : ControllerBase
             IsImported = transaction.IsImported,
             CounterpartyName = transaction.CounterpartyName,
             IsExceptional = transaction.IsExceptional,
+            IsProvisional = transaction.IsProvisional,
             BankAccountName = transaction.BankAccount?.AccountName,
             BankInstitutionName = transaction.BankAccount?.BankConnection?.InstitutionName,
             ProjectEnvelopeId = transaction.ProjectEnvelopeId,
@@ -761,9 +764,21 @@ public class TransactionController : ControllerBase
                              && (r.Category == null || !r.Category.IsTransfer))
                     .ToListAsync();
 
+                // Récurrentes provisionnées : jamais en « à venir ». Leur montant est déjà dans le
+                // cumul, soit via la provision du jour 1, soit via le versement réel réconcilié
+                // (qui peut tomber avant DayOfMonth — le compter ici le doublerait).
+                // On garde aussi l'exclusion par provision existante pour couvrir une récurrente
+                // dont le flag aurait été désactivé en cours de mois.
+                var provisionedRecurringIds = await _context.Transactions
+                    .Where(t => t.IsProvisional && t.RecurringTransactionId != null
+                             && t.Date >= start && t.Date < end)
+                    .Select(t => t.RecurringTransactionId!.Value)
+                    .ToListAsync();
+
                 var fromDay = isCurrent ? todayDay + 1 : 1; // futur : tout le mois est « à venir »
                 foreach (var r in recs)
                 {
+                    if (r.ProvisionAtMonthStart || provisionedRecurringIds.Contains(r.Id)) continue;
                     foreach (var _ in RecurringOccurrenceDays(r, year, month, fromDay, lastDay))
                     {
                         if (r.Type == "Expense") upcomingExpenses += r.Amount;

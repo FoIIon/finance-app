@@ -31,6 +31,7 @@ const emptyForm = (): CreateRecurringTransaction => ({
   endDate: null,
   accountId: null,
   categoryId: null,
+  provisionAtMonthStart: false,
 });
 
 const RecurringTransactions = () => {
@@ -398,6 +399,22 @@ const RecurringTransactions = () => {
                   ))}
                 </select>
               </div>
+
+              <label className="flex items-start gap-3 p-3 rounded-xl bg-violet-500/10 border border-violet-500/20 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.provisionAtMonthStart ?? false}
+                  onChange={(e) => setFormData({ ...formData, provisionAtMonthStart: e.target.checked })}
+                  className="mt-0.5 accent-violet-500"
+                />
+                <span className="text-sm text-white/70">
+                  <span className="font-medium text-violet-300">Provisionner en début de mois</span>
+                  <br />
+                  Crée une écriture « prévue » le 1er du mois (moyenne des derniers montants réels),
+                  remplacée automatiquement quand le versement arrive. Idéal pour un salaire versé en fin de mois.
+                  Nécessite une catégorie.
+                </span>
+              </label>
 
               <div className="flex gap-3 pt-2">
                 <button

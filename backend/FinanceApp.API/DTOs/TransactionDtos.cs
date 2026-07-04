@@ -20,6 +20,7 @@ public class TransactionDto
     public bool IsImported { get; set; }
     public string? CounterpartyName { get; set; }
     public bool IsExceptional { get; set; }
+    public bool IsProvisional { get; set; }
     public string? BankAccountName { get; set; }
     public string? BankInstitutionName { get; set; }
     public int? ProjectEnvelopeId { get; set; }
