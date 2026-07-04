@@ -21,7 +21,7 @@ Gestionnaire de finances personnelles — projet d'apprentissage C# / React / Ty
 |--------|-------------|
 | Backend | C# / ASP.NET Core 8 Web API |
 | ORM | Entity Framework Core |
-| BDD | SQL Server LocalDB |
+| BDD | SQLite |
 | Auth | JWT (BCrypt) |
 | Frontend | React 18 + TypeScript + Vite |
 | Style | Tailwind CSS 4 |
@@ -59,7 +59,8 @@ finance-app/
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 - [Node.js](https://nodejs.org/) (v18+)
-- SQL Server LocalDB (inclus avec Visual Studio)
+
+La base est un fichier SQLite (`finance.db`), créé automatiquement par les migrations. Rien d'autre à installer.
 
 ### Backend
 
@@ -84,6 +85,37 @@ cd tests
 npm install
 npx playwright install chromium
 npx playwright test          # Nécessite backend + frontend lancés
+```
+
+## Déploiement (Raspberry Pi)
+
+L'app tourne en prod sur le Raspberry Pi 5 de la maison : `http://raspberrypi5:5001`.
+En prod, le backend sert aussi le frontend (build Vite copié dans `wwwroot/`), même origine, URL d'API relative.
+
+### Build sur le PC
+
+```bash
+# Frontend
+cd frontend && npm run build
+
+# Backend self-contained ARM64
+cd backend/FinanceApp.API
+dotnet publish -c Release -r linux-arm64 --self-contained true -o <dossier-publish>
+
+# Copier le frontend dans le publish
+cp -r frontend/dist <dossier-publish>/wwwroot
+```
+
+### Sur le Pi
+
+- App : `/home/admin/finance-app/app/` (remplacée à chaque redéploiement)
+- BDD : `/home/admin/finance-app/data/finance.db` (jamais touchée par un redéploiement)
+- Secrets : `appsettings.Production.json` posé sur le Pi, hors git (JWT, GoCardless)
+- Service : systemd `finance-app` (`ASPNETCORE_ENVIRONMENT=Production`, `ASPNETCORE_URLS=http://0.0.0.0:5001`, restart auto)
+
+```bash
+# Redéployer : remplacer le contenu de app/ puis
+sudo systemctl restart finance-app
 ```
 
 ## API
