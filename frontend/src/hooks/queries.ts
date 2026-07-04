@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useContext } from 'react';
 import { transactionsApi } from '../api/transactions';
-import { budgetsApi } from '../api/budgets';
 import { savingsGoalsApi, dashboardExtrasApi } from '../api/savingsGoals';
 import { projectEnvelopesApi } from '../api/projectEnvelopes';
 import { shoppingItemsApi } from '../api/shoppingItems';
@@ -25,27 +24,6 @@ export const useSummaryQuery = (dashboardId: number | undefined, period: Period)
     },
   });
 };
-
-export const useBudgetsProgressQuery = (dashboardId: number | undefined, period: Period) =>
-  useQuery({
-    queryKey: ['budgets-progress', dashboardId, period.key],
-    enabled: !!dashboardId,
-    queryFn: async () => {
-      const { from, to } = periodToRange(period);
-      const res = await budgetsApi.getProgress(dashboardId!, from, to);
-      return res.data;
-    },
-  });
-
-export const useBudgetsQuery = (dashboardId: number | undefined) =>
-  useQuery({
-    queryKey: ['budgets', dashboardId],
-    enabled: !!dashboardId,
-    queryFn: async () => {
-      const res = await budgetsApi.getAll(dashboardId!);
-      return res.data;
-    },
-  });
 
 export const useSavingsGoalsProgressQuery = (dashboardId: number | undefined) =>
   useQuery({

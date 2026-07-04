@@ -1,5 +1,4 @@
 import { KpiCards } from '../../components/dashboard/KpiCards';
-import { BudgetProgressWidget } from '../../components/dashboard/BudgetProgress';
 import { RemainingToSpend } from '../../components/dashboard/RemainingToSpend';
 import { AccountBalancesWidget } from '../../components/dashboard/AccountBalances';
 import { CategoryBreakdownBars } from '../../components/dashboard/CategoryBreakdown';
@@ -18,10 +17,7 @@ const DashboardOverview = () => {
         <AccountBalancesWidget />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <BudgetProgressWidget />
-        <CategoryBreakdownBars topN={6} />
-      </div>
+      <CategoryBreakdownBars topN={6} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <MonthlyTrend />

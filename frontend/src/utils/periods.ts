@@ -59,7 +59,7 @@ export const periodToRange = (period: Period): { from?: string; to?: string } =>
   return { from: from || undefined, to: to || undefined };
 };
 
-export const DEFAULT_PERIOD = PERIODS[0]; // Ce mois-ci (cohérent avec les budgets mensuels)
+export const DEFAULT_PERIOD = PERIODS[0]; // Ce mois-ci
 
 const MONTH_LABELS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
