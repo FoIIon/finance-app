@@ -20,7 +20,6 @@ const DashboardProjects = lazy(() => import('./pages/dashboard/Projects'));
 const DashboardTriage = lazy(() => import('./pages/dashboard/Triage'));
 const Transactions = lazy(() => import('./pages/Transactions'));
 const Categories = lazy(() => import('./pages/Categories'));
-const Budgets = lazy(() => import('./pages/Budgets'));
 const Envelopes = lazy(() => import('./pages/Envelopes'));
 const ExceptionalExpenses = lazy(() => import('./pages/ExceptionalExpenses'));
 const Bank = lazy(() => import('./pages/Bank'));
@@ -65,7 +64,6 @@ const App = () => {
                   </Route>
                   <Route path="/transactions" element={<Transactions />} />
                   <Route path="/categories" element={<Categories />} />
-                  <Route path="/budgets" element={<Budgets />} />
                   <Route path="/envelopes" element={<Envelopes />} />
                   <Route path="/exceptional" element={<ExceptionalExpenses />} />
                   <Route path="/bank" element={<Bank />} />

@@ -35,7 +35,6 @@ export const UncategorizedList = () => {
       });
       qc.invalidateQueries({ queryKey: ['uncategorized'] });
       qc.invalidateQueries({ queryKey: ['summary'] });
-      qc.invalidateQueries({ queryKey: ['budgets-progress'] });
     } finally {
       setSavingId(null);
     }
