@@ -499,8 +499,10 @@ public class TransactionController : ControllerBase
 
         // Net mensuel sur tous les comptes du dashboard (ignore le filtre bankAccountId — le solde reste consolidé)
         // Les IsTransfer s'annulent (transferts internes) ou n'existent pas (alimente un manuel, dont l'effet est dans currentTotal)
+        // Exclut les provisions : l'ancre (solde banque booké) ne contient pas cet argent, l'inclure ici
+        // décalerait tous les points passés de la courbe du montant provisionné jusqu'au versement réel
         var rawForBalance = await _context.Transactions
-            .Where(t => accountIds.Contains(t.AccountId) && t.Date >= startOfMonth)
+            .Where(t => accountIds.Contains(t.AccountId) && t.Date >= startOfMonth && !t.IsProvisional)
             .Select(t => new { t.Date.Year, t.Date.Month, t.Type, t.Amount, IsTransfer = t.Category.IsTransfer })
             .ToListAsync();
         var monthlyNet = rawForBalance
@@ -928,14 +930,15 @@ public class TransactionController : ControllerBase
         foreach (var m in manualAccounts)
         {
             if (m.SourceBankAccountId == null || m.IncrementCategoryId == null) continue;
+            // Expense sur le compte source = versement vers le manuel, Income = retrait (miroir exact)
             var transfers = await _context.Transactions
                 .Where(t => t.BankAccountId == m.SourceBankAccountId
                          && t.CategoryId == m.IncrementCategoryId
-                         && t.Type == TransactionType.Expense
                          && (m.InitialBalanceDate == null || t.Date >= m.InitialBalanceDate))
-                .Select(t => t.Amount)
+                .Select(t => new { t.Type, t.Amount })
                 .ToListAsync();
-            manualTransfers[m.Id] = transfers.Sum();
+            manualTransfers[m.Id] = transfers.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount)
+                                  - transfers.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount);
         }
 
         var total = 0m;
@@ -1139,16 +1142,17 @@ public class TransactionController : ControllerBase
         foreach (var m in manualAccounts)
         {
             if (m.SourceBankAccountId == null || m.IncrementCategoryId == null) continue;
+            // Expense sur le compte source = versement vers le manuel, Income = retrait (miroir exact)
             var transfers = await _context.Transactions
                 .Where(t => t.BankAccountId == m.SourceBankAccountId
                          && t.CategoryId == m.IncrementCategoryId
-                         && t.Type == TransactionType.Expense
                          && (m.InitialBalanceDate == null || t.Date >= m.InitialBalanceDate)
                          && (!historical || t.Date <= asOf!.Value))
-                .Select(t => new { t.Amount, t.Date })
+                .Select(t => new { t.Type, t.Amount, t.Date })
                 .ToListAsync();
             manualTransfers[m.Id] = (
-                transfers.Sum(t => t.Amount),
+                transfers.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount)
+                    - transfers.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount),
                 transfers.Any() ? transfers.Max(t => t.Date) : (DateTime?)null
             );
         }
