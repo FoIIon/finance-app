@@ -94,6 +94,8 @@ public class TransactionSummaryDto
     /// <summary>Somme des dépenses exceptionnelles (non-transfert) sur la période. Toujours calculée, indépendamment du filtre includeExceptional.</summary>
     public decimal ExceptionalExpenses { get; set; }
     public List<CategoryBreakdownDto> CategoryBreakdown { get; set; } = new();
+    /// <summary>Détail des rentrées (Income non-transfert) par catégorie.</summary>
+    public List<CategoryBreakdownDto> IncomeBreakdown { get; set; } = new();
     /// <summary>Détail des mises de côté par catégorie de transfert.</summary>
     public List<CategoryBreakdownDto> SavingsBreakdown { get; set; } = new();
     public List<MonthlyBalanceDto> MonthlyBalance { get; set; } = new();
