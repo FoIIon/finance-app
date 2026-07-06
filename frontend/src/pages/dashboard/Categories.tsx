@@ -7,12 +7,35 @@ import { formatCurrency } from '../../utils/format';
 
 const DashboardCategories = () => {
   const { currentDashboard } = useDashboards();
-  const { period } = usePeriod();
+  const { period, includeExceptional } = usePeriod();
   const { data: summary, isLoading } = useSummaryQuery(currentDashboard?.id, period);
   const categories = summary?.categoryBreakdown ?? [];
+  const totalExpenses = summary?.totalExpenses ?? 0;
+  const exceptionalExpenses = summary?.exceptionalExpenses ?? 0;
 
   return (
     <div className="space-y-5">
+      {/* KPI */}
+      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-5">
+        <p className="text-white/40 text-xs font-medium uppercase tracking-wide">Total des dépenses</p>
+        {isLoading ? (
+          <div className="h-9 w-40 mt-1 rounded bg-white/5 animate-pulse" />
+        ) : (
+          <div className="flex items-baseline gap-3 mt-1">
+            <p className="text-3xl font-bold text-red-400" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+              −{formatCurrency(totalExpenses)}
+            </p>
+            {exceptionalExpenses > 0 && (
+              <p className="text-white/40 text-sm">
+                {includeExceptional
+                  ? `dont ${formatCurrency(exceptionalExpenses)} exceptionnelles`
+                  : `+ ${formatCurrency(exceptionalExpenses)} exceptionnelles (exclues)`}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-5">
           <h3 className="text-base md:text-lg font-semibold text-white mb-4">Répartition</h3>

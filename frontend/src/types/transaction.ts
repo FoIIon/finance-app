@@ -56,6 +56,8 @@ export interface TransactionSummary {
   /** Somme des dépenses exceptionnelles (non-transfert) de la période — toujours calculée. */
   exceptionalExpenses: number;
   categoryBreakdown: CategoryBreakdown[];
+  /** Détail des rentrées (Income non-transfert) par catégorie. */
+  incomeBreakdown: CategoryBreakdown[];
   /** Détail des mises de côté par catégorie de transfert. */
   savingsBreakdown: CategoryBreakdown[];
   monthlyBalance: MonthlyBalance[];

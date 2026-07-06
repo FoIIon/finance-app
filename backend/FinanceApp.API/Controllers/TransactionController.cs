@@ -433,6 +433,25 @@ public class TransactionController : ControllerBase
             .OrderByDescending(c => c.Amount)
             .ToList();
 
+        var incomeByCategory = flux
+            .Where(t => t.Type == TransactionType.Income && !t.IsTransfer)
+            .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
+            .Select(g =>
+            {
+                var amount = g.Sum(t => t.Amount);
+                return new CategoryBreakdownDto
+                {
+                    CategoryId = g.Key.CategoryId,
+                    CategoryName = g.Key.CategoryName,
+                    CategoryIcon = g.Key.CategoryIcon,
+                    CategoryColor = g.Key.CategoryColor,
+                    Amount = amount,
+                    Percentage = totalIncome > 0 ? Math.Round(amount / totalIncome * 100, 1) : 0,
+                };
+            })
+            .OrderByDescending(c => c.Amount)
+            .ToList();
+
         var savingsByCategory = flux
             .Where(t => t.Type == TransactionType.Expense && t.IsTransfer)
             .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
@@ -520,6 +539,7 @@ public class TransactionController : ControllerBase
             TotalSavings = totalSavings,
             ExceptionalExpenses = exceptionalExpenses,
             CategoryBreakdown = expensesByCategory,
+            IncomeBreakdown = incomeByCategory,
             SavingsBreakdown = savingsByCategory,
             MonthlyBalance = monthlyBalance
         });

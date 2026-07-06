@@ -9,7 +9,8 @@ import { usePeriod } from '../context/PeriodContext';
 const tabs = [
   { to: 'overview', label: 'Ce mois-ci', icon: '📊' },
   { to: 'bilan', label: 'Bilan', icon: '🧾' },
-  { to: 'categories', label: 'Catégories', icon: '📂' },
+  { to: 'income', label: 'Rentrées', icon: '💰' },
+  { to: 'categories', label: 'Dépenses', icon: '📂' },
   { to: 'projects', label: 'Projets', icon: '🏖️' },
   { to: 'triage', label: 'À traiter', icon: '✅' },
 ];
@@ -69,7 +70,7 @@ const Dashboard = () => {
 
       {/* Bottom-nav mobile */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0a0a1a]/95 backdrop-blur-xl border-t border-white/10 z-30">
-        <div className="grid grid-cols-5 gap-1 p-2">
+        <div className="grid grid-cols-6 gap-1 p-2">
           {tabs.map((t) => (
             <NavLink
               key={t.to}
