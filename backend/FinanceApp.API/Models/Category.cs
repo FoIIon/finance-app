@@ -9,8 +9,6 @@ public class Category
     public bool IsDefault { get; set; }
     /// <summary>Marque les catégories qui ne sont PAS des vraies dépenses (transferts internes : épargne, comptes joints, etc.). Exclues des stats dépenses.</summary>
     public bool IsTransfer { get; set; }
-    /// <summary>Marque les charges fixes récurrentes (prêt, énergie, crèche, assurances…). Utilisé par le bilan mensuel pour séparer le bloc FIXE du bloc VARIABLE.</summary>
-    public bool IsFixed { get; set; }
     public int? UserId { get; set; }
 
     public User? User { get; set; }

@@ -265,12 +265,14 @@ public class BankSyncService : BackgroundService
 
                     // Appliquer les règles : description en priorité, puis counterparty
                     var categoryId = defaultCategoryId;
+                    var isFixed = false;
                     foreach (var rule in rules)
                     {
                         if (description.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase) ||
                             (counterparty != null && counterparty.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase)))
                         {
                             categoryId = rule.CategoryId;
+                            isFixed = rule.MarkAsFixed;
                             break;
                         }
                     }
@@ -286,6 +288,7 @@ public class BankSyncService : BackgroundService
                         ExternalId = externalId,
                         IsImported = true,
                         CounterpartyName = counterparty,
+                        IsFixed = isFixed,
                         BankAccountId = account.Id
                     };
 
@@ -393,11 +396,13 @@ public class BankSyncService : BackgroundService
                 if (existing != null) continue;
 
                 var categoryId = defaultCategoryId;
+                var isFixed = false;
                 foreach (var rule in rules)
                 {
                     if (tx.Title.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase))
                     {
                         categoryId = rule.CategoryId;
+                        isFixed = rule.MarkAsFixed;
                         break;
                     }
                 }
@@ -413,6 +418,7 @@ public class BankSyncService : BackgroundService
                     ExternalId = externalId,
                     IsImported = true,
                     CounterpartyName = tx.Title,
+                    IsFixed = isFixed,
                     BankAccountId = connection.BankAccounts.FirstOrDefault(ba => ba.IsActive)?.Id
                 };
 

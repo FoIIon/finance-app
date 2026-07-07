@@ -20,6 +20,9 @@ export const transactionsApi = {
   setExceptional: (id: number, isExceptional: boolean) =>
     apiClient.put<Transaction>(`/transaction/${id}/exceptional`, { isExceptional }),
 
+  setFixed: (id: number, isFixed: boolean) =>
+    apiClient.put<Transaction>(`/transaction/${id}/fixed`, { isFixed }),
+
   setEnvelope: (id: number, projectEnvelopeId: number | null) =>
     apiClient.put<Transaction>(`/transaction/${id}/envelope`, { projectEnvelopeId }),
 
@@ -44,5 +47,5 @@ export const transactionsApi = {
     }),
 
   recategorize: () =>
-    apiClient.post<{ updated: number; total: number }>('/transaction/recategorize'),
+    apiClient.post<{ updated: number; fixedUpdated: number; total: number }>('/transaction/recategorize'),
 };

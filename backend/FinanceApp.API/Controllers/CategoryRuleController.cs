@@ -40,7 +40,8 @@ public class CategoryRuleController : ControllerBase
                 Id = cr.Id,
                 Keyword = cr.Keyword,
                 CategoryId = cr.CategoryId,
-                CategoryName = cr.Category.Name
+                CategoryName = cr.Category.Name,
+                MarkAsFixed = cr.MarkAsFixed
             })
             .ToListAsync();
 
@@ -62,7 +63,8 @@ public class CategoryRuleController : ControllerBase
         {
             UserId = userId,
             Keyword = dto.Keyword,
-            CategoryId = dto.CategoryId
+            CategoryId = dto.CategoryId,
+            MarkAsFixed = dto.MarkAsFixed
         };
 
         _context.CategoryRules.Add(rule);
@@ -73,7 +75,8 @@ public class CategoryRuleController : ControllerBase
             Id = rule.Id,
             Keyword = rule.Keyword,
             CategoryId = rule.CategoryId,
-            CategoryName = category.Name
+            CategoryName = category.Name,
+            MarkAsFixed = rule.MarkAsFixed
         });
     }
 
@@ -99,6 +102,9 @@ public class CategoryRuleController : ControllerBase
             rule.CategoryId = dto.CategoryId.Value;
         }
 
+        if (dto.MarkAsFixed.HasValue)
+            rule.MarkAsFixed = dto.MarkAsFixed.Value;
+
         await _context.SaveChangesAsync();
 
         // Recharger la catégorie pour le DTO
@@ -109,7 +115,8 @@ public class CategoryRuleController : ControllerBase
             Id = rule.Id,
             Keyword = rule.Keyword,
             CategoryId = rule.CategoryId,
-            CategoryName = rule.Category.Name
+            CategoryName = rule.Category.Name,
+            MarkAsFixed = rule.MarkAsFixed
         });
     }
 
@@ -133,61 +140,61 @@ public class CategoryRuleController : ControllerBase
     {
         var userId = GetUserId();
 
-        var defaults = new List<(string Keyword, int CategoryId)>
+        var defaults = new List<(string Keyword, int CategoryId, bool MarkAsFixed)>
         {
             // Alimentation (1)
-            ("COLRUYT", 1), ("CARREFOUR", 1), ("DELHAIZE", 1), ("LIDL", 1), ("ALDI", 1),
-            ("SPAR", 1), ("CORA", 1), ("PROXY DELHAIZE", 1), ("ALBERT HEIJN", 1),
-            ("INTERMARCHE", 1), ("MAKRO", 1), ("PICARD", 1),
+            ("COLRUYT", 1, false), ("CARREFOUR", 1, false), ("DELHAIZE", 1, false), ("LIDL", 1, false), ("ALDI", 1, false),
+            ("SPAR", 1, false), ("CORA", 1, false), ("PROXY DELHAIZE", 1, false), ("ALBERT HEIJN", 1, false),
+            ("INTERMARCHE", 1, false), ("MAKRO", 1, false), ("PICARD", 1, false),
 
             // Transport (2)
-            ("SNCB", 2), ("NMBS", 2), ("STIB", 2), ("DE LIJN", 2),
-            ("SHELL", 2), ("TOTAL ENERGIES", 2), ("Q8", 2), ("ESSO", 2), ("TEXACO", 2),
-            ("IONITY", 2), ("BLUPOINT", 2),
+            ("SNCB", 2, false), ("NMBS", 2, false), ("STIB", 2, false), ("DE LIJN", 2, false),
+            ("SHELL", 2, false), ("TOTAL ENERGIES", 2, false), ("Q8", 2, false), ("ESSO", 2, false), ("TEXACO", 2, false),
+            ("IONITY", 2, false), ("BLUPOINT", 2, false),
 
-            // Logement (3)
-            ("LOYER", 3), ("SYNDIC", 3), ("HYPOTHECAIRE", 3), ("COPROPRIETE", 3),
+            // Logement (3) — récurrents fixes
+            ("LOYER", 3, true), ("SYNDIC", 3, true), ("HYPOTHECAIRE", 3, true), ("COPROPRIETE", 3, true),
 
             // Loisirs (4)
-            ("KINEPOLIS", 4), ("UGC", 4), ("PATHÉ", 4), ("THEATRE", 4), ("CONCERT", 4),
+            ("KINEPOLIS", 4, false), ("UGC", 4, false), ("PATHÉ", 4, false), ("THEATRE", 4, false), ("CONCERT", 4, false),
 
-            // Santé (5)
-            ("PHARMACIE", 5), ("APOTHEEK", 5), ("MUTUALITE", 5), ("MUTUELLE", 5),
-            ("KINESITHERAPEUTE", 5), ("DENTISTE", 5), ("OPTICIEN", 5),
-            ("LABORATOIRE", 5), ("MEDISPRING", 5),
+            // Santé (5) — cotisations mutuelle fixes, le reste variable
+            ("PHARMACIE", 5, false), ("APOTHEEK", 5, false), ("MUTUALITE", 5, true), ("MUTUELLE", 5, true),
+            ("KINESITHERAPEUTE", 5, false), ("DENTISTE", 5, false), ("OPTICIEN", 5, false),
+            ("LABORATOIRE", 5, false), ("MEDISPRING", 5, false),
 
             // Shopping (7)
-            ("AMAZON", 7), ("BOL.COM", 7), ("ZALANDO", 7), ("IKEA", 7), ("ACTION", 7),
-            ("PRIMARK", 7), ("MEDIAMARKT", 7), ("ZARA", 7), ("H&M", 7), ("FNAC", 7),
+            ("AMAZON", 7, false), ("BOL.COM", 7, false), ("ZALANDO", 7, false), ("IKEA", 7, false), ("ACTION", 7, false),
+            ("PRIMARK", 7, false), ("MEDIAMARKT", 7, false), ("ZARA", 7, false), ("H&M", 7, false), ("FNAC", 7, false),
 
             // Salaire (8)
-            ("SALAIRE", 8), ("LOON", 8),
+            ("SALAIRE", 8, false), ("LOON", 8, false),
 
             // Restaurants (11)
-            ("MCDONALD", 11), ("BURGER KING", 11), ("QUICK RESTAURANT", 11),
-            ("DELIVEROO", 11), ("UBER EATS", 11), ("TAKEAWAY", 11),
-            ("STARBUCKS", 11), ("DOMINOS", 11), ("LE PAIN QUOTIDIEN", 11),
+            ("MCDONALD", 11, false), ("BURGER KING", 11, false), ("QUICK RESTAURANT", 11, false),
+            ("DELIVEROO", 11, false), ("UBER EATS", 11, false), ("TAKEAWAY", 11, false),
+            ("STARBUCKS", 11, false), ("DOMINOS", 11, false), ("LE PAIN QUOTIDIEN", 11, false),
 
-            // Abonnements (12)
-            ("NETFLIX", 12), ("SPOTIFY", 12), ("DISNEY+", 12), ("DEEZER", 12),
-            ("YOUTUBE PREMIUM", 12), ("APPLE.COM/BILL", 12), ("MICROSOFT 365", 12),
-            ("ADOBE", 12), ("PROXIMUS", 12), ("TELENET", 12), ("VOO", 12),
-            ("ORANGE BELGIUM", 12), ("BASE COMPANY", 12), ("AMAZON PRIME", 12),
+            // Abonnements (12) — fixes par nature
+            ("NETFLIX", 12, true), ("SPOTIFY", 12, true), ("DISNEY+", 12, true), ("DEEZER", 12, true),
+            ("YOUTUBE PREMIUM", 12, true), ("APPLE.COM/BILL", 12, true), ("MICROSOFT 365", 12, true),
+            ("ADOBE", 12, true), ("PROXIMUS", 12, true), ("TELENET", 12, true), ("VOO", 12, true),
+            ("ORANGE BELGIUM", 12, true), ("BASE COMPANY", 12, true), ("AMAZON PRIME", 12, true),
 
-            // Assurances (13)
-            ("AXA", 13), ("AG INSURANCE", 13), ("ETHIAS", 13), ("FEDERALE ASSURANCE", 13),
-            ("BALOISE", 13), ("ALLIANZ", 13), ("DVV", 13), ("P&V ASSURANCES", 13),
-            ("BELFIUS INSURANCE", 13),
+            // Assurances (13) — primes fixes
+            ("AXA", 13, true), ("AG INSURANCE", 13, true), ("ETHIAS", 13, true), ("FEDERALE ASSURANCE", 13, true),
+            ("BALOISE", 13, true), ("ALLIANZ", 13, true), ("DVV", 13, true), ("P&V ASSURANCES", 13, true),
+            ("BELFIUS INSURANCE", 13, true),
 
-            // Énergie (14)
-            ("ENGIE", 14), ("LUMINUS", 14), ("FLUVIUS", 14), ("ORES", 14), ("ELIA", 14),
+            // Énergie (14) — acomptes fixes (les régularisations créditrices suivent la même règle)
+            ("ENGIE", 14, true), ("LUMINUS", 14, true), ("FLUVIUS", 14, true), ("ORES", 14, true), ("ELIA", 14, true),
 
-            // Enfants (15)
-            ("CRECHE", 15), ("CRÈCHE", 15), ("GARDERIE", 15),
-            ("ACCUEIL EXTRASCOLAIRE", 15), ("CENTRE CULTUREL", 15),
+            // Enfants (15) — crèche fixe, extrascolaire variable
+            ("CRECHE", 15, true), ("CRÈCHE", 15, true), ("GARDERIE", 15, false),
+            ("ACCUEIL EXTRASCOLAIRE", 15, false), ("CENTRE CULTUREL", 15, false),
 
             // Épargne (16)
-            ("EPARGNE", 16), ("SPAARREKENING", 16), ("ARGENTA", 16),
+            ("EPARGNE", 16, false), ("SPAARREKENING", 16, false), ("ARGENTA", 16, false),
         };
 
         var existingKeywords = await _context.CategoryRules
@@ -201,7 +208,8 @@ public class CategoryRuleController : ControllerBase
             {
                 UserId = userId,
                 Keyword = d.Keyword,
-                CategoryId = d.CategoryId
+                CategoryId = d.CategoryId,
+                MarkAsFixed = d.MarkAsFixed
             })
             .ToList();
 

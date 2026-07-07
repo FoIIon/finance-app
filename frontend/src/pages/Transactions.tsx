@@ -14,7 +14,7 @@ import { formatCurrency } from '../utils/format';
 import { useToast } from '../context/ToastContext';
 
 const Transactions = () => {
-  const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setEnvelope } = useTransactions();
+  const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setFixed, setEnvelope } = useTransactions();
   const { currentDashboard } = useDashboards();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -179,6 +179,17 @@ const Transactions = () => {
       queryClient.invalidateQueries({ queryKey: ['summary'] });
       queryClient.invalidateQueries({ queryKey: ['category-detail'] });
       showToast(updated.isExceptional ? 'Marquée comme exceptionnelle' : 'Retirée des exceptionnelles', 'success');
+    } catch {
+      showToast('Impossible de modifier la transaction', 'error');
+    }
+  };
+
+  const handleToggleFixed = async (t: Transaction) => {
+    try {
+      const updated = await setFixed(t.id, !t.isFixed);
+      queryClient.invalidateQueries({ queryKey: ['monthly-report'] });
+      queryClient.invalidateQueries({ queryKey: ['burndown'] });
+      showToast(updated.isFixed ? 'Marquée comme charge fixe' : 'Retirée des charges fixes', 'success');
     } catch {
       showToast('Impossible de modifier la transaction', 'error');
     }
@@ -360,6 +371,12 @@ const Transactions = () => {
                     ) : (
                       <>
                         <button
+                          aria-label="Charge fixe"
+                          title={t.isFixed ? 'Charge fixe — cliquer pour retirer du bloc FIXE du bilan' : 'Marquer comme charge fixe (bloc FIXE du bilan mensuel)'}
+                          onClick={() => handleToggleFixed(t)}
+                          className={`transition-colors ${t.isFixed ? 'text-blue-400' : 'text-white/40 hover:text-blue-400'}`}
+                        >📌</button>
+                        <button
                           aria-label="Dépense exceptionnelle"
                           title="Dépense exceptionnelle"
                           onClick={() => handleToggleExceptional(t)}
@@ -436,6 +453,12 @@ const Transactions = () => {
                     </>
                   ) : (
                     <>
+                      <button
+                        aria-label="Charge fixe"
+                        title={t.isFixed ? 'Charge fixe — cliquer pour retirer' : 'Marquer comme charge fixe'}
+                        onClick={() => handleToggleFixed(t)}
+                        className={`transition-colors ${t.isFixed ? 'text-blue-400' : 'text-white/40 hover:text-blue-400'}`}
+                      >📌</button>
                       <button
                         aria-label="Dépense exceptionnelle"
                         title="Dépense exceptionnelle"

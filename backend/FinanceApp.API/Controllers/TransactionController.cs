@@ -73,6 +73,7 @@ public class TransactionController : ControllerBase
             IsImported = t.IsImported,
             CounterpartyName = t.CounterpartyName,
             IsExceptional = t.IsExceptional,
+            IsFixed = t.IsFixed,
             IsProvisional = t.IsProvisional,
             BankAccountName = t.BankAccount?.AccountName,
             BankInstitutionName = t.BankAccount?.BankConnection?.InstitutionName,
@@ -91,6 +92,7 @@ public class TransactionController : ControllerBase
         [FromQuery] int? accountId,
         [FromQuery] int? bankAccountId,
         [FromQuery] bool? isExceptional,
+        [FromQuery] bool? isFixed,
         [FromQuery] string? search,
         [FromQuery] string? sortBy,
         [FromQuery] bool? sortDesc)
@@ -112,6 +114,7 @@ public class TransactionController : ControllerBase
         if (accountId.HasValue) query = query.Where(t => t.AccountId == accountId.Value);
         if (bankAccountId.HasValue) query = query.Where(t => t.BankAccountId == bankAccountId.Value);
         if (isExceptional.HasValue) query = query.Where(t => t.IsExceptional == isExceptional.Value);
+        if (isFixed.HasValue) query = query.Where(t => t.IsFixed == isFixed.Value);
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(t => t.Description.Contains(search) || t.Category.Name.Contains(search) || t.Account.Name.Contains(search));
 
@@ -190,6 +193,7 @@ public class TransactionController : ControllerBase
             IsImported = transaction.IsImported,
             CounterpartyName = transaction.CounterpartyName,
             IsExceptional = transaction.IsExceptional,
+            IsFixed = transaction.IsFixed,
             IsProvisional = transaction.IsProvisional
         });
     }
@@ -239,6 +243,7 @@ public class TransactionController : ControllerBase
             IsImported = transaction.IsImported,
             CounterpartyName = transaction.CounterpartyName,
             IsExceptional = transaction.IsExceptional,
+            IsFixed = transaction.IsFixed,
             IsProvisional = transaction.IsProvisional,
             BankAccountName = transaction.BankAccount?.AccountName,
             BankInstitutionName = transaction.BankAccount?.BankConnection?.InstitutionName,
@@ -261,6 +266,26 @@ public class TransactionController : ControllerBase
         if (transaction == null) return NotFound();
 
         transaction.IsExceptional = dto.IsExceptional;
+        await _context.SaveChangesAsync();
+
+        return Ok(MapToDto(transaction));
+    }
+
+    /// <summary>Marque (ou démarque) une transaction comme charge fixe.</summary>
+    [HttpPut("{id}/fixed")]
+    public async Task<ActionResult<TransactionDto>> SetFixed(int id, SetFixedDto dto)
+    {
+        var userId = GetUserId();
+        var transaction = await _context.Transactions
+            .Include(t => t.Category)
+            .Include(t => t.Account)
+            .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
+            .FirstOrDefaultAsync(t => t.Id == id && t.Account.UserId == userId);
+
+        if (transaction == null) return NotFound();
+
+        transaction.IsFixed = dto.IsFixed;
         await _context.SaveChangesAsync();
 
         return Ok(MapToDto(transaction));
@@ -335,13 +360,16 @@ public class TransactionController : ControllerBase
             .Select(a => a.Id)
             .ToListAsync();
 
-        // Ne toucher que les transactions encore en catégorie par défaut : tout le reste est
+        // Catégorie : ne toucher que les transactions encore en catégorie par défaut, tout le reste est
         // soit un match de règle antérieur, soit une correction manuelle qu'on ne doit pas écraser.
+        // Flag fixe : réappliqué sur toutes les transactions importées qui matchent une règle
+        // (permet de rattraper le stock existant quand on coche « charge fixe » sur une règle).
         var transactions = await _context.Transactions
-            .Where(t => accounts.Contains(t.AccountId) && t.IsImported && t.CategoryId == defaultCategoryId)
+            .Where(t => accounts.Contains(t.AccountId) && t.IsImported)
             .ToListAsync();
 
         int updated = 0;
+        int fixedUpdated = 0;
         foreach (var tx in transactions)
         {
             foreach (var rule in rules)
@@ -349,15 +377,23 @@ public class TransactionController : ControllerBase
                 if (tx.Description.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase) ||
                     (tx.CounterpartyName != null && tx.CounterpartyName.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase)))
                 {
-                    tx.CategoryId = rule.CategoryId;
-                    updated++;
+                    if (tx.CategoryId == defaultCategoryId)
+                    {
+                        tx.CategoryId = rule.CategoryId;
+                        updated++;
+                    }
+                    if (tx.IsFixed != rule.MarkAsFixed)
+                    {
+                        tx.IsFixed = rule.MarkAsFixed;
+                        fixedUpdated++;
+                    }
                     break;
                 }
             }
         }
 
         await _context.SaveChangesAsync();
-        return Ok(new { updated, total = transactions.Count });
+        return Ok(new { updated, fixedUpdated, total = transactions.Count });
     }
 
     [HttpGet("summary")]
@@ -411,8 +447,9 @@ public class TransactionController : ControllerBase
         // Exclure les transferts internes (épargne, comptes joints) des stats dépenses/revenus
         var totalIncome = flux.Where(t => t.Type == TransactionType.Income && !t.IsTransfer).Sum(t => t.Amount);
         var totalExpenses = flux.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer).Sum(t => t.Amount);
-        // Mise de côté = dépenses sur catégories transfert (Épargne perso, etc.) — exposée séparément pour visibilité
-        var totalSavings = flux.Where(t => t.Type == TransactionType.Expense && t.IsTransfer).Sum(t => t.Amount);
+        // Mise de côté = catégories transfert (Épargne perso, etc.), nette des retraits (Income transfert en négatif)
+        var totalSavings = flux.Where(t => t.IsTransfer)
+            .Sum(t => t.Type == TransactionType.Expense ? t.Amount : -t.Amount);
 
         var expensesByCategory = flux
             .Where(t => t.Type == TransactionType.Expense && !t.IsTransfer)
@@ -453,11 +490,11 @@ public class TransactionController : ControllerBase
             .ToList();
 
         var savingsByCategory = flux
-            .Where(t => t.Type == TransactionType.Expense && t.IsTransfer)
+            .Where(t => t.IsTransfer)
             .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
             .Select(g =>
             {
-                var amount = g.Sum(t => t.Amount);
+                var amount = g.Sum(t => t.Type == TransactionType.Expense ? t.Amount : -t.Amount);
                 return new CategoryBreakdownDto
                 {
                     CategoryId = g.Key.CategoryId,
@@ -468,6 +505,7 @@ public class TransactionController : ControllerBase
                     Percentage = totalSavings > 0 ? Math.Round(amount / totalSavings * 100, 1) : 0,
                 };
             })
+            .Where(c => c.Amount != 0)
             .OrderByDescending(c => c.Amount)
             .ToList();
 
@@ -578,16 +616,24 @@ public class TransactionController : ControllerBase
                 CategoryIcon = t.Category.Icon,
                 CategoryColor = t.Category.Color,
                 IsTransfer = t.Category.IsTransfer,
-                IsFixed = t.Category.IsFixed,
+                t.IsFixed,
             })
             .ToListAsync();
 
-        // Bloc ENTRÉES : revenus non-transfert
-        var entreesItems = raw.Where(t => t.Type == TransactionType.Income && !t.IsTransfer).ToList();
-        // Bloc FIXE : dépenses non-transfert sur catégories marquées charge fixe
-        var fixeItems = raw.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer && t.IsFixed).ToList();
-        // Bloc MISES DE CÔTÉ : dépenses sur catégories transfert (épargne, virements perso)
-        var misesItems = raw.Where(t => t.Type == TransactionType.Expense && t.IsTransfer).ToList();
+        // Bloc ENTRÉES : revenus non-transfert (hors régularisations fixes, déduites du bloc FIXE)
+        var entreesItems = raw.Where(t => t.Type == TransactionType.Income && !t.IsTransfer && !t.IsFixed).ToList();
+        // Bloc FIXE : dépenses non-transfert marquées charge fixe, nettes des régularisations
+        // (revenus fixes : remboursement énergie…) qui comptent en négatif
+        var fixeItems = raw
+            .Where(t => !t.IsTransfer && t.IsFixed)
+            .Select(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount })
+            .ToList();
+        // Bloc MISES DE CÔTÉ : catégories transfert (épargne, virements perso), nettes des retraits
+        // (un retrait d'épargne = Income transfert, il réduit la mise de côté du mois au lieu de disparaître)
+        var misesItems = raw
+            .Where(t => t.IsTransfer)
+            .Select(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount })
+            .ToList();
         // Bloc VARIABLE : dépenses non-transfert non-fixes (le reste)
         var variableItems = raw.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer && !t.IsFixed).ToList();
 
@@ -623,8 +669,10 @@ public class TransactionController : ControllerBase
             VariableExceptionnel = variableExceptionnel,
             Total = entrees - fixe - mises - variable,
             EntreesByCategory = Breakdown(entreesItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
-            FixeByCategory = Breakdown(fixeItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
-            MisesDeCoteByCategory = Breakdown(misesItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
+            FixeByCategory = Breakdown(fixeItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount)))
+                .Where(c => c.Amount != 0).ToList(),
+            MisesDeCoteByCategory = Breakdown(misesItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount)))
+                .Where(c => c.Amount != 0).ToList(),
             VariableByCategory = Breakdown(variableItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
         });
     }
@@ -748,14 +796,14 @@ public class TransactionController : ControllerBase
 
         var daysRemaining = isCurrent ? lastDay - todayDay : (isFuture ? lastDay : 0);
 
-        // Rythme variable : moyenne journalière des dépenses variables (non-transfert, catégorie non-fixe) sur 14 jours glissants
+        // Rythme variable : moyenne journalière des dépenses variables (non-transfert, non-fixes) sur 14 jours glissants
         var paceStart = now.Date.AddDays(-13);
         var paceEnd = now.Date.AddDays(1);
         var paceRaw = await _context.Transactions
             .Where(t => accountIds.Contains(t.AccountId)
                      && t.Type == TransactionType.Expense
                      && !t.Category.IsTransfer
-                     && !t.Category.IsFixed
+                     && !t.IsFixed
                      && t.Date >= paceStart && t.Date < paceEnd)
             .Select(t => t.Amount)
             .ToListAsync();

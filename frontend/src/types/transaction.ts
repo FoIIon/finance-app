@@ -21,6 +21,8 @@ export interface Transaction {
   isImported: boolean;
   counterpartyName?: string;
   isExceptional: boolean;
+  /** Charge fixe récurrente (prêt, prélèvement, abonnement…). Posé par les règles, modifiable à la main. */
+  isFixed: boolean;
   /** Transaction provisionnelle (salaire attendu, etc.) — supprimée quand le réel arrive. */
   isProvisional: boolean;
   bankAccountName?: string;
@@ -96,9 +98,9 @@ export interface CategoryMonthHistory {
 export interface MonthlyReport {
   year: number;
   month: number;
-  /** Revenus non-transfert du mois. */
+  /** Revenus non-transfert du mois (hors régularisations fixes). */
   entrees: number;
-  /** Dépenses non-transfert sur catégories marquées « charge fixe ». */
+  /** Dépenses non-transfert marquées charge fixe, nettes des régularisations (revenus fixes). */
   fixe: number;
   /** Dépenses sur catégories transfert (épargne, virements perso). */
   misesDeCote: number;
@@ -160,6 +162,7 @@ export interface TransactionFilters {
   accountId?: number;
   bankAccountId?: number;
   isExceptional?: boolean;
+  isFixed?: boolean;
   search?: string;
   sortBy?: string;
   sortDesc?: boolean;
