@@ -125,6 +125,8 @@ public class ProvisionService
                 AccountId = accountId.Value,
                 IsImported = false,
                 IsProvisional = true,
+                // Une dépense récurrente provisionnée est par définition une charge fixe
+                IsFixed = type == TransactionType.Expense,
                 RecurringTransactionId = recurring.Id,
             });
 

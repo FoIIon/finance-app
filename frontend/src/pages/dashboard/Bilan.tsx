@@ -166,11 +166,11 @@ const DashboardBilan = () => {
       {noFixed && (
         <div className="bg-gradient-to-br from-blue-500/5 to-violet-500/5 backdrop-blur-xl rounded-2xl border border-blue-500/20 p-5">
           <p className="text-white/80 text-sm">
-            Marque tes charges fixes (prêt, électricité, crèche…) dans{' '}
-            <Link to="/categories" className="text-blue-300 font-medium hover:text-blue-200 underline underline-offset-2">
-              Catégories
+            Coche « charge fixe » sur tes règles de catégorisation (prêt, électricité, crèche…) dans{' '}
+            <Link to="/bank" className="text-blue-300 font-medium hover:text-blue-200 underline underline-offset-2">
+              Comptes bancaires
             </Link>{' '}
-            pour un bilan fidèle. Sans ça, tout passe en variable.
+            pour un bilan fidèle. Sans ça, tout passe en variable. Le 📌 sur une transaction permet d'ajuster au cas par cas.
           </p>
         </div>
       )}
@@ -189,7 +189,7 @@ const DashboardBilan = () => {
           accent={ACCENTS.fixe}
           categories={report.fixeByCategory}
           onCategoryClick={setSelected}
-          emptyLabel="Aucune catégorie marquée fixe"
+          emptyLabel="Aucune transaction marquée fixe"
         />
         <BlockCard
           title="Mises de côté"

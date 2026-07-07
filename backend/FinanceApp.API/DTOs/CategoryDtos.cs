@@ -9,7 +9,6 @@ public class CategoryDto
     public string Icon { get; set; } = string.Empty;
     public string Color { get; set; } = string.Empty;
     public bool IsDefault { get; set; }
-    public bool IsFixed { get; set; }
 }
 
 public class CreateCategoryDto
@@ -22,8 +21,6 @@ public class CreateCategoryDto
 
     [Required, MaxLength(9)]
     public string Color { get; set; } = string.Empty;
-
-    public bool IsFixed { get; set; }
 }
 
 public class UpdateCategoryDto
@@ -36,11 +33,4 @@ public class UpdateCategoryDto
 
     [Required, MaxLength(9)]
     public string Color { get; set; } = string.Empty;
-
-    public bool IsFixed { get; set; }
-}
-
-public class SetFixedDto
-{
-    public bool IsFixed { get; set; }
 }

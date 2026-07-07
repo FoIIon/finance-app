@@ -40,8 +40,7 @@ public class CategoryController : ControllerBase
                 Name = c.Name,
                 Icon = c.Icon,
                 Color = c.Color,
-                IsDefault = c.IsDefault,
-                IsFixed = c.IsFixed
+                IsDefault = c.IsDefault
             })
             .ToListAsync();
 
@@ -58,7 +57,6 @@ public class CategoryController : ControllerBase
             Icon = dto.Icon,
             Color = dto.Color,
             IsDefault = false,
-            IsFixed = dto.IsFixed,
             UserId = userId
         };
 
@@ -71,8 +69,7 @@ public class CategoryController : ControllerBase
             Name = category.Name,
             Icon = category.Icon,
             Color = category.Color,
-            IsDefault = category.IsDefault,
-            IsFixed = category.IsFixed
+            IsDefault = category.IsDefault
         });
     }
 
@@ -88,7 +85,6 @@ public class CategoryController : ControllerBase
         category.Name = dto.Name;
         category.Icon = dto.Icon;
         category.Color = dto.Color;
-        category.IsFixed = dto.IsFixed;
 
         await _context.SaveChangesAsync();
 
@@ -98,31 +94,7 @@ public class CategoryController : ControllerBase
             Name = category.Name,
             Icon = category.Icon,
             Color = category.Color,
-            IsDefault = category.IsDefault,
-            IsFixed = category.IsFixed
-        });
-    }
-
-    [HttpPut("{id}/fixed")]
-    public async Task<ActionResult<CategoryDto>> SetFixed(int id, SetFixedDto dto)
-    {
-        var userId = GetUserId();
-        var category = await _context.Categories.FirstOrDefaultAsync(
-            c => c.Id == id && (c.IsDefault || c.UserId == userId));
-
-        if (category == null) return NotFound();
-
-        category.IsFixed = dto.IsFixed;
-        await _context.SaveChangesAsync();
-
-        return Ok(new CategoryDto
-        {
-            Id = category.Id,
-            Name = category.Name,
-            Icon = category.Icon,
-            Color = category.Color,
-            IsDefault = category.IsDefault,
-            IsFixed = category.IsFixed
+            IsDefault = category.IsDefault
         });
     }
 

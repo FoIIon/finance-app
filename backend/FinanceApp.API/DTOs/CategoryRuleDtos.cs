@@ -8,6 +8,7 @@ public class CategoryRuleDto
     public string Keyword { get; set; } = string.Empty;
     public int CategoryId { get; set; }
     public string CategoryName { get; set; } = string.Empty;
+    public bool MarkAsFixed { get; set; }
 }
 
 public class CreateCategoryRuleDto
@@ -17,6 +18,8 @@ public class CreateCategoryRuleDto
 
     [Required]
     public int CategoryId { get; set; }
+
+    public bool MarkAsFixed { get; set; }
 }
 
 public class UpdateCategoryRuleDto
@@ -25,4 +28,6 @@ public class UpdateCategoryRuleDto
     public string? Keyword { get; set; }
 
     public int? CategoryId { get; set; }
+
+    public bool? MarkAsFixed { get; set; }
 }

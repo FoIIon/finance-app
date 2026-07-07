@@ -20,6 +20,7 @@ public class TransactionDto
     public bool IsImported { get; set; }
     public string? CounterpartyName { get; set; }
     public bool IsExceptional { get; set; }
+    public bool IsFixed { get; set; }
     public bool IsProvisional { get; set; }
     public string? BankAccountName { get; set; }
     public string? BankInstitutionName { get; set; }
@@ -30,6 +31,11 @@ public class TransactionDto
 public class SetExceptionalDto
 {
     public bool IsExceptional { get; set; }
+}
+
+public class SetFixedDto
+{
+    public bool IsFixed { get; set; }
 }
 
 public class SetEnvelopeDto
@@ -89,7 +95,8 @@ public class TransactionSummaryDto
     public decimal TotalIncome { get; set; }
     public decimal TotalExpenses { get; set; }
     public decimal Balance { get; set; }
-    /// <summary>Somme des dépenses catégorisées comme transfert interne (épargne, etc.) sur la période.</summary>
+    /// <summary>Mises de côté nettes sur la période : dépenses transfert interne (épargne, etc.)
+    /// moins les retraits (Income transfert).</summary>
     public decimal TotalSavings { get; set; }
     /// <summary>Somme des dépenses exceptionnelles (non-transfert) sur la période. Toujours calculée, indépendamment du filtre includeExceptional.</summary>
     public decimal ExceptionalExpenses { get; set; }
@@ -143,11 +150,13 @@ public class MonthlyReportDto
 {
     public int Year { get; set; }
     public int Month { get; set; }
-    /// <summary>Revenus non-transfert du mois.</summary>
+    /// <summary>Revenus non-transfert du mois (hors régularisations fixes).</summary>
     public decimal Entrees { get; set; }
-    /// <summary>Dépenses non-transfert sur catégories marquées « charge fixe ».</summary>
+    /// <summary>Dépenses non-transfert marquées « charge fixe » (Transaction.IsFixed),
+    /// nettes des régularisations (revenus fixes : remboursement énergie…).</summary>
     public decimal Fixe { get; set; }
-    /// <summary>Dépenses sur catégories transfert (épargne, virements perso) — les « mises de côté » d'Audrey.</summary>
+    /// <summary>Catégories transfert (épargne, virements perso) — les « mises de côté » d'Audrey,
+    /// nettes des retraits (Income transfert compté en négatif).</summary>
     public decimal MisesDeCote { get; set; }
     /// <summary>Dépenses non-transfert non-fixes — le reste variable.</summary>
     public decimal Variable { get; set; }

@@ -11,9 +11,6 @@ export const categoriesApi = {
   update: (id: number, data: UpdateCategory) =>
     apiClient.put<Category>(`/category/${id}`, data),
 
-  setFixed: (id: number, isFixed: boolean) =>
-    apiClient.put<Category>(`/category/${id}/fixed`, { isFixed }),
-
   delete: (id: number) =>
     apiClient.delete(`/category/${id}`),
 };

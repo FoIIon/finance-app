@@ -14,6 +14,11 @@ public class Transaction
     public string? CounterpartyName { get; set; }
     public bool IsExceptional { get; set; }
 
+    /// <summary>Charge fixe récurrente (prêt, prélèvement, abonnement…). Posé par les règles
+    /// (CategoryRule.MarkAsFixed) à l'import, modifiable à la main. Sur un revenu = régularisation
+    /// (remboursement énergie…) déduite du bloc FIXE du bilan au lieu de gonfler les entrées.</summary>
+    public bool IsFixed { get; set; }
+
     /// <summary>Transaction provisionnelle (ex: salaire attendu, matérialisé en début de mois).
     /// Supprimée automatiquement quand le versement réel est importé.</summary>
     public bool IsProvisional { get; set; }

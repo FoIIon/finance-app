@@ -40,16 +40,20 @@ export interface CategoryRule {
   keyword: string;
   categoryId: number;
   categoryName: string;
+  /** Les transactions matchées sont marquées charge fixe. */
+  markAsFixed: boolean;
 }
 
 export interface CreateCategoryRule {
   keyword: string;
   categoryId: number;
+  markAsFixed: boolean;
 }
 
 export interface UpdateCategoryRule {
   keyword?: string;
   categoryId?: number;
+  markAsFixed?: boolean;
 }
 
 export interface TradeRepublicLoginRequest {
