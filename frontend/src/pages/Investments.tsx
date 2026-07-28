@@ -41,6 +41,8 @@ const unitLabels: Record<number, string> = {
   [InvestmentUnit.Contract]: 'contrat',
 };
 
+const todayIso = new Date().toISOString().slice(0, 10);
+
 const Investments = () => {
   const { currentDashboard } = useDashboards();
   const dashboardId = currentDashboard?.id;
@@ -297,6 +299,7 @@ const Investments = () => {
             required
             type="date"
             title="Date du relevé, pas date de saisie"
+            max={todayIso}
             className="bg-white/5 rounded-lg px-3 py-2 text-white"
             value={valuationDate}
             onChange={(e) => setValuationDate(e.target.value)}
