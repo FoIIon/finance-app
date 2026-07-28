@@ -4,7 +4,7 @@ import { useDashboards } from '../hooks/useDashboards';
 import { useInvestmentsQuery } from '../hooks/queries';
 import { investmentsApi } from '../api/investments';
 import { InvestmentKind, InvestmentUnit } from '../types/investment';
-import type { Investment, CreateInvestment } from '../types/investment';
+import type { Investment, CreateInvestment, UpdateInvestment } from '../types/investment';
 import { formatCurrency } from '../utils/format';
 import { useToast } from '../context/ToastContext';
 
@@ -45,6 +45,26 @@ const unitLabels: Record<number, string> = {
   [InvestmentUnit.Contract]: 'contrat',
 };
 
+interface EditForm {
+  name: string;
+  holder: string;
+  isin: string;
+  metalCode: string;
+  quantity: string;
+  costBasis: string;
+  firstPurchaseDate: string;
+}
+
+const emptyEditForm: EditForm = {
+  name: '',
+  holder: '',
+  isin: '',
+  metalCode: 'XAU',
+  quantity: '',
+  costBasis: '',
+  firstPurchaseDate: '',
+};
+
 const todayIso = new Date().toISOString().slice(0, 10);
 
 const Investments = () => {
@@ -59,6 +79,8 @@ const Investments = () => {
   const [valuationValue, setValuationValue] = useState('');
   const [valuationDate, setValuationDate] = useState(new Date().toISOString().slice(0, 10));
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [editingFor, setEditingFor] = useState<Investment | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>(emptyEditForm);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['investments', dashboardId] });
 
@@ -116,6 +138,45 @@ const Investments = () => {
       showToast('Ligne supprimée', 'success');
     } catch {
       showToast('Impossible de supprimer la ligne', 'error');
+    }
+  };
+
+  const openEdit = (i: Investment) => {
+    setValuationFor(null);
+    setEditingFor(i);
+    setEditForm({
+      name: i.name,
+      holder: i.holder,
+      isin: i.isin ?? '',
+      metalCode: i.metalCode ?? 'XAU',
+      quantity: i.kind === InvestmentKind.InsuranceContract ? '' : String(i.quantity),
+      costBasis: String(i.costBasis),
+      firstPurchaseDate: i.firstPurchaseDate ? i.firstPurchaseDate.slice(0, 10) : '',
+    });
+  };
+
+  const handleEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingFor) return;
+
+    const isContract = editingFor.kind === InvestmentKind.InsuranceContract;
+    const payload: UpdateInvestment = {
+      name: editForm.name,
+      holder: editForm.holder,
+      isin: editingFor.kind === InvestmentKind.Security ? editForm.isin || null : null,
+      metalCode: editingFor.kind === InvestmentKind.Metal ? editForm.metalCode : null,
+      costBasis: parseFloat(editForm.costBasis || '0'),
+      firstPurchaseDate: editForm.firstPurchaseDate || null,
+      ...(isContract ? {} : { quantity: parseFloat(editForm.quantity || '0') }),
+    };
+
+    try {
+      await investmentsApi.update(editingFor.id, payload);
+      setEditingFor(null);
+      refresh();
+      showToast('Ligne modifiée', 'success');
+    } catch {
+      showToast('Impossible de modifier la ligne', 'error');
     }
   };
 
@@ -282,10 +343,16 @@ const Investments = () => {
                 </td>
                 <td className="p-3 text-right whitespace-nowrap">
                   <button
-                    onClick={() => { setValuationFor(i); setValuationValue(''); }}
+                    onClick={() => { setEditingFor(null); setValuationFor(i); setValuationValue(''); }}
                     className="text-indigo-300 hover:text-indigo-200 mr-3"
                   >
                     Valoriser
+                  </button>
+                  <button
+                    onClick={() => openEdit(i)}
+                    className="text-indigo-300 hover:text-indigo-200 mr-3"
+                  >
+                    Modifier
                   </button>
                   {deleteConfirm === i.id ? (
                     <>
@@ -333,6 +400,78 @@ const Investments = () => {
             Enregistrer
           </button>
           <button type="button" onClick={() => setValuationFor(null)} className="text-white/50 hover:text-white">
+            Annuler
+          </button>
+        </form>
+      )}
+
+      {editingFor && (
+        <form onSubmit={handleEdit} className="bg-[#1a1a3e] rounded-2xl border border-white/10 p-4 flex flex-wrap gap-3 items-center">
+          <span className="text-white">Modifier {editingFor.name}</span>
+          <input
+            required
+            placeholder="Nom"
+            className="bg-white/5 rounded-lg px-3 py-2 text-white"
+            value={editForm.name}
+            onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+          />
+          <input
+            required
+            list="holders"
+            placeholder="Titulaire"
+            className="bg-white/5 rounded-lg px-3 py-2 text-white"
+            value={editForm.holder}
+            onChange={(e) => setEditForm({ ...editForm, holder: e.target.value })}
+          />
+          {editingFor.kind === InvestmentKind.Security && (
+            <input
+              placeholder="ISIN"
+              className="bg-white/5 rounded-lg px-3 py-2 text-white"
+              value={editForm.isin}
+              onChange={(e) => setEditForm({ ...editForm, isin: e.target.value })}
+            />
+          )}
+          {editingFor.kind === InvestmentKind.Metal && (
+            <select
+              className="bg-white/5 rounded-lg px-3 py-2 text-white"
+              value={editForm.metalCode}
+              onChange={(e) => setEditForm({ ...editForm, metalCode: e.target.value })}
+            >
+              <option value="XAU">Or</option>
+              <option value="XAG">Argent</option>
+            </select>
+          )}
+          {editingFor.kind !== InvestmentKind.InsuranceContract && (
+            <input
+              required
+              type="number"
+              step="0.000001"
+              placeholder="Quantité"
+              className="bg-white/5 rounded-lg px-3 py-2 text-white"
+              value={editForm.quantity}
+              onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
+            />
+          )}
+          <input
+            required
+            type="number"
+            step="0.01"
+            placeholder="Montant investi"
+            className="bg-white/5 rounded-lg px-3 py-2 text-white"
+            value={editForm.costBasis}
+            onChange={(e) => setEditForm({ ...editForm, costBasis: e.target.value })}
+          />
+          <input
+            type="date"
+            title="Date d'entrée, nécessaire pour afficher un rendement annualisé"
+            className="bg-white/5 rounded-lg px-3 py-2 text-white"
+            value={editForm.firstPurchaseDate}
+            onChange={(e) => setEditForm({ ...editForm, firstPurchaseDate: e.target.value })}
+          />
+          <button type="submit" className="bg-indigo-500 hover:bg-indigo-400 rounded-lg px-4 py-2 text-white">
+            Enregistrer
+          </button>
+          <button type="button" onClick={() => setEditingFor(null)} className="text-white/50 hover:text-white">
             Annuler
           </button>
         </form>
