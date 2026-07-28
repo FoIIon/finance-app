@@ -4,6 +4,7 @@ import { transactionsApi } from '../api/transactions';
 import { savingsGoalsApi, dashboardExtrasApi } from '../api/savingsGoals';
 import { projectEnvelopesApi } from '../api/projectEnvelopes';
 import { shoppingItemsApi } from '../api/shoppingItems';
+import { investmentsApi } from '../api/investments';
 import type { Period } from '../utils/periods';
 import { periodToRange } from '../utils/periods';
 import { PeriodContext } from '../context/PeriodContext';
@@ -111,6 +112,16 @@ export const useAnomaliesQuery = (dashboardId: number | undefined, period: Perio
     queryFn: async () => {
       const { from, to } = periodToRange(period);
       const res = await dashboardExtrasApi.getAnomalies(dashboardId!, from, to);
+      return res.data;
+    },
+  });
+
+export const useInvestmentsQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['investments', dashboardId],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      const res = await investmentsApi.getAll(dashboardId!);
       return res.data;
     },
   });
