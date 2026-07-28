@@ -12,6 +12,8 @@ interface InvestmentForm {
   name: string;
   holder: string;
   kind: number;
+  isin: string;
+  metalCode: string;
   quantity: string;
   unit: number;
   costBasis: string;
@@ -22,6 +24,8 @@ const emptyForm: InvestmentForm = {
   name: '',
   holder: '',
   kind: InvestmentKind.Security,
+  isin: '',
+  metalCode: 'XAU',
   quantity: '',
   unit: InvestmentUnit.Share,
   costBasis: '',
@@ -68,6 +72,8 @@ const Investments = () => {
       name: form.name,
       holder: form.holder,
       kind: form.kind as CreateInvestment['kind'],
+      isin: form.kind === InvestmentKind.Security ? form.isin || null : null,
+      metalCode: form.kind === InvestmentKind.Metal ? form.metalCode : null,
       quantity: isContract ? 1 : parseFloat(form.quantity || '0'),
       unit: (isContract ? InvestmentUnit.Contract : form.unit) as CreateInvestment['unit'],
       costBasis: parseFloat(form.costBasis || '0'),
@@ -153,13 +159,32 @@ const Investments = () => {
                 : kind === InvestmentKind.InsuranceContract
                   ? InvestmentUnit.Contract
                   : InvestmentUnit.Share;
-            setForm({ ...form, kind, unit });
+            const metalCode = kind === InvestmentKind.Metal ? 'XAU' : form.metalCode;
+            setForm({ ...form, kind, unit, metalCode });
           }}
         >
           {Object.entries(kindLabels).map(([value, label]) => (
             <option key={value} value={value}>{label}</option>
           ))}
         </select>
+        {form.kind === InvestmentKind.Security && (
+          <input
+            placeholder="ISIN"
+            className="bg-white/5 rounded-lg px-3 py-2 text-white"
+            value={form.isin}
+            onChange={(e) => setForm({ ...form, isin: e.target.value })}
+          />
+        )}
+        {form.kind === InvestmentKind.Metal && (
+          <select
+            className="bg-white/5 rounded-lg px-3 py-2 text-white"
+            value={form.metalCode}
+            onChange={(e) => setForm({ ...form, metalCode: e.target.value })}
+          >
+            <option value="XAU">Or</option>
+            <option value="XAG">Argent</option>
+          </select>
+        )}
         {form.kind === InvestmentKind.Metal && (
           <select
             className="bg-white/5 rounded-lg px-3 py-2 text-white"
