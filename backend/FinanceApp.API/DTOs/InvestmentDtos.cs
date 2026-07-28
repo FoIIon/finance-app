@@ -93,7 +93,7 @@ public class UpdateInvestmentDto
 public class CreateValuationDto
 {
     [Required]
-    public DateTime AsOf { get; set; }
+    public DateOnly AsOf { get; set; }
 
     [Range(0, 99999999.99)]
     public decimal MarketValue { get; set; }

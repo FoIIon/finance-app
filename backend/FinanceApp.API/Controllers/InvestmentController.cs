@@ -179,9 +179,11 @@ public class InvestmentController : ControllerBase
         if (investment == null) return NotFound();
         if (!await UserCanAccessDashboard(investment.DashboardId, userId)) return Forbid();
 
-        // AsOf porte la date de la valeur, pas la date de saisie. On normalise à la journée
-        // pour que la contrainte d'unicité fasse son travail.
-        var asOf = dto.AsOf.Date;
+        // AsOf porte la date de la valeur, pas la date de saisie. Le DTO est typé DateOnly :
+        // toute ambiguïté de fuseau horaire (offset dans la chaîne reçue) est rejetée par le
+        // binding avant d'arriver ici, la contrainte d'unicité ne peut plus être contournée
+        // par un décalage qui ferait glisser la date d'un jour.
+        var asOf = dto.AsOf.ToDateTime(TimeOnly.MinValue);
 
         var existing = await _context.InvestmentValuations
             .FirstOrDefaultAsync(v => v.InvestmentId == id && v.AsOf == asOf);
