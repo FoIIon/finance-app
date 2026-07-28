@@ -101,3 +101,13 @@ public class CreateValuationDto
     [Range(0, 99999999.999999)]
     public decimal? UnitPrice { get; set; }
 }
+
+public class InvestmentValuationDto
+{
+    public int Id { get; set; }
+    public int InvestmentId { get; set; }
+    public DateTime AsOf { get; set; }
+    public decimal? UnitPrice { get; set; }
+    public decimal MarketValue { get; set; }
+    public ValuationSource Source { get; set; }
+}
