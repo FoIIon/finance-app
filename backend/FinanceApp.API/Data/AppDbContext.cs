@@ -23,6 +23,9 @@ public class AppDbContext : DbContext
     public DbSet<SavingsGoal> SavingsGoals => Set<SavingsGoal>();
     public DbSet<ProjectEnvelope> ProjectEnvelopes => Set<ProjectEnvelope>();
     public DbSet<ShoppingItem> ShoppingItems => Set<ShoppingItem>();
+    public DbSet<Investment> Investments => Set<Investment>();
+    public DbSet<InvestmentValuation> InvestmentValuations => Set<InvestmentValuation>();
+    public DbSet<InvestmentMovement> InvestmentMovements => Set<InvestmentMovement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -297,6 +300,77 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(s => s.DashboardId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Investment
+        // Précision explicite obligatoire : SQLite ne porte pas de précision native sur decimal,
+        // et les quantités fractionnaires (parts Trade Republic) descendent à six décimales.
+        modelBuilder.Entity<Investment>()
+            .Property(i => i.Quantity)
+            .HasPrecision(18, 6);
+
+        modelBuilder.Entity<Investment>()
+            .Property(i => i.CostBasis)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Investment>()
+            .HasOne(i => i.Dashboard)
+            .WithMany()
+            .HasForeignKey(i => i.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Investment>()
+            .HasIndex(i => i.DashboardId);
+
+        // InvestmentValuation
+        modelBuilder.Entity<InvestmentValuation>()
+            .Property(v => v.MarketValue)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<InvestmentValuation>()
+            .Property(v => v.UnitPrice)
+            .HasPrecision(18, 6);
+
+        modelBuilder.Entity<InvestmentValuation>()
+            .HasOne(v => v.Investment)
+            .WithMany(i => i.Valuations)
+            .HasForeignKey(v => v.InvestmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Une seule valorisation par ligne et par date : une correction remplace la valeur
+        // du jour, elle ne crée pas un doublon qui fausserait la courbe.
+        modelBuilder.Entity<InvestmentValuation>()
+            .HasIndex(v => new { v.InvestmentId, v.AsOf })
+            .IsUnique();
+
+        // InvestmentMovement
+        // Table créée dès maintenant pour n'avoir qu'une migration. Non alimentée au lot 1.
+        modelBuilder.Entity<InvestmentMovement>()
+            .Property(m => m.Quantity)
+            .HasPrecision(18, 6);
+
+        modelBuilder.Entity<InvestmentMovement>()
+            .Property(m => m.UnitPrice)
+            .HasPrecision(18, 6);
+
+        modelBuilder.Entity<InvestmentMovement>()
+            .Property(m => m.Amount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<InvestmentMovement>()
+            .HasOne(m => m.Investment)
+            .WithMany(i => i.Movements)
+            .HasForeignKey(m => m.InvestmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<InvestmentMovement>()
+            .HasIndex(m => m.InvestmentId);
+
+        // Déduplication des imports courtier. Filtré pour tolérer plusieurs mouvements
+        // saisis à la main sans identifiant externe.
+        modelBuilder.Entity<InvestmentMovement>()
+            .HasIndex(m => m.ExternalId)
+            .IsUnique()
+            .HasFilter("[ExternalId] IS NOT NULL");
 
         modelBuilder.Entity<Category>().HasData(
             new Category { Id = 1, Name = "Alimentation", Icon = "\uD83C\uDF55", Color = "#FF6384", IsDefault = true },
