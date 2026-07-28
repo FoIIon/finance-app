@@ -92,11 +92,11 @@ public class InvestmentCalculatorTests
     [Fact]
     public void ComputeCagr_TwoYearsDoubling_ReturnsAboutFortyOnePercent()
     {
-        // 1000 → 2000 en 2 ans = racine carrée de 2, soit environ 41,42 %.
+        // 1000 qui devient 2000 sur deux ans. L'année conventionnelle de 365,25 jours donne 41,45 %.
         var result = InvestmentCalculator.ComputeCagr(
             1000m, 2000m, new DateTime(2024, 7, 28), new DateTime(2026, 7, 28));
         Assert.NotNull(result);
-        Assert.Equal(41.42m, Math.Round(result!.Value, 2));
+        Assert.Equal(41.45m, Math.Round(result!.Value, 2));
     }
 
     [Fact]

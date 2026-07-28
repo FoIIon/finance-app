@@ -51,7 +51,7 @@ public static class InvestmentCalculator
         if (marketValue is null) return null;
         if (costBasis <= 0m) return null;
 
-        var years = (asOf - firstPurchaseDate.Value).TotalDays / 365.0;
+        var years = (asOf - firstPurchaseDate.Value).TotalDays / 365.25;
         if (years < 1.0) return null;
 
         var ratio = (double)(marketValue.Value / costBasis);
