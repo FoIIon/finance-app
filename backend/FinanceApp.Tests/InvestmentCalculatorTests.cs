@@ -70,4 +70,68 @@ public class InvestmentCalculatorTests
         Assert.Equal(500m, amount);
         Assert.Null(percent);
     }
+
+    [Fact]
+    public void ComputeCagr_NoFirstPurchaseDate_ReturnsNull()
+    {
+        // Règle non négociable de la spec : pas de date d'entrée, pas de rendement.
+        // Une case vide vaut mieux qu'un chiffre reposant sur une hypothèse invisible.
+        var result = InvestmentCalculator.ComputeCagr(1000m, 1500m, null, new DateTime(2026, 7, 28));
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ComputeCagr_HoldingShorterThanOneYear_ReturnsNull()
+    {
+        // Annualiser six mois de détention produit un chiffre spectaculaire et faux.
+        var result = InvestmentCalculator.ComputeCagr(
+            1000m, 1200m, new DateTime(2026, 3, 1), new DateTime(2026, 7, 28));
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ComputeCagr_TwoYearsDoubling_ReturnsAboutFortyOnePercent()
+    {
+        // 1000 → 2000 en 2 ans = racine carrée de 2, soit environ 41,42 %.
+        var result = InvestmentCalculator.ComputeCagr(
+            1000m, 2000m, new DateTime(2024, 7, 28), new DateTime(2026, 7, 28));
+        Assert.NotNull(result);
+        Assert.Equal(41.42m, Math.Round(result!.Value, 2));
+    }
+
+    [Fact]
+    public void ComputeCagr_NoValuation_ReturnsNull()
+    {
+        var result = InvestmentCalculator.ComputeCagr(1000m, null, new DateTime(2020, 1, 1), new DateTime(2026, 7, 28));
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ComputeCagr_ZeroOrNegativeCostBasis_ReturnsNull()
+    {
+        var result = InvestmentCalculator.ComputeCagr(0m, 500m, new DateTime(2020, 1, 1), new DateTime(2026, 7, 28));
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void IsStale_ManualWithinThirtyDays_IsFresh()
+    {
+        var now = new DateTime(2026, 7, 28);
+        Assert.False(InvestmentCalculator.IsStale(ValuationSource.Manual, now.AddDays(-29), now));
+    }
+
+    [Fact]
+    public void IsStale_ManualBeyondThirtyDays_IsStale()
+    {
+        var now = new DateTime(2026, 7, 28);
+        Assert.True(InvestmentCalculator.IsStale(ValuationSource.Manual, now.AddDays(-31), now));
+    }
+
+    [Fact]
+    public void IsStale_AutomaticBeyondFortyEightHours_IsStale()
+    {
+        var now = new DateTime(2026, 7, 28);
+        Assert.True(InvestmentCalculator.IsStale(ValuationSource.SpotApi, now.AddHours(-49), now));
+        Assert.False(InvestmentCalculator.IsStale(ValuationSource.SpotApi, now.AddHours(-47), now));
+    }
 }
