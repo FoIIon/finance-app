@@ -52,6 +52,7 @@ const Investments = () => {
   const [valuationFor, setValuationFor] = useState<Investment | null>(null);
   const [valuationValue, setValuationValue] = useState('');
   const [valuationDate, setValuationDate] = useState(new Date().toISOString().slice(0, 10));
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['investments', dashboardId] });
 
@@ -102,6 +103,7 @@ const Investments = () => {
   const handleDelete = async (id: number) => {
     try {
       await investmentsApi.delete(id);
+      setDeleteConfirm(null);
       refresh();
       showToast('Ligne supprimée', 'success');
     } catch {
@@ -265,9 +267,20 @@ const Investments = () => {
                   >
                     Valoriser
                   </button>
-                  <button onClick={() => handleDelete(i.id)} className="text-white/40 hover:text-rose-400">
-                    Supprimer
-                  </button>
+                  {deleteConfirm === i.id ? (
+                    <>
+                      <button onClick={() => handleDelete(i.id)} className="text-rose-400 hover:text-rose-300 text-xs font-medium mr-2">
+                        Confirmer
+                      </button>
+                      <button onClick={() => setDeleteConfirm(null)} className="text-white/40 hover:text-white text-xs">
+                        Annuler
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => setDeleteConfirm(i.id)} className="text-white/40 hover:text-rose-400">
+                      Supprimer
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
