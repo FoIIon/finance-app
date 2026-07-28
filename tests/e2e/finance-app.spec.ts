@@ -239,4 +239,38 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.waitForURL('**/login', { timeout: 10000 });
     await expect(page.getByPlaceholder('votre@email.com')).toBeVisible();
   });
+
+  test('Test 10 : Investissement créé, valorisé, plus-value affichée', async () => {
+    // Le test précédent a vidé le token pour vérifier la protection des routes,
+    // on est donc revenu sur /login. On se reconnecte avant de continuer la série.
+    await page.getByPlaceholder('votre@email.com').fill(testEmail);
+    await page.getByPlaceholder('••••••').fill(testPassword);
+    await page.getByRole('button', { name: 'Se connecter' }).click();
+    await page.waitForURL('**/');
+
+    await page.goto('/investments');
+    await page.waitForURL('**/investments');
+
+    const investmentName = `ETF World ${Date.now()}`;
+
+    await page.getByPlaceholder('Nom').fill(investmentName);
+    await page.getByPlaceholder('Titulaire').fill('Sébastien');
+    await page.getByPlaceholder('Quantité').fill('10');
+    await page.getByPlaceholder('Montant investi').fill('1000');
+    await page.getByRole('button', { name: 'Ajouter' }).click();
+
+    const row = page.getByRole('row').filter({ hasText: investmentName });
+    await expect(row).toBeVisible();
+
+    // Sans date d'entrée renseignée, aucun rendement annualisé ne doit apparaître.
+    // C'est la règle non négociable de la spec, vérifiée de bout en bout.
+    await expect(row).not.toContainText('% / an');
+
+    await row.getByRole('button', { name: 'Valoriser' }).click();
+    await page.getByPlaceholder('Valeur actuelle').fill('1250');
+    await page.getByRole('button', { name: 'Enregistrer' }).click();
+
+    // 1000 investis, 1250 valorisés : 250 € de plus-value, soit 25 %.
+    await expect(row).toContainText('25.0');
+  });
 });
