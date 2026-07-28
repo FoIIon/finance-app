@@ -179,6 +179,14 @@ public class InvestmentController : ControllerBase
         if (investment == null) return NotFound();
         if (!await UserCanAccessDashboard(investment.DashboardId, userId)) return Forbid();
 
+        // Une date future rendrait cette valorisation la plus récente pour toujours : la
+        // ligne resterait figée sur cette valeur, IsStale ne se déclencherait jamais (la date
+        // n'est jamais dépassée) et ComputeCagr prendrait cet horizon comme référence. Seule
+        // une suppression complète de la ligne permettrait d'en sortir, la corriger ne suffit
+        // pas. On la rejette donc à l'entrée.
+        if (dto.AsOf > DateOnly.FromDateTime(DateTime.UtcNow))
+            return BadRequest("La date de valorisation ne peut pas être dans le futur.");
+
         // AsOf porte la date de la valeur, pas la date de saisie. Le DTO est typé DateOnly :
         // toute ambiguïté de fuseau horaire (offset dans la chaîne reçue) est rejetée par le
         // binding avant d'arriver ici, la contrainte d'unicité ne peut plus être contournée
