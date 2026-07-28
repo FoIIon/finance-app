@@ -113,16 +113,9 @@ const Investments = () => {
 
   if (isLoading) return <div className="p-6 text-white/60">Chargement...</div>;
 
-  const total = (investments ?? []).reduce((sum, i) => sum + (i.marketValue ?? 0), 0);
-
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold text-white">Investissements</h1>
-        <div className="text-white/60">
-          Total valorisé <span className="text-white font-semibold">{formatCurrency(total)}</span>
-        </div>
-      </div>
+      <h1 className="text-2xl font-semibold text-white">Investissements</h1>
 
       <form onSubmit={handleCreate} className="bg-[#1a1a3e] rounded-2xl border border-white/10 p-4 grid gap-3 md:grid-cols-7">
         <input
