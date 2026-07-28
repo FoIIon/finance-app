@@ -165,4 +165,78 @@ public class InvestmentController : ControllerBase
         await _context.SaveChangesAsync();
         return NoContent();
     }
+
+    /// <summary>
+    /// Enregistre une valeur datée. Une valorisation existante à la même date est remplacée
+    /// (contrainte unique InvestmentId + AsOf), les autres dates ne sont jamais touchées :
+    /// l'historique reste intact et la courbe ne se réécrit pas rétroactivement.
+    /// </summary>
+    [HttpPost("{id}/valuation")]
+    public async Task<ActionResult<InvestmentDto>> AddValuation(int id, CreateValuationDto dto)
+    {
+        var userId = GetUserId();
+        var investment = await _context.Investments.FirstOrDefaultAsync(i => i.Id == id);
+        if (investment == null) return NotFound();
+        if (!await UserCanAccessDashboard(investment.DashboardId, userId)) return Forbid();
+
+        // AsOf porte la date de la valeur, pas la date de saisie. On normalise à la journée
+        // pour que la contrainte d'unicité fasse son travail.
+        var asOf = dto.AsOf.Date;
+
+        var existing = await _context.InvestmentValuations
+            .FirstOrDefaultAsync(v => v.InvestmentId == id && v.AsOf == asOf);
+
+        if (existing != null)
+        {
+            existing.MarketValue = dto.MarketValue;
+            existing.UnitPrice = dto.UnitPrice;
+            existing.Source = ValuationSource.Manual;
+        }
+        else
+        {
+            _context.InvestmentValuations.Add(new InvestmentValuation
+            {
+                InvestmentId = id,
+                AsOf = asOf,
+                MarketValue = dto.MarketValue,
+                UnitPrice = dto.UnitPrice,
+                Source = ValuationSource.Manual,
+            });
+        }
+
+        await _context.SaveChangesAsync();
+
+        var latest = await _context.InvestmentValuations
+            .Where(v => v.InvestmentId == id)
+            .OrderByDescending(v => v.AsOf)
+            .FirstAsync();
+
+        return Ok(Map(investment, latest, DateTime.UtcNow));
+    }
+
+    /// <summary>Historique des valorisations d'une ligne, de la plus récente à la plus ancienne.</summary>
+    [HttpGet("{id}/valuations")]
+    public async Task<ActionResult<List<InvestmentValuationDto>>> GetValuations(int id)
+    {
+        var userId = GetUserId();
+        var investment = await _context.Investments.FirstOrDefaultAsync(i => i.Id == id);
+        if (investment == null) return NotFound();
+        if (!await UserCanAccessDashboard(investment.DashboardId, userId)) return Forbid();
+
+        var valuations = await _context.InvestmentValuations
+            .Where(v => v.InvestmentId == id)
+            .OrderByDescending(v => v.AsOf)
+            .Select(v => new InvestmentValuationDto
+            {
+                Id = v.Id,
+                InvestmentId = v.InvestmentId,
+                AsOf = v.AsOf,
+                UnitPrice = v.UnitPrice,
+                MarketValue = v.MarketValue,
+                Source = v.Source,
+            })
+            .ToListAsync();
+
+        return Ok(valuations);
+    }
 }
