@@ -65,7 +65,12 @@ const emptyEditForm: EditForm = {
   firstPurchaseDate: '',
 };
 
-const todayIso = new Date().toISOString().slice(0, 10);
+// Date du jour en calendrier local (pas UTC) : toISOString() convertit en UTC avant de
+// tronquer, ce qui décale la date d'un jour pour un utilisateur en avance sur l'UTC (le soir
+// en Europe). Calculée à la demande plutôt que figée au chargement du module, pour qu'un
+// onglet resté ouvert après minuit ne garde pas la date de la veille comme plafond.
+const localIsoDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const Investments = () => {
   const { currentDashboard } = useDashboards();
@@ -77,7 +82,7 @@ const Investments = () => {
   const [form, setForm] = useState<InvestmentForm>(emptyForm);
   const [valuationFor, setValuationFor] = useState<Investment | null>(null);
   const [valuationValue, setValuationValue] = useState('');
-  const [valuationDate, setValuationDate] = useState(new Date().toISOString().slice(0, 10));
+  const [valuationDate, setValuationDate] = useState(localIsoDate(new Date()));
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [editingFor, setEditingFor] = useState<Investment | null>(null);
   const [editForm, setEditForm] = useState<EditForm>(emptyEditForm);
@@ -391,7 +396,7 @@ const Investments = () => {
             required
             type="date"
             title="Date du relevé, pas date de saisie"
-            max={todayIso}
+            max={localIsoDate(new Date())}
             className="bg-white/5 rounded-lg px-3 py-2 text-white"
             value={valuationDate}
             onChange={(e) => setValuationDate(e.target.value)}
