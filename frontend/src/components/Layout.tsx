@@ -8,6 +8,7 @@ const navItems = [
   { path: '/transactions', label: 'Transactions', icon: '💳' },
   { path: '/envelopes', label: 'Enveloppes', icon: '✉️' },
   { path: '/exceptional', label: 'Grosses dépenses', icon: '⚡' },
+  { path: '/investments', label: 'Investissements', icon: '📈' },
   { path: '/categories', label: 'Catégories', icon: '🏷️' },
   { path: '/recurring', label: 'Récurrentes', icon: '🔁' },
   { path: '/bank', label: 'Banques', icon: '🏦' },
