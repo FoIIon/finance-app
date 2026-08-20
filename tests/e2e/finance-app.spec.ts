@@ -1,4 +1,21 @@
 import { test, expect, type Page } from '@playwright/test';
+import { DatabaseSync } from 'node:sqlite';
+import { join } from 'node:path';
+
+// L'inscription n'ouvre pas de session : le compte reste bloque tant que
+// l'email n'est pas confirme. En test il n'y a pas de boite mail, on lit
+// donc le jeton directement dans la base de developpement.
+function confirmationTokenFor(email: string): string {
+  const dbPath = join(__dirname, '..', '..', 'backend', 'FinanceApp.API', 'finance.db');
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    const row = db.prepare('SELECT EmailConfirmationToken AS t FROM Users WHERE Email = ?').get(email) as { t: string } | undefined;
+    if (!row?.t) throw new Error(`Aucun jeton de confirmation pour ${email}`);
+    return row.t;
+  } finally {
+    db.close();
+  }
+}
 
 // Identifiants partagés entre les tests
 const testEmail = `test-${Date.now()}@test.com`;
@@ -50,7 +67,18 @@ test.describe.serial('FinanceApp E2E', () => {
     // Soumettre
     await page.getByRole('button', { name: 'Créer un compte' }).click();
 
-    // Vérifier la redirection vers le dashboard
+    // L'inscription ne connecte pas : elle renvoie sur l'ecran d'attente de confirmation
+    await page.waitForURL('**/register-success**');
+
+    // Confirmer l'email avec le jeton emis par le backend, puis se connecter
+    await page.goto(`/confirm-email?token=${confirmationTokenFor(testEmail)}`);
+    await page.waitForURL('**/confirm-email**');
+
+    await page.goto('/login');
+    await page.getByPlaceholder('votre@email.com').fill(testEmail);
+    await page.getByPlaceholder('••••••').fill(testPassword);
+    await page.getByRole('button', { name: 'Se connecter' }).click();
+
     await page.waitForURL('**/');
     expect(page.url()).not.toContain('/login');
     expect(page.url()).not.toContain('/register');
@@ -63,7 +91,9 @@ test.describe.serial('FinanceApp E2E', () => {
 
   test('Test 3 : Déconnexion puis reconnexion', async () => {
     // Cliquer sur le bouton déconnexion
-    await page.getByText('Déconnexion').click();
+    // Le layout rend deux sidebars (desktop et mobile) : cibler le role evite
+    // l'ambiguite, la copie mobile etant masquee et hors de l'arbre d'accessibilite
+    await page.getByRole('button', { name: 'Déconnexion' }).click();
 
     // Vérifier la redirection vers /login
     await page.waitForURL('**/login');
@@ -75,8 +105,8 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.getByRole('button', { name: 'Se connecter' }).click();
 
     // Vérifier qu'on est de retour sur le dashboard
-    await page.waitForURL('**/');
-    await expect(page.getByRole('heading', { name: 'Tableau de bord' })).toBeVisible({ timeout: 10000 });
+    await page.waitForURL('**/dashboard/**');
+    await expect(page.getByRole('heading', { name: 'Dernières transactions' })).toBeVisible({ timeout: 10000 });
   });
 
   test('Test 4 : Créer une transaction', async () => {
@@ -128,46 +158,45 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(page.getByText('Nouvelle transaction')).not.toBeVisible({ timeout: 5000 });
 
     // Vérifier que la transaction apparait dans le tableau
-    await expect(page.getByText(testDescription)).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('table').getByText(testDescription)).toBeVisible({ timeout: 10000 });
   });
 
   test('Test 5 : Modifier une transaction', async () => {
     // On est déjà sur /transactions
-    await expect(page.getByText(testDescription)).toBeVisible();
+    await expect(page.locator('table').getByText(testDescription)).toBeVisible();
 
-    // Cliquer sur le bouton modifier de la transaction
+    // L'edition se fait en ligne, pas dans une modale : le crayon transforme la
+    // ligne en formulaire, que l'on valide par la coche.
     const row = page.locator('tr', { hasText: testDescription });
-    await row.locator('button', { hasText: '✏️' }).click();
+    await row.getByRole('button', { name: 'Édition rapide' }).click();
 
-    // Vérifier que le modal d'édition s'ouvre
-    await expect(page.getByText('Modifier la transaction')).toBeVisible();
-
-    // Changer la description
-    const descriptionInput = page.locator('form input[type="text"]');
-    await descriptionInput.clear();
+    // La ligne en cours d'edition ne porte plus l'ancien libelle, il est passe
+    // dans un champ : on la retrouve par la presence de ce champ.
+    const editingRow = page.locator('tbody tr').filter({ has: page.locator('input[type="text"]') });
+    const descriptionInput = editingRow.locator('input[type="text"]');
+    await expect(descriptionInput).toBeVisible();
     await descriptionInput.fill(updatedDescription);
 
-    // Soumettre (le bouton submit du formulaire, pas le bouton aria-label="Modifier")
-    await page.locator('form button[type="submit"]').click();
+    await editingRow.getByRole('button', { name: '✓' }).click();
 
-    // Vérifier que le modal se ferme
-    await expect(page.getByText('Modifier la transaction')).not.toBeVisible({ timeout: 5000 });
+    // Le champ d'edition disparait une fois la ligne enregistree
+    await expect(descriptionInput).not.toBeVisible({ timeout: 5000 });
 
     // Vérifier que la description est mise à jour
-    await expect(page.getByText(updatedDescription)).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('table').getByText(updatedDescription)).toBeVisible({ timeout: 10000 });
   });
 
   test('Test 6 : Vérifier le dashboard', async () => {
     await page.goto('/');
-    await page.waitForURL(/\/$/);
+    await page.waitForURL('**/dashboard/overview');
 
     // Vérifier que les cartes résumé sont affichées
-    await expect(page.getByText('Solde total')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Revenus')).toBeVisible();
-    await expect(page.getByText('Dépenses', { exact: true })).toBeVisible();
+    await expect(page.getByText('Solde global')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Revenus ce mois-ci')).toBeVisible();
+    await expect(page.getByText('Dépenses ce mois-ci')).toBeVisible();
 
     // Vérifier que la section "Dernières transactions" existe
-    await expect(page.getByText('Dernières transactions')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Dernières transactions' })).toBeVisible();
   });
 
   test('Test 7 : Page catégories', async () => {
@@ -212,7 +241,7 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.waitForURL('**/transactions');
 
     // Vérifier que la transaction modifiée existe
-    await expect(page.getByText(updatedDescription)).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('table').getByText(updatedDescription)).toBeVisible({ timeout: 10000 });
 
     // Cliquer sur supprimer
     const row = page.locator('tr', { hasText: updatedDescription });
@@ -222,7 +251,7 @@ test.describe.serial('FinanceApp E2E', () => {
     await row.locator('button', { hasText: 'Confirmer' }).click();
 
     // Vérifier que la transaction a disparu
-    await expect(page.getByText(updatedDescription)).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('table').getByText(updatedDescription)).not.toBeVisible({ timeout: 5000 });
   });
 
   test('Test 9 : Routes protégées', async () => {
