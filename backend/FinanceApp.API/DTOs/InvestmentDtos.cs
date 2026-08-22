@@ -111,3 +111,15 @@ public class InvestmentValuationDto
     public decimal MarketValue { get; set; }
     public ValuationSource Source { get; set; }
 }
+
+/// <summary>Point de la courbe agrégée du patrimoine investi d'un dashboard.</summary>
+public class InvestmentHistoryPointDto
+{
+    public DateTime AsOf { get; set; }
+    public decimal Value { get; set; }
+    public decimal Invested { get; set; }
+    /// <summary>Nombre de lignes réellement présentes dans ce point.</summary>
+    public int LinesIncluded { get; set; }
+    /// <summary>Nombre de lignes non archivées du dashboard, pour signaler une courbe partielle.</summary>
+    public int LinesTotal { get; set; }
+}

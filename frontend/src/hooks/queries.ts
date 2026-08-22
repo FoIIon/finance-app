@@ -125,3 +125,23 @@ export const useInvestmentsQuery = (dashboardId: number | undefined) =>
       return res.data;
     },
   });
+
+export const useInvestmentHistoryQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['investment-history', dashboardId],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      const res = await investmentsApi.getHistory(dashboardId!);
+      return res.data;
+    },
+  });
+
+export const useInvestmentValuationsQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['investment-valuations', dashboardId],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      const res = await investmentsApi.getAllValuations(dashboardId!);
+      return res.data;
+    },
+  });
