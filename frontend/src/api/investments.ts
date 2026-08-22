@@ -2,6 +2,7 @@ import apiClient from './client';
 import type {
   Investment,
   InvestmentValuation,
+  InvestmentHistoryPoint,
   CreateInvestment,
   UpdateInvestment,
   CreateValuation,
@@ -25,4 +26,10 @@ export const investmentsApi = {
 
   getValuations: (id: number) =>
     apiClient.get<InvestmentValuation[]>(`/investment/${id}/valuations`),
+
+  getHistory: (dashboardId: number) =>
+    apiClient.get<InvestmentHistoryPoint[]>('/investment/history', { params: { dashboardId } }),
+
+  getAllValuations: (dashboardId: number) =>
+    apiClient.get<InvestmentValuation[]>('/investment/valuations', { params: { dashboardId } }),
 };

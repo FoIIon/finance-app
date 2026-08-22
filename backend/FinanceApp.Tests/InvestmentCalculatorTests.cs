@@ -134,4 +134,130 @@ public class InvestmentCalculatorTests
         Assert.True(InvestmentCalculator.IsStale(ValuationSource.SpotApi, now.AddHours(-49), now));
         Assert.False(InvestmentCalculator.IsStale(ValuationSource.SpotApi, now.AddHours(-47), now));
     }
+
+    private static readonly DateTime Jan = new(2026, 1, 15);
+    private static readonly DateTime Feb = new(2026, 2, 15);
+    private static readonly DateTime Mar = new(2026, 3, 15);
+
+    private static PortfolioLine Line(decimal costBasis, bool isArchived, params (DateTime AsOf, decimal MarketValue)[] valuations) =>
+        new(costBasis, isArchived, valuations);
+
+    [Fact]
+    public void ComputePortfolioHistory_CarriesLastKnownValueBetweenMeasures()
+    {
+        // A valorisée en janvier et mars, B en février : le point de février doit
+        // contenir A reportée, pas seulement B.
+        var history = InvestmentCalculator.ComputePortfolioHistory(new[]
+        {
+            Line(1000m, false, (Jan, 1100m), (Mar, 1200m)),
+            Line(500m, false, (Feb, 550m)),
+        });
+
+        Assert.Equal(3, history.Count);
+        Assert.Equal(new PortfolioHistoryPoint(Jan, 1100m, 1000m, 1), history[0]);
+        Assert.Equal(new PortfolioHistoryPoint(Feb, 1650m, 1500m, 2), history[1]);
+        Assert.Equal(new PortfolioHistoryPoint(Mar, 1750m, 1500m, 2), history[2]);
+    }
+
+    [Fact]
+    public void ComputePortfolioHistory_LineWithoutValuation_NeverAppears()
+    {
+        // Ni dans Value ni dans Invested : compter son coût sans sa valeur
+        // creuserait un écart Value-Invested fictif.
+        var history = InvestmentCalculator.ComputePortfolioHistory(new[]
+        {
+            Line(1000m, false, (Jan, 1100m)),
+            Line(9999m, false),
+        });
+
+        var point = Assert.Single(history);
+        Assert.Equal(1100m, point.Value);
+        Assert.Equal(1000m, point.Invested);
+        Assert.Equal(1, point.LinesIncluded);
+    }
+
+    [Fact]
+    public void ComputePortfolioHistory_InvestedGrowsWhenALineGetsItsFirstValuation()
+    {
+        // Invested suit le même ensemble de lignes que Value : il augmente à la date
+        // où une ligne reçoit sa première mesure, pas avant.
+        var history = InvestmentCalculator.ComputePortfolioHistory(new[]
+        {
+            Line(1000m, false, (Jan, 1000m), (Feb, 1000m)),
+            Line(2000m, false, (Feb, 2100m)),
+        });
+
+        Assert.Equal(1000m, history[0].Invested);
+        Assert.Equal(3000m, history[1].Invested);
+        Assert.Equal(2, history[1].LinesIncluded);
+    }
+
+    [Fact]
+    public void ComputePortfolioHistory_ArchivedLine_StopsAfterItsLastValuation()
+    {
+        // Une ligne archivée contribue jusqu'à sa dernière mesure, puis sort de la
+        // courbe : Value ET Invested baissent au point suivant.
+        var history = InvestmentCalculator.ComputePortfolioHistory(new[]
+        {
+            Line(1000m, true, (Jan, 1100m), (Feb, 1150m)),
+            Line(500m, false, (Jan, 500m), (Mar, 600m)),
+        });
+
+        Assert.Equal(new PortfolioHistoryPoint(Jan, 1600m, 1500m, 2), history[0]);
+        Assert.Equal(new PortfolioHistoryPoint(Feb, 1650m, 1500m, 2), history[1]);
+        Assert.Equal(new PortfolioHistoryPoint(Mar, 600m, 500m, 1), history[2]);
+    }
+
+    [Fact]
+    public void ComputePortfolioHistory_NonArchivedLine_IsCarriedBeyondItsLastValuation()
+    {
+        // Le report de dernière valeur ne s'arrête que pour les lignes archivées.
+        var history = InvestmentCalculator.ComputePortfolioHistory(new[]
+        {
+            Line(1000m, false, (Jan, 1100m)),
+            Line(500m, false, (Mar, 600m)),
+        });
+
+        Assert.Equal(new PortfolioHistoryPoint(Mar, 1700m, 1500m, 2), history[1]);
+    }
+
+    [Fact]
+    public void ComputePortfolioHistory_DatesAreSortedAndDeduplicated()
+    {
+        // Les valorisations arrivent dans le désordre, la série sort triée.
+        var history = InvestmentCalculator.ComputePortfolioHistory(new[]
+        {
+            Line(1000m, false, (Mar, 1200m), (Jan, 1100m)),
+            Line(500m, false, (Jan, 500m)),
+        });
+
+        Assert.Equal(2, history.Count);
+        Assert.Equal(Jan, history[0].AsOf);
+        Assert.Equal(Mar, history[1].AsOf);
+    }
+
+    [Fact]
+    public void ComputePortfolioHistory_NoValuationsAtAll_ReturnsEmptySeries()
+    {
+        var history = InvestmentCalculator.ComputePortfolioHistory(new[]
+        {
+            Line(1000m, false),
+            Line(500m, true),
+        });
+
+        Assert.Empty(history);
+    }
+
+    [Fact]
+    public void ComputePortfolioHistory_SameDayOnTwoLines_ProducesASinglePoint()
+    {
+        var history = InvestmentCalculator.ComputePortfolioHistory(new[]
+        {
+            Line(1000m, false, (Feb, 1100m)),
+            Line(500m, false, (Feb, 550m)),
+        });
+
+        var point = Assert.Single(history);
+        Assert.Equal(new PortfolioHistoryPoint(Feb, 1650m, 1500m, 2), point);
+    }
 }

@@ -227,6 +227,86 @@ public class InvestmentController : ControllerBase
         return Ok(Map(investment, latest, DateTime.UtcNow));
     }
 
+    /// <summary>
+    /// Courbe agrégée du patrimoine investi du dashboard, un point par date de valorisation.
+    /// LinesTotal (lignes non archivées) est constant sur tous les points : il permet au
+    /// frontend d'annoncer une courbe partielle (« X lignes sur Y valorisées »).
+    /// </summary>
+    [HttpGet("history")]
+    public async Task<ActionResult<List<InvestmentHistoryPointDto>>> GetHistory([FromQuery] int dashboardId)
+    {
+        var userId = GetUserId();
+        if (!await UserCanAccessDashboard(dashboardId, userId)) return Forbid();
+
+        var investments = await _context.Investments
+            .Where(i => i.DashboardId == dashboardId)
+            .ToListAsync();
+
+        var ids = investments.Select(i => i.Id).ToList();
+
+        // Agrégation côté client : SQLite ne sait pas grouper sur decimal en SQL.
+        var valuations = await _context.InvestmentValuations
+            .Where(v => ids.Contains(v.InvestmentId))
+            .ToListAsync();
+
+        var valuationsByInvestment = valuations
+            .GroupBy(v => v.InvestmentId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<(DateTime, decimal)>)g
+                .Select(v => (v.AsOf, v.MarketValue))
+                .ToList());
+
+        var lines = investments
+            .Select(i => new PortfolioLine(
+                i.CostBasis,
+                i.IsArchived,
+                valuationsByInvestment.GetValueOrDefault(i.Id) ?? Array.Empty<(DateTime, decimal)>()))
+            .ToList();
+
+        var history = InvestmentCalculator.ComputePortfolioHistory(lines);
+        var linesTotal = investments.Count(i => !i.IsArchived);
+
+        var result = history
+            .Select(p => new InvestmentHistoryPointDto
+            {
+                AsOf = p.AsOf,
+                Value = p.Value,
+                Invested = p.Invested,
+                LinesIncluded = p.LinesIncluded,
+                LinesTotal = linesTotal,
+            })
+            .ToList();
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Toutes les valorisations des lignes non archivées du dashboard, par date croissante.
+    /// Sert aux sparklines du tableau : une requête au lieu d'une par ligne.
+    /// </summary>
+    [HttpGet("valuations")]
+    public async Task<ActionResult<List<InvestmentValuationDto>>> GetAllValuations([FromQuery] int dashboardId)
+    {
+        var userId = GetUserId();
+        if (!await UserCanAccessDashboard(dashboardId, userId)) return Forbid();
+
+        var valuations = await _context.InvestmentValuations
+            .Where(v => v.Investment.DashboardId == dashboardId && !v.Investment.IsArchived)
+            .OrderBy(v => v.AsOf)
+            .ThenBy(v => v.InvestmentId)
+            .Select(v => new InvestmentValuationDto
+            {
+                Id = v.Id,
+                InvestmentId = v.InvestmentId,
+                AsOf = v.AsOf,
+                UnitPrice = v.UnitPrice,
+                MarketValue = v.MarketValue,
+                Source = v.Source,
+            })
+            .ToListAsync();
+
+        return Ok(valuations);
+    }
+
     /// <summary>Historique des valorisations d'une ligne, de la plus récente à la plus ancienne.</summary>
     [HttpGet("{id}/valuations")]
     public async Task<ActionResult<List<InvestmentValuationDto>>> GetValuations(int id)
