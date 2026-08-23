@@ -103,3 +103,10 @@ export interface CreateValuation {
   marketValue: number;
   unitPrice?: number | null;
 }
+
+export interface TradeRepublicImportResult {
+  total: number;
+  created: number;
+  updated: number;
+  valued: number;
+}

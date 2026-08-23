@@ -22,13 +22,18 @@ public class TradeRepublicClient : IDisposable
     private readonly HttpClient _httpClient;
     private ClientWebSocket? _ws;
     private int _subscriptionId;
+    private readonly string _webAppVersion;
+    private readonly string _deviceId;
 
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(30);
 
     // Liste blanche des types de messages WebSocket autorisés (auth et refresh désormais via HTTP)
     private static readonly HashSet<string> AllowedMessageTypes = new()
     {
-        "timeline"
+        "timeline",
+        "compactPortfolioByType",
+        "instrument",
+        "ticker"
     };
 
     private static readonly Regex EchoPattern = new(@"^echo \d+$", RegexOptions.Compiled);
@@ -40,6 +45,12 @@ public class TradeRepublicClient : IDisposable
         HttpClient httpClient)
     {
         _webSocketUrl = configuration["TradeRepublic:WebSocketUrl"] ?? "wss://api.traderepublic.com/";
+        _webAppVersion = configuration["TradeRepublic:WebAppVersion"] ?? "15.7.0";
+        // Identifiant d'appareil : TR lie le processus de login v2 à un stableDeviceId.
+        // Il doit rester constant d'un appel à l'autre pour la même connexion. Configurable
+        // pour être fixé une fois la connexion établie, sinon dérivé de façon stable.
+        _deviceId = configuration["TradeRepublic:DeviceId"]
+            ?? "financeapp0000000000000000000000financeapp0000000000000000000000";
         _protector = dataProtection.CreateProtector("TradeRepublic.Tokens");
         _logger = logger;
         _httpClient = httpClient;
@@ -50,7 +61,11 @@ public class TradeRepublicClient : IDisposable
     }
 
     /// <summary>
-    /// Initie le login via HTTP — déclenche l'envoi d'un SMS de vérification.
+    /// Initie le login. Flux v2 (2026) : plus de code SMS, l'utilisateur approuve la
+    /// connexion par une notification push dans l'app mobile Trade Republic. L'ancien
+    /// flux v1 répond 405/426 depuis que TR a posé AWS WAF devant le login.
+    /// La réponse complète est journalisée : l'API n'est pas documentée, sa forme
+    /// s'observe (exploration lot 4).
     /// </summary>
     public async Task<string> InitiateLoginAsync(string phoneNumber, string pin, CancellationToken ct = default)
     {
@@ -58,8 +73,15 @@ public class TradeRepublicClient : IDisposable
         var payload = JsonSerializer.Serialize(new { phoneNumber, pin });
         var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
-        var response = await _httpClient.PostAsync("/api/v1/auth/web/login", content, timeoutCts.Token);
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v2/auth/web/login") { Content = content };
+        AddBrowserHeaders(request);
+        AddTrV2Headers(request);
+
+        var response = await _httpClient.SendAsync(request, timeoutCts.Token);
         var json = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+
+        _logger.LogInformation("TR login v2: HTTP {status}, body: {body}",
+            (int)response.StatusCode, json.Length > 500 ? json[..500] : json);
 
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"Erreur Trade Republic ({(int)response.StatusCode}) : {json}");
@@ -69,17 +91,65 @@ public class TradeRepublicClient : IDisposable
     }
 
     /// <summary>
-    /// Vérifie le code SMS via HTTP.
+    /// Headers qu'un vrai navigateur enverrait depuis app.traderepublic.com. Le WAF de TR
+    /// s'en sert pour distinguer un client web d'un script : sans eux, le login est rejeté
+    /// avant même d'être examiné.
+    /// </summary>
+    private static void AddBrowserHeaders(HttpRequestMessage request)
+    {
+        request.Headers.Add("Origin", "https://app.traderepublic.com");
+        request.Headers.Add("Referer", "https://app.traderepublic.com/");
+        request.Headers.Add("Sec-Fetch-Site", "same-site");
+        request.Headers.Add("Sec-Fetch-Mode", "cors");
+        request.Headers.Add("Sec-Fetch-Dest", "empty");
+        request.Headers.Add("Accept", "application/json");
+        request.Headers.Add("Accept-Language", "fr-BE,fr;q=0.9,en;q=0.8");
+    }
+
+    /// <summary>
+    /// Headers propres au flux v2 (2026). TR lie le processus de login à un identifiant
+    /// d'appareil stable transmis en base64 dans x-tr-device-info, et exige la plateforme
+    /// et la version de l'app web. Leur absence provoque MISSING_REQUIRED_HEADER.
+    /// </summary>
+    private void AddTrV2Headers(HttpRequestMessage request)
+    {
+        request.Headers.Add("x-tr-platform", "web");
+        request.Headers.Add("x-tr-app-version", _webAppVersion);
+        request.Headers.Add("x-tr-device-info", BuildDeviceInfo(_deviceId));
+    }
+
+    private static string BuildDeviceInfo(string deviceId)
+    {
+        var payload = new
+        {
+            stableDeviceId = deviceId,
+            model = "Apple Macintosh",
+            browser = "Chrome",
+            browserVersion = "148.0.0.0",
+            os = "Mac OS",
+            osVersion = "10.15.7",
+            timezone = "Europe/Brussels",
+            timezoneOffset = -120,
+            screen = "1800x1169x30",
+            preferredLanguages = new[] { "fr", "fr-BE" },
+            numberOfCores = 12,
+            deviceMemory = 16,
+        };
+        var raw = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload));
+        return Convert.ToBase64String(raw);
+    }
+
+    /// <summary>
+    /// Confirme le deuxième facteur (flux v2 : le code accompagne l'approbation mobile).
     /// TR retourne les tokens dans des cookies Set-Cookie (pas dans le body).
     /// </summary>
     public async Task<(string SessionToken, string RefreshToken, string DeviceToken)> ConfirmTwoFactorAsync(string processId, string code, CancellationToken ct = default)
     {
         using var timeoutCts = CreateTimeoutToken(ct);
 
-        var response = await _httpClient.PostAsync(
-            $"/api/v1/auth/web/login/{processId}/{code}",
-            null,
-            timeoutCts.Token);
+        var confirmRequest = new HttpRequestMessage(HttpMethod.Post, $"/api/v2/auth/web/login/{processId}/{code}");
+        AddBrowserHeaders(confirmRequest);
+        var response = await _httpClient.SendAsync(confirmRequest, timeoutCts.Token);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -97,6 +167,54 @@ public class TradeRepublicClient : IDisposable
         var deviceToken = ExtractCookieValue(cookies, "tr_device") ?? "";
 
         return (sessionToken, refreshToken, deviceToken);
+    }
+
+    /// <summary>
+    /// Flux v2 : après approbation dans l'app mobile, TR ne renvoie plus de code. On interroge
+    /// l'état du processus jusqu'à ce qu'il pose les cookies de session (tr_session, tr_refresh,
+    /// tr_device) dans Set-Cookie. Boucle bornée : l'utilisateur peut approuver pendant l'appel.
+    /// </summary>
+    public async Task<(string SessionToken, string RefreshToken, string DeviceToken)> PollLoginApprovalV2Async(
+        string processId, CancellationToken ct = default)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(90);
+
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v2/auth/web/login/processes/{processId}");
+            AddBrowserHeaders(request);
+            AddTrV2Headers(request);
+
+            var response = await _httpClient.SendAsync(request, ct);
+            var body = await response.Content.ReadAsStringAsync(ct);
+
+            _logger.LogInformation("TR poll v2: HTTP {status}, body: {body}",
+                (int)response.StatusCode, body.Length > 300 ? body[..300] : body);
+
+            if (response.Headers.TryGetValues("Set-Cookie", out var cookieHeaders))
+            {
+                var cookies = cookieHeaders.ToList();
+                var refresh = ExtractCookieValue(cookies, "tr_refresh");
+                if (refresh != null)
+                {
+                    return (
+                        ExtractCookieValue(cookies, "tr_session") ?? "",
+                        refresh,
+                        ExtractCookieValue(cookies, "tr_device") ?? "");
+                }
+            }
+
+            if ((int)response.StatusCode is 401 or 403 or 404 or 410)
+                throw new InvalidOperationException(
+                    $"Processus de connexion expiré ({(int)response.StatusCode}). Relance la connexion et approuve plus vite.");
+
+            await Task.Delay(2000, ct);
+        }
+
+        throw new InvalidOperationException(
+            "Approbation Trade Republic non reçue à temps. Ouvre l'app TR, approuve la demande, puis réessaie.");
     }
 
     /// <summary>
@@ -309,6 +427,119 @@ public class TradeRepublicClient : IDisposable
 
         await SendRawAsync($"unsub {id}", timeoutCts.Token);
         return transactions;
+    }
+
+    /// <summary>
+    /// Sonde un chemin REST arbitraire avec la session courante et retourne la réponse brute.
+    /// Exploration uniquement (lot 4) : l'API TR n'est pas documentée, la forme des réponses
+    /// s'observe avant de s'écrire. Exposé par un endpoint réservé à l'environnement Development.
+    /// </summary>
+    public async Task<(int Status, string Body)> ProbeRestAsync(string sessionToken, string path, CancellationToken ct = default)
+    {
+        using var timeoutCts = CreateTimeoutToken(ct);
+
+        var request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.Add("Cookie", $"tr_session={sessionToken}");
+
+        var response = await _httpClient.SendAsync(request, timeoutCts.Token);
+        var body = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+        return ((int)response.StatusCode, body);
+    }
+
+    /// <summary>
+    /// Sonde une souscription WebSocket arbitraire et retourne la première réponse brute.
+    /// Contourne volontairement la liste blanche : exploration uniquement, jamais atteint
+    /// en production (endpoint gardé par l'environnement). Nécessite ConnectAsync au préalable.
+    /// </summary>
+    public async Task<string> ProbeSubscriptionAsync(string payloadJson, CancellationToken ct = default)
+    {
+        using var timeoutCts = CreateTimeoutToken(ct);
+        var id = NextId();
+        await SendRawAsync($"sub {id} {payloadJson}", timeoutCts.Token);
+
+        var idPrefix = $"{id} ";
+        while (!timeoutCts.Token.IsCancellationRequested)
+        {
+            var response = await ReceiveAsync(timeoutCts.Token);
+
+            if (response.StartsWith("echo"))
+            {
+                if (EchoPattern.IsMatch(response))
+                    await SendRawAsync(response, timeoutCts.Token);
+                continue;
+            }
+
+            if (response.StartsWith(idPrefix))
+            {
+                await SendRawAsync($"unsub {id}", timeoutCts.Token);
+                return response[idPrefix.Length..];
+            }
+        }
+
+        throw new OperationCanceledException("Sonde WebSocket sans réponse (timeout).");
+    }
+
+    /// <summary>
+    /// Snapshot d'une position enrichie de son cours courant. MarketValue est null quand le
+    /// cours n'a pas pu être récupéré : la position reste importable (quantité, prix de revient),
+    /// seule sa valorisation du jour manque. Une valeur absente vaut mieux qu'une valeur inventée.
+    /// </summary>
+    public record TrPortfolioSnapshot(TrPortfolioPosition Position, decimal? CurrentPrice, decimal? MarketValue);
+
+    /// <summary>
+    /// Récupère le portefeuille complet en une session WebSocket : positions
+    /// (compactPortfolioByType), puis pour chaque ligne le cours courant via son instrument
+    /// (place de cotation) et son ticker. La connexion s'authentifie par les cookies
+    /// (refresh + device), chaque souscription porte le session token.
+    /// </summary>
+    public async Task<List<TrPortfolioSnapshot>> ImportPortfolioSnapshotAsync(
+        string sessionToken, string refreshToken, string deviceToken, CancellationToken ct = default)
+    {
+        using var timeoutCts = CreateTimeoutToken(ct, TimeSpan.FromSeconds(120));
+        await ConnectAsync(refreshToken, deviceToken, timeoutCts.Token);
+
+        var positionsJson = await SubscribeOnceRawAsync(
+            new { type = "compactPortfolioByType", token = sessionToken }, timeoutCts.Token);
+        var positions = TradeRepublicPortfolioParser.ParsePositions(positionsJson);
+
+        var result = new List<TrPortfolioSnapshot>(positions.Count);
+        foreach (var position in positions)
+        {
+            decimal? price = null;
+            try
+            {
+                var instrumentJson = await SubscribeOnceRawAsync(
+                    new { type = "instrument", id = position.Isin, token = sessionToken }, timeoutCts.Token);
+                var exchange = TradeRepublicPortfolioParser.ParseFirstExchange(instrumentJson);
+
+                if (!string.IsNullOrEmpty(exchange))
+                {
+                    var tickerJson = await SubscribeOnceRawAsync(
+                        new { type = "ticker", id = $"{position.Isin}.{exchange}", token = sessionToken }, timeoutCts.Token);
+                    price = TradeRepublicPortfolioParser.ParseTickerLastPrice(tickerJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Un cours manquant ne doit pas faire échouer tout l'import.
+                _logger.LogWarning("TR cours indisponible pour {isin}: {message}", position.Isin, ex.Message);
+            }
+
+            var marketValue = price.HasValue ? price.Value * position.Quantity : (decimal?)null;
+            result.Add(new TrPortfolioSnapshot(position, price, marketValue));
+        }
+
+        return result;
+    }
+
+    /// <summary>Souscrit un topic, lit la première réponse, se désabonne, et renvoie le JSON brut.</summary>
+    private async Task<string> SubscribeOnceRawAsync(object payload, CancellationToken ct)
+    {
+        var id = NextId();
+        await SendSubscriptionAsync(id, payload, ct);
+        var json = await ReadResponseAsync(id, ct, root => root.GetRawText());
+        await SendRawAsync($"unsub {id}", ct);
+        return json ?? "{}";
     }
 
     public string EncryptToken(string token) => _protector.Protect(token);

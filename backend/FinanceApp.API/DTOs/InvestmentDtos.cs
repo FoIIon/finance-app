@@ -123,3 +123,13 @@ public class InvestmentHistoryPointDto
     /// <summary>Nombre de lignes non archivées du dashboard, pour signaler une courbe partielle.</summary>
     public int LinesTotal { get; set; }
 }
+
+/// <summary>Bilan d'un import de portefeuille Trade Republic.</summary>
+public class TradeRepublicImportResultDto
+{
+    public int Total { get; set; }
+    public int Created { get; set; }
+    public int Updated { get; set; }
+    /// <summary>Lignes ayant reçu une valorisation du jour (cours récupéré).</summary>
+    public int Valued { get; set; }
+}

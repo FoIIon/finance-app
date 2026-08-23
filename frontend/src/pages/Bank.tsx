@@ -582,36 +582,23 @@ const Bank = () => {
               </form>
             )}
 
-            {/* Contenu : code 2FA Trade Republic */}
+            {/* Contenu : approbation push Trade Republic (flux v2, plus de code) */}
             {trStep === 'twoFactor' && (
               <form onSubmit={handleTrVerify} className="space-y-4">
                 <p className="text-white/60 text-sm">
-                  Confirmez la notification push sur votre téléphone, puis entrez le code de vérification.
+                  Ouvrez l'application Trade Republic sur votre téléphone et approuvez la demande de connexion. Cliquez ensuite sur Continuer.
                 </p>
                 {trError && (
                   <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
                     {trError}
                   </div>
                 )}
-                <div>
-                  <label className="block text-sm text-white/60 mb-1">Code de vérification</label>
-                  <input
-                    type="text"
-                    value={trCode}
-                    onChange={(e) => setTrCode(e.target.value)}
-                    placeholder="1234"
-                    required
-                    maxLength={4}
-                    autoFocus
-                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-center text-2xl tracking-[0.5em] focus:outline-none focus:border-amber-500/50"
-                  />
-                </div>
                 <button
                   type="submit"
                   disabled={trLoading}
                   className="w-full px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-semibold hover:from-amber-600 hover:to-orange-700 transition-all duration-200 disabled:opacity-50"
                 >
-                  {trLoading ? 'Vérification...' : 'Vérifier'}
+                  {trLoading ? 'En attente de l\'approbation...' : 'Continuer'}
                 </button>
               </form>
             )}

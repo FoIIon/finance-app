@@ -372,7 +372,8 @@ public class BankingController : ControllerBase
 
         try
         {
-            var (sessionToken, refreshToken, deviceToken) = await trClient.ConfirmTwoFactorAsync(pending.ProcessId, dto.Code);
+            // Flux v2 : plus de code, on interroge l'approbation faite dans l'app mobile.
+            var (sessionToken, refreshToken, deviceToken) = await trClient.PollLoginApprovalV2Async(pending.ProcessId);
 
             // Stocker les tokens chiffrés — jamais en clair
             if (!string.IsNullOrEmpty(sessionToken))

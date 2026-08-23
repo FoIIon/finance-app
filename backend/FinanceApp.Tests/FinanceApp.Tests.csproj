@@ -24,4 +24,8 @@
     <ProjectReference Include="..\FinanceApp.API\FinanceApp.API.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
