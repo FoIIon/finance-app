@@ -116,6 +116,7 @@ const Investments = () => {
   const [period, setPeriod] = useState<PortfolioPeriod>('MAX');
   const [grouping, setGrouping] = useState<Grouping>('none');
   const [detailFor, setDetailFor] = useState<Investment | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['investments', dashboardId] });
@@ -242,6 +243,27 @@ const Investments = () => {
     }
   };
 
+  const handleImportTradeRepublic = async () => {
+    if (!dashboardId) return;
+    setImporting(true);
+    try {
+      const { data } = await investmentsApi.importTradeRepublic(dashboardId);
+      refresh();
+      showToast(
+        `Trade Republic : ${data.total} lignes, ${data.created} ajoutées, ${data.valued} valorisées`,
+        'success',
+      );
+    } catch (err: unknown) {
+      const serverMessage = (err as { response?: { data?: string } })?.response?.data;
+      showToast(
+        typeof serverMessage === 'string' ? serverMessage : "Import Trade Republic impossible",
+        'error',
+      );
+    } finally {
+      setImporting(false);
+    }
+  };
+
   if (isLoading) return <div className="p-6 text-white/60">Chargement...</div>;
 
   const renderRow = (i: Investment) => (
@@ -349,7 +371,18 @@ const Investments = () => {
     <div className="p-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-white">Investissements</h1>
-        <PortfolioPeriodSelector value={period} onChange={setPeriod} />
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleImportTradeRepublic}
+            disabled={importing}
+            title="Importe les positions et le cours du jour depuis Trade Republic. Nécessite une connexion Trade Republic récente dans Banques."
+            className="rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-white/80 disabled:opacity-50"
+          >
+            {importing ? 'Import en cours...' : 'Importer Trade Republic'}
+          </button>
+          <PortfolioPeriodSelector value={period} onChange={setPeriod} />
+        </div>
       </div>
 
       <PortfolioSummary investments={investments ?? []} history={history ?? []} period={period} />

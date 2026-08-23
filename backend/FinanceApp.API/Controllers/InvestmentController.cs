@@ -307,6 +307,128 @@ public class InvestmentController : ControllerBase
         return Ok(valuations);
     }
 
+    /// <summary>
+    /// Importe le portefeuille Trade Republic dans le dashboard : positions (quantité, prix de
+    /// revient) et valorisation du jour au cours courant. Réconciliation par ISIN, une ligne
+    /// manuelle du même ISIN est adoptée plutôt que dupliquée. Idempotent : relancer met à jour
+    /// les lignes et remplace la valorisation du jour (contrainte unique InvestmentId + AsOf).
+    /// Utilise le session token stocké, valable quelques minutes après la connexion.
+    /// </summary>
+    [HttpPost("import-trade-republic")]
+    public async Task<ActionResult<TradeRepublicImportResultDto>> ImportTradeRepublic(
+        [FromQuery] int dashboardId,
+        [FromServices] TradeRepublicClient trClient,
+        [FromServices] IConfiguration configuration)
+    {
+        var userId = GetUserId();
+        if (!await UserCanAccessDashboard(dashboardId, userId)) return Forbid();
+
+        var connection = await _context.BankConnections
+            .FirstOrDefaultAsync(bc => bc.UserId == userId && bc.Provider == "TradeRepublic"
+                && bc.EncryptedRefreshToken != null);
+
+        if (connection == null)
+            return BadRequest("Aucune connexion Trade Republic. Connecte-toi d'abord dans Banques.");
+        if (string.IsNullOrEmpty(connection.EncryptedSessionToken))
+            return BadRequest("Session Trade Republic absente. Relance la connexion dans Banques.");
+
+        var sessionToken = trClient.DecryptToken(connection.EncryptedSessionToken);
+        var refreshToken = trClient.DecryptToken(connection.EncryptedRefreshToken!);
+        var deviceToken = string.IsNullOrEmpty(connection.EncryptedDeviceToken)
+            ? "" : trClient.DecryptToken(connection.EncryptedDeviceToken);
+
+        List<TradeRepublicClient.TrPortfolioSnapshot> snapshots;
+        try
+        {
+            snapshots = await trClient.ImportPortfolioSnapshotAsync(sessionToken, refreshToken, deviceToken);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Import Trade Republic échoué : {ex.Message}");
+        }
+
+        var defaultHolder = configuration["TradeRepublic:DefaultHolder"] ?? "Trade Republic";
+        var today = DateTime.UtcNow.Date;
+        int created = 0, updated = 0, valued = 0;
+
+        foreach (var snap in snapshots)
+        {
+            var pos = snap.Position;
+
+            // Réconciliation : d'abord par ExternalId, puis adoption d'une ligne manuelle du même
+            // ISIN (ExternalId nul) pour ne pas la dupliquer.
+            var inv = await _context.Investments
+                .FirstOrDefaultAsync(i => i.DashboardId == dashboardId && i.ExternalId == pos.Isin)
+                ?? await _context.Investments
+                .FirstOrDefaultAsync(i => i.DashboardId == dashboardId && i.Isin == pos.Isin && i.ExternalId == null);
+
+            if (inv == null)
+            {
+                inv = new Investment
+                {
+                    DashboardId = dashboardId,
+                    Name = pos.Name,
+                    Holder = defaultHolder,
+                    Kind = InvestmentKind.Security,
+                    Isin = pos.Isin,
+                    Quantity = pos.Quantity,
+                    Unit = InvestmentUnit.Share,
+                    CostBasis = pos.CostBasis,
+                    Source = InvestmentSource.TradeRepublic,
+                    ExternalId = pos.Isin,
+                };
+                _context.Investments.Add(inv);
+                created++;
+            }
+            else
+            {
+                inv.Quantity = pos.Quantity;
+                inv.CostBasis = pos.CostBasis;
+                inv.Name = pos.Name;
+                inv.ExternalId = pos.Isin;
+                inv.Source = InvestmentSource.TradeRepublic;
+                updated++;
+            }
+
+            await _context.SaveChangesAsync();
+
+            if (snap.MarketValue.HasValue)
+            {
+                var existing = await _context.InvestmentValuations
+                    .FirstOrDefaultAsync(v => v.InvestmentId == inv.Id && v.AsOf == today);
+
+                if (existing != null)
+                {
+                    existing.MarketValue = snap.MarketValue.Value;
+                    existing.UnitPrice = snap.CurrentPrice;
+                    existing.Source = ValuationSource.TradeRepublic;
+                }
+                else
+                {
+                    _context.InvestmentValuations.Add(new InvestmentValuation
+                    {
+                        InvestmentId = inv.Id,
+                        AsOf = today,
+                        MarketValue = snap.MarketValue.Value,
+                        UnitPrice = snap.CurrentPrice,
+                        Source = ValuationSource.TradeRepublic,
+                    });
+                }
+
+                await _context.SaveChangesAsync();
+                valued++;
+            }
+        }
+
+        return Ok(new TradeRepublicImportResultDto
+        {
+            Total = snapshots.Count,
+            Created = created,
+            Updated = updated,
+            Valued = valued,
+        });
+    }
+
     /// <summary>Historique des valorisations d'une ligne, de la plus récente à la plus ancienne.</summary>
     [HttpGet("{id}/valuations")]
     public async Task<ActionResult<List<InvestmentValuationDto>>> GetValuations(int id)

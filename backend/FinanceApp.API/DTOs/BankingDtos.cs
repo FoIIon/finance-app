@@ -78,10 +78,9 @@ public class TradeRepublicVerifyRequest
     [Required]
     public int ConnectionId { get; set; }
 
-    [Required]
-    [StringLength(4, MinimumLength = 4)]
-    [RegularExpression(@"^\d{4}$", ErrorMessage = "Le code doit être composé de 4 chiffres")]
-    public string Code { get; set; } = string.Empty;
+    // Flux v2 (2026) : l'approbation se fait dans l'app mobile, il n'y a plus de code.
+    // Champ conservé pour compatibilité, ignoré par le backend.
+    public string? Code { get; set; }
 }
 
 public class ManualAccountDto
