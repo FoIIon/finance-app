@@ -36,6 +36,8 @@ const Login = () => {
       if (axios.isAxiosError(err) && err.response?.status === 403) {
         setUnconfirmed(true);
         setError('Veuillez confirmer votre adresse email avant de vous connecter.');
+      } else if (axios.isAxiosError(err) && err.response?.status === 429) {
+        setError('Trop de tentatives. Patientez une minute avant de réessayer.');
       } else {
         setError('Email ou mot de passe incorrect.');
       }

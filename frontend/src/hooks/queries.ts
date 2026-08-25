@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { categoriesApi } from '../api/categories';
 import { useContext } from 'react';
 import { transactionsApi } from '../api/transactions';
 import { savingsGoalsApi, dashboardExtrasApi } from '../api/savingsGoals';
@@ -7,7 +8,7 @@ import { shoppingItemsApi } from '../api/shoppingItems';
 import { investmentsApi } from '../api/investments';
 import type { Period } from '../utils/periods';
 import { periodToRange } from '../utils/periods';
-import { PeriodContext } from '../context/PeriodContext';
+import { PeriodContext } from '../context/period-context';
 
 // Helper local — on lit le filtre depuis le context sans dépendre du sous-fichier (évite la circularité)
 const useBankFilter = () => useContext(PeriodContext).bankAccountFilter;
@@ -122,6 +123,15 @@ export const useInvestmentsQuery = (dashboardId: number | undefined) =>
     enabled: !!dashboardId,
     queryFn: async () => {
       const res = await investmentsApi.getAll(dashboardId!);
+      return res.data;
+    },
+  });
+
+export const useCategoriesQuery = () =>
+  useQuery({
+    queryKey: ['categories'],
+    queryFn: async () => {
+      const res = await categoriesApi.getAll();
       return res.data;
     },
   });

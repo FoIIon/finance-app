@@ -75,6 +75,19 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             }));
 
+    // La connexion a son propre budget : partagé avec l'inscription, un enchaînement
+    // normal (inscription puis plusieurs connexions) épuisait le compteur et renvoyait
+    // un 429 que l'interface affichait en mot de passe incorrect.
+    options.AddPolicy("login", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "inconnu",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
     // Les routes bancaires sont authentifiées : on compte par utilisateur, avec une limite
     // plus haute (connexion, callback et reconnexion s'enchaînent en quelques secondes).
     options.AddPolicy("banking", httpContext =>

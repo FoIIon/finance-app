@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { invitationsApi } from '../api/invitations';
@@ -10,15 +10,17 @@ const AcceptInvitation = () => {
   const { isAuthenticated } = useAuth();
   const { refreshDashboards } = useDashboards();
   const navigate = useNavigate();
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [message, setMessage] = useState('');
+  const [result, setResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+
+  // Même raison que sur ConfirmEmail : le cas sans token se déduit du rendu.
+  const status = result?.status ?? (token ? 'loading' : 'error');
+  const message = result?.message ?? (token ? '' : 'Token d\'invitation manquant.');
+
+  // Meme garde que sur ConfirmEmail : accepter deux fois la meme invitation echoue.
+  const attempted = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      setStatus('error');
-      setMessage('Token d\'invitation manquant.');
-      return;
-    }
+    if (!token) return;
 
     if (!isAuthenticated) {
       // Stocker le token pour traitement post-login
@@ -27,15 +29,16 @@ const AcceptInvitation = () => {
       return;
     }
 
+    if (attempted.current === token) return;
+    attempted.current = token;
+
     const accept = async () => {
       try {
         const response = await invitationsApi.accept(token);
-        setStatus('success');
-        setMessage(response.data.message);
+        setResult({ status: 'success', message: response.data.message });
         await refreshDashboards();
       } catch {
-        setStatus('error');
-        setMessage('L\'invitation est invalide ou a expiré.');
+        setResult({ status: 'error', message: 'L\'invitation est invalide ou a expiré.' });
       }
     };
 

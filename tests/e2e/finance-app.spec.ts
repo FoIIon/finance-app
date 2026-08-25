@@ -74,7 +74,10 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.goto(`/confirm-email?token=${confirmationTokenFor(testEmail)}`);
     await page.waitForURL('**/confirm-email**');
 
-    await page.goto('/login');
+    // Attendre la confirmation effective avant de quitter l'ecran : partir sur /login
+    // des le chargement annulait la requete en vol et le compte restait non confirme.
+    await page.getByRole('link', { name: 'Se connecter' }).click();
+    await page.waitForURL('**/login');
     await page.getByPlaceholder('votre@email.com').fill(testEmail);
     await page.getByPlaceholder('••••••').fill(testPassword);
     await page.getByRole('button', { name: 'Se connecter' }).click();
