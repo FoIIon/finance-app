@@ -1,5 +1,5 @@
 import type { Investment, InvestmentHistoryPoint } from '../../types/investment';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, formatPercent } from '../../utils/format';
 import { splitHistory } from './portfolioPeriod';
 import type { PortfolioPeriod } from './portfolioPeriod';
 
@@ -55,7 +55,7 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
             {signed(variation)}
             {variationPct !== null && (
               <span className="text-sm font-medium opacity-80 ml-1">
-                ({variationPct >= 0 ? '+' : ''}{variationPct.toFixed(1)} %)
+                ({variationPct >= 0 ? '+' : ''}{formatPercent(variationPct)} %)
               </span>
             )}
             {includesContributions && (
@@ -82,7 +82,7 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
               {signed(latentGain)}
               {latentPct !== null && (
                 <span className="opacity-80 font-medium ml-1">
-                  ({latentPct >= 0 ? '+' : ''}{latentPct.toFixed(1)} %)
+                  ({latentPct >= 0 ? '+' : ''}{formatPercent(latentPct)} %)
                 </span>
               )}
             </p>

@@ -9,7 +9,7 @@ import {
 import { investmentsApi } from '../api/investments';
 import { InvestmentKind, InvestmentUnit } from '../types/investment';
 import type { Investment, InvestmentValuation, CreateInvestment, UpdateInvestment } from '../types/investment';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatPercent } from '../utils/format';
 import { useToast } from '../hooks/useToast';
 import { PortfolioSummary } from '../components/investments/PortfolioSummary';
 import { PortfolioChart } from '../components/investments/PortfolioChart';
@@ -331,13 +331,13 @@ const Investments = () => {
       <td className={`p-3 text-right ${(i.gainAmount ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
         {i.gainAmount != null ? formatCurrency(i.gainAmount) : '—'}
         {i.gainPercent != null && (
-          <div className="text-xs opacity-70">{i.gainPercent.toFixed(1)} %</div>
+          <div className="text-xs opacity-70">{formatPercent(i.gainPercent)} %</div>
         )}
       </td>
       <td className="p-3 text-right">
         {i.annualizedReturn != null ? (
           <span title="Approximatif, calculé sur la date d'entrée">
-            {i.annualizedReturn.toFixed(1)} % / an
+            {formatPercent(i.annualizedReturn)} % / an
           </span>
         ) : (
           <span className="text-white/30" title="Renseigne une date d'entrée pour obtenir un rendement">
@@ -389,7 +389,7 @@ const Investments = () => {
           {st.hasValued ? (
             <>
               {formatCurrency(st.gain)}
-              <div className="text-xs opacity-70">{st.pct != null ? `${st.pct.toFixed(1)} %` : '—'}</div>
+              <div className="text-xs opacity-70">{st.pct != null ? `${formatPercent(st.pct)} %` : '—'}</div>
             </>
           ) : (
             '—'
@@ -606,7 +606,7 @@ const Investments = () => {
                     <>
                       {formatCurrency(totals.gain)}
                       <div className="text-xs opacity-70 font-normal">
-                        {totalPct != null ? `${totalPct.toFixed(1)} %` : '—'}
+                        {totalPct != null ? `${formatPercent(totalPct)} %` : '—'}
                       </div>
                     </>
                   ) : (
