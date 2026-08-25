@@ -12,6 +12,8 @@ public enum InvestmentKind
     /// sur un portefeuille dont un tiers n'est ni action ni fonds.
     /// </summary>
     Crypto = 3,
+    /// <summary>Obligations et fonds obligataires à échéance.</summary>
+    Bond = 4,
 }
 
 public enum InvestmentUnit

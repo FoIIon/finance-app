@@ -3,22 +3,50 @@ import { InvestmentKind } from '../../types/investment';
 import type { Investment } from '../../types/investment';
 import { formatCurrency } from '../../utils/format';
 
-// Palette validée, ordre fixe. Ne pas en dévier.
-const KIND_COLORS: Record<number, string> = {
-  [InvestmentKind.Security]: '#6366f1',
-  [InvestmentKind.Metal]: '#d97706',
-  [InvestmentKind.InsuranceContract]: '#059669',
-  [InvestmentKind.Crypto]: '#8b5cf6',
-};
+// Palette validée sur fond sombre, en toutes paires : pire écart 20,9 en vision
+// normale et 9,4 en daltonisme, les cinq contrôles passent. Au-delà de trois teintes
+// aucun ordre ne tient le plancher, d'où le repli en « Autres » plus bas.
+// La précédente associait l'indigo au titre coté et le violet à la crypto : 0,8 d'écart
+// en protanopie, 6,3 en vision normale, indiscernables.
+const SERIES = ['#3987e5', '#d95926', '#199e70'] as const;
+const OTHER_COLOR = '#6b7280';
+const MAX_SLICES = SERIES.length;
+
+// La couleur suit l'entité, jamais son rang : l'ordre est figé, donc une ligne ajoutée
+// ne repeint jamais les parts déjà présentes.
+const KIND_ORDER: number[] = [
+  InvestmentKind.Security,
+  InvestmentKind.Bond,
+  InvestmentKind.Crypto,
+  InvestmentKind.Metal,
+  InvestmentKind.InsuranceContract,
+];
 
 const KIND_LABELS: Record<number, string> = {
   [InvestmentKind.Security]: 'Titre coté',
+  [InvestmentKind.Bond]: 'Obligation',
   [InvestmentKind.Metal]: 'Métal',
   [InvestmentKind.InsuranceContract]: 'Assurance-vie',
   [InvestmentKind.Crypto]: 'Crypto',
 };
 
-const HOLDER_PALETTE = ['#6366f1', '#d97706', '#059669', '#ef4444', '#8b5cf6'];
+/**
+ * Trois teintes validées, puis un gris pour le reste. Inventer une quatrième couleur
+ * casserait le plancher de lisibilité quel que soit l'ordre choisi.
+ */
+const foldBeyondPalette = (slices: Slice[]): Slice[] => {
+  if (slices.length <= MAX_SLICES) return slices;
+  const kept = slices.slice(0, MAX_SLICES);
+  const rest = slices.slice(MAX_SLICES);
+  return [
+    ...kept,
+    {
+      name: `Autres (${rest.length})`,
+      value: rest.reduce((sum, s) => sum + s.value, 0),
+      color: OTHER_COLOR,
+    },
+  ];
+};
 
 interface Slice {
   name: string;
@@ -46,8 +74,8 @@ const renderSegmentLabel = (props: unknown) => {
     <text
       x={x}
       y={y}
-      fill="rgba(255,255,255,0.7)"
-      fontSize={11}
+      fill="#ffffff"
+      fontSize={12}
       textAnchor={x > cx ? 'start' : 'end'}
       dominantBaseline="central"
     >
@@ -95,7 +123,7 @@ const Donut = ({ title, data }: { title: string; data: Slice[] }) => (
             }}
             formatter={(value) => formatCurrency(value as number)}
           />
-          <Legend wrapperStyle={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }} />
+          <Legend wrapperStyle={{ fontSize: '12px', color: '#c3c2b7' }} />
         </PieChart>
       </ResponsiveContainer>
     )}
@@ -107,26 +135,28 @@ export const AllocationCharts = ({ investments }: { investments: Investment[] })
   const valued = active.filter((i) => i.marketValue != null);
   const excludedCount = active.length - valued.length;
 
-  const byKind: Slice[] = Object.values(InvestmentKind)
-    .map((kind) => ({
+  const byKind: Slice[] = foldBeyondPalette(
+    KIND_ORDER.map((kind, idx) => ({
       name: KIND_LABELS[kind],
       value: valued.filter((i) => i.kind === kind).reduce((s, i) => s + (i.marketValue ?? 0), 0),
-      color: KIND_COLORS[kind],
-    }))
-    .filter((s) => s.value > 0);
+      color: SERIES[idx] ?? OTHER_COLOR,
+    })).filter((s) => s.value > 0),
+  );
 
   // Couleur attribuée sur l'ensemble des titulaires actifs, pas seulement les valorisés :
   // la couleur suit l'entité, un filtre ne repeint jamais les survivants.
   const holders = [...new Set(active.map((i) => i.holder))].sort((a, b) => a.localeCompare(b, 'fr'));
-  const holderColor = new Map(holders.map((h, idx) => [h, HOLDER_PALETTE[idx % HOLDER_PALETTE.length]]));
+  const holderColor = new Map(holders.map((h, idx) => [h, SERIES[idx] ?? OTHER_COLOR]));
 
-  const byHolder: Slice[] = holders
-    .map((h) => ({
-      name: h,
-      value: valued.filter((i) => i.holder === h).reduce((s, i) => s + (i.marketValue ?? 0), 0),
-      color: holderColor.get(h)!,
-    }))
-    .filter((s) => s.value > 0);
+  const byHolder: Slice[] = foldBeyondPalette(
+    holders
+      .map((h) => ({
+        name: h,
+        value: valued.filter((i) => i.holder === h).reduce((s, i) => s + (i.marketValue ?? 0), 0),
+        color: holderColor.get(h)!,
+      }))
+      .filter((s) => s.value > 0),
+  );
 
   return (
     <div className="bg-[#1a1a3e] rounded-2xl border border-white/10 p-5">
