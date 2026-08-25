@@ -24,6 +24,12 @@ const fmtDate = (asOf: string) => new Date(asOf).toLocaleDateString('fr-BE');
 
 export const PortfolioChart = ({ history, period, isLoading }: Props) => {
   const { baseline, points } = splitHistory(history, period);
+
+  // Le trait porte la performance de la période affichée, comme la courbe d'un actif :
+  // vert si le patrimoine a monté depuis le premier point visible, rouge sinon.
+  const serie = points.length > 0 ? points : history;
+  const monte = serie.length < 2 || serie[serie.length - 1].value >= serie[0].value;
+  const couleur = monte ? '#34d399' : '#f87171';
   // Le point d'ancrage évite une courbe qui semble naître de rien en début de période.
   // En Max, la baseline est déjà le premier point : ne pas le dupliquer.
   const data = period === 'MAX' ? points : baseline !== null ? [baseline, ...points] : points;
@@ -42,8 +48,8 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
             <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="portfolioValueGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#6366f1" stopOpacity={0.25} />
-                  <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                  <stop offset="0%" stopColor={couleur} stopOpacity={0.25} />
+                  <stop offset="100%" stopColor={couleur} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
@@ -71,11 +77,11 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
                 type="monotone"
                 dataKey="value"
                 name="Valeur"
-                stroke="#6366f1"
-                strokeWidth={2}
+                stroke={couleur}
+                strokeWidth={1.5}
                 fill="url(#portfolioValueGradient)"
-                dot={{ fill: '#6366f1', r: 3, strokeWidth: 0 }}
-                activeDot={{ r: 4 }}
+                dot={false}
+                activeDot={{ r: 4, strokeWidth: 0 }}
               />
               <Line
                 type="monotone"

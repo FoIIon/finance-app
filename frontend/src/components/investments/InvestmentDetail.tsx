@@ -16,7 +16,7 @@ import { PortfolioPeriodSelector } from './PortfolioPeriodSelector';
 import { periodStart } from './portfolioPeriod';
 import type { PortfolioPeriod } from './portfolioPeriod';
 import type { Investment } from '../../types/investment';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, formatPercent } from '../../utils/format';
 
 
 interface Props {
@@ -47,6 +47,17 @@ export const InvestmentDetail = ({ investment, onClose }: Props) => {
     return ascending.filter((v) => new Date(v.asOf) >= start);
   }, [ascending, period]);
 
+  // Le trait porte la performance de la période affichée : vert si la ligne a monté
+  // depuis le premier point visible, rouge sinon. Changer de période change la couleur,
+  // et c'est voulu : la couleur décrit ce que le graphique montre.
+  const variationPeriode = shown.length >= 2
+    ? shown[shown.length - 1].marketValue - shown[0].marketValue
+    : null;
+  const variationPct = variationPeriode !== null && shown[0].marketValue > 0
+    ? (variationPeriode / shown[0].marketValue) * 100
+    : null;
+  const couleurTrait = variationPeriode === null || variationPeriode >= 0 ? '#34d399' : '#f87171';
+
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -69,9 +80,50 @@ export const InvestmentDetail = ({ investment, onClose }: Props) => {
         <div className="flex items-start justify-between mb-4">
           <div>
             <h3 className="text-xl font-bold text-white">{investment.name}</h3>
-            <p className="text-white/50 text-sm mt-1">
-              {investment.holder} · investi {formatCurrency(investment.costBasis)}
-            </p>
+            <p className="text-white/50 text-sm mt-1">{investment.holder}</p>
+
+            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+              <div>
+                <span className="text-white/50">Valeur </span>
+                <span className="text-white font-semibold">
+                  {investment.marketValue != null ? formatCurrency(investment.marketValue) : '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-white/50">Plus-value </span>
+                {investment.gainAmount != null ? (
+                  <span
+                    className="font-semibold"
+                    style={{ color: investment.gainAmount >= 0 ? '#34d399' : '#f87171' }}
+                  >
+                    {investment.gainAmount >= 0 ? '+' : ''}{formatCurrency(investment.gainAmount)}
+                    {investment.gainPercent != null && (
+                      <span className="opacity-80 font-medium ml-1">
+                        ({investment.gainPercent >= 0 ? '+' : ''}{formatPercent(investment.gainPercent)} %)
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-white/30">—</span>
+                )}
+              </div>
+              <div>
+                <span className="text-white/50">Investi </span>
+                <span className="text-white/90">{formatCurrency(investment.costBasis)}</span>
+              </div>
+              <div>
+                <span className="text-white/50">PRU </span>
+                <span className="text-white/90">
+                  {investment.unitCost != null ? formatCurrency(investment.unitCost) : '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-white/50">Quantité </span>
+                <span className="text-white/90">
+                  {investment.quantity.toLocaleString('fr-BE', { maximumFractionDigits: 6 })}
+                </span>
+              </div>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -124,7 +176,7 @@ export const InvestmentDetail = ({ investment, onClose }: Props) => {
                 <Line
                   type="monotone"
                   dataKey="marketValue"
-                  stroke="#3987e5"
+                  stroke={couleurTrait}
                   strokeWidth={1.25}
                   dot={false}
                   activeDot={{ r: 3, strokeWidth: 0 }}
@@ -138,7 +190,18 @@ export const InvestmentDetail = ({ investment, onClose }: Props) => {
           </p>
         )}
 
-        <div className="flex justify-center">
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {variationPeriode !== null && (
+            <span className="text-sm" style={{ color: couleurTrait }}>
+              {variationPeriode >= 0 ? '+' : ''}{formatCurrency(variationPeriode)}
+              {variationPct !== null && (
+                <span className="opacity-80 ml-1">
+                  ({variationPct >= 0 ? '+' : ''}{formatPercent(variationPct)} %)
+                </span>
+              )}
+              <span className="text-white/40 ml-1">sur la période</span>
+            </span>
+          )}
           <PortfolioPeriodSelector value={period} onChange={setPeriod} />
         </div>
 
