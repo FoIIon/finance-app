@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useBanking } from '../hooks/useBanking';
-import { categoriesApi } from '../api/categories';
+import { useCategoriesQuery } from '../hooks/queries';
 import { BankConnectionStatus } from '../types/banking';
 import ManualAccountsSection from '../components/ManualAccountsSection';
 import type { BankConnection, BankAccount, CategoryRule, CreateCategoryRule } from '../types/banking';
-import type { Category } from '../types/category';
 
 // Seules les banques belges + Trade Republic sont disponibles
 
@@ -28,6 +27,7 @@ const statusLabel = (status: BankConnectionStatus) => {
     case BankConnectionStatus.Expired: return 'Expirée';
     case BankConnectionStatus.Error: return 'Erreur';
     case BankConnectionStatus.PendingTwoFactor: return 'En attente 2FA';
+    case BankConnectionStatus.PendingAuthorization: return 'Autorisation à terminer';
   }
 };
 
@@ -37,6 +37,7 @@ const statusColor = (status: BankConnectionStatus) => {
     case BankConnectionStatus.Expired: return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
     case BankConnectionStatus.Error: return 'bg-red-500/20 text-red-400 border-red-500/30';
     case BankConnectionStatus.PendingTwoFactor: return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+    case BankConnectionStatus.PendingAuthorization: return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
   }
 };
 
@@ -50,7 +51,7 @@ const Bank = () => {
     tradeRepublicLogin, tradeRepublicVerify,
   } = useBanking();
 
-  const [categories, setCategories] = useState<Category[]>([]);
+  const { data: categories = [] } = useCategoriesQuery();
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [selectedCountry] = useState('BE');
   const [institutionSearch, setInstitutionSearch] = useState('');
@@ -94,7 +95,6 @@ const Bank = () => {
 
   // Charger les catégories et règles
   useEffect(() => {
-    categoriesApi.getAll().then((res) => setCategories(res.data));
     fetchCategoryRules();
   }, [fetchCategoryRules]);
 
@@ -307,7 +307,9 @@ const Bank = () => {
               onReauth={conn.institutionId === 'trade-republic' && conn.status === BankConnectionStatus.Error ? handleReauth : undefined}
               onReconnect={
                 conn.institutionId !== 'trade-republic' &&
-                (conn.status === BankConnectionStatus.Error || conn.status === BankConnectionStatus.Expired)
+                (conn.status === BankConnectionStatus.Error
+                  || conn.status === BankConnectionStatus.Expired
+                  || conn.status === BankConnectionStatus.PendingAuthorization)
                   ? () => handleReconnect(conn.id)
                   : undefined
               }

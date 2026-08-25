@@ -149,7 +149,7 @@ public class BankingController : ControllerBase
                 // L'identifiant GoCardless n'est pas stable d'une réquisition à l'autre :
                 // le rapprochement se fait sur l'IBAN, sinon chaque reconnexion crée un doublon
                 // et laisse l'ancien compte orphelin avec ses transactions.
-                var known = BankAccountReconciler.FindMatch(connection.BankAccounts, externalId, iban);
+                var known = BankAccountReconciler.FindMatch(connection.BankAccounts, externalId, iban, currency);
                 if (known != null)
                 {
                     if (known.ExternalAccountId != externalId)
@@ -165,6 +165,28 @@ public class BankingController : ControllerBase
                     if (!string.IsNullOrWhiteSpace(accountName)) known.AccountName = accountName;
                     if (!string.IsNullOrWhiteSpace(currency)) known.Currency = currency;
                     continue;
+                }
+
+                // Un IBAN déjà connu sur une AUTRE connexion de l'utilisateur, c'est le scénario
+                // du 22/08 : changement d'institution (CBC vers KBC), donc nouvelle connexion,
+                // donc rapprochement impossible ici. Le compte est créé, mais tracé, sinon le
+                // doublon et le compte devenu orphelin ne se voient qu'à la panne suivante.
+                if (!string.IsNullOrWhiteSpace(iban))
+                {
+                    var dejaConnuAilleurs = await _context.BankAccounts
+                        .Where(ba => ba.BankConnectionId != null
+                                     && ba.BankConnectionId != connection.Id
+                                     && ba.BankConnection!.UserId == userId
+                                     && ba.Iban == iban)
+                        .Select(ba => ba.Id)
+                        .ToListAsync();
+
+                    if (dejaConnuAilleurs.Count > 0)
+                    {
+                        _logger.LogWarning(
+                            "Callback GoCardless : l'IBAN du compte {ExternalId} est déjà porté par le ou les comptes {Comptes} sur une autre connexion. Un doublon va être créé, l'historique reste sur l'ancien compte.",
+                            externalId, string.Join(", ", dejaConnuAilleurs));
+                    }
                 }
 
                 connection.BankAccounts.Add(new BankAccount
@@ -191,13 +213,15 @@ public class BankingController : ControllerBase
     /// <summary>
     /// Statuts de réquisition GoCardless : CR (créée), GC (consentement donné), UA (authentification
     /// en cours), GA (sélection des comptes), SA (comptes sélectionnés), LN (liée), RJ (rejetée),
-    /// EX (expirée), SU (suspendue). Les états transitoires réutilisent PendingTwoFactor, rendu en jaune
-    /// côté interface : l'autorisation n'est pas finie, ce n'est pas une erreur.
+    /// EX (expirée), SU (suspendue). Les états transitoires prennent PendingAuthorization,
+    /// rendu en jaune côté interface avec un bouton de reprise : l'autorisation n'est pas
+    /// finie, ce n'est pas une erreur, et il faut pouvoir la reprendre sans supprimer la
+    /// connexion (une suppression détacherait les transactions de leur compte).
     /// </summary>
     private static BankConnectionStatus MapRequisitionStatus(string status) => status switch
     {
         "EX" or "SU" => BankConnectionStatus.Expired,
-        "CR" or "GC" or "UA" or "GA" or "SA" => BankConnectionStatus.PendingTwoFactor,
+        "CR" or "GC" or "UA" or "GA" or "SA" => BankConnectionStatus.PendingAuthorization,
         _ => BankConnectionStatus.Error
     };
 
@@ -332,7 +356,7 @@ public class BankingController : ControllerBase
     }
 
     [HttpPost("traderepublic/login")]
-    [EnableRateLimiting("banking")]
+    [EnableRateLimiting("tr-login")]
     public async Task<ActionResult<TradeRepublicLoginResponse>> TradeRepublicLogin(
         TradeRepublicLoginRequest dto,
         [FromServices] TradeRepublicClient trClient)
@@ -406,7 +430,7 @@ public class BankingController : ControllerBase
     }
 
     [HttpPost("traderepublic/verify")]
-    [EnableRateLimiting("banking")]
+    [EnableRateLimiting("tr-verify")]
     public async Task<ActionResult> TradeRepublicVerify(
         TradeRepublicVerifyRequest dto,
         [FromServices] TradeRepublicClient trClient)

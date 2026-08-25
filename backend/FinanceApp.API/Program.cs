@@ -88,16 +88,31 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             }));
 
-    // Les routes bancaires sont authentifiées : on compte par utilisateur, avec une limite
-    // plus haute (connexion, callback et reconnexion s'enchaînent en quelques secondes).
-    options.AddPolicy("banking", httpContext =>
+    // Trade Republic : un envoi de SMS et une vérification de code. Chacun garde son
+    // propre budget, serré, pour qu'une rafale de connexions n'ouvre pas la porte sur la
+    // vérification du code. Partition par utilisateur, ce qui exige que le limiteur
+    // s'exécute APRÈS l'authentification (voir l'ordre du pipeline plus bas).
+    static string ParUtilisateur(HttpContext ctx) =>
+        ctx.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? ctx.Connection.RemoteIpAddress?.ToString()
+            ?? "inconnu";
+
+    options.AddPolicy("tr-login", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
-                ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                ?? "inconnu",
+            ParUtilisateur(httpContext),
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 20,
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("tr-verify", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ParUtilisateur(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
             }));
@@ -133,7 +148,6 @@ app.Use(async (context, next) =>
 });
 
 app.UseCors("Frontend");
-app.UseRateLimiter();
 
 // Sert le build frontend depuis wwwroot/ (déploiement Pi : backend + frontend sur la même origine)
 app.UseDefaultFiles();
@@ -141,6 +155,11 @@ app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// APRÈS l'authentification : les policies partitionnées par utilisateur lisent
+// HttpContext.User, qui est encore vide tant que UseAuthentication n'a pas tourné.
+app.UseRateLimiter();
+
 app.MapControllers();
 
 // SPA fallback : toute route non-API renvoie index.html (React Router gère le reste)
