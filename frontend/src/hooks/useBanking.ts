@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import { bankingApi, categoryRulesApi } from '../api/banking';
 import type { BankConnection, Institution, CategoryRule, CreateCategoryRule, UpdateCategoryRule, TradeRepublicLoginRequest, TradeRepublicVerifyRequest } from '../types/banking';
 
@@ -38,8 +39,20 @@ export const useBanking = () => {
   };
 
   const handleCallback = async (ref: string) => {
-    await bankingApi.callback(ref);
+    // Le message du serveur nomme le statut de réquisition (rejet, expiration, autorisation
+    // inachevée). Sans ce catch il partait dans une promesse rejetée et l'utilisateur voyait
+    // une connexion muette. L'erreur se pose après le rafraîchissement, qui remet error à null.
+    let message: string | null = null;
+    try {
+      await bankingApi.callback(ref);
+    } catch (err) {
+      const serverMessage = axios.isAxiosError(err) ? err.response?.data : undefined;
+      message = typeof serverMessage === 'string' && serverMessage.length > 0
+        ? serverMessage
+        : "La liaison bancaire n'a pas abouti.";
+    }
     await fetchConnections();
+    if (message) setError(message);
   };
 
   const deleteConnection = async (id: number) => {

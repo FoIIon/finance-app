@@ -87,12 +87,16 @@ public class AuthController : ControllerBase
         if (user == null)
             return BadRequest(new MessageDto { Message = "Token de confirmation invalide." });
 
+        // Idempotent : rouvrir le lien, le recharger, ou le voir préchargé par un antivirus
+        // de messagerie ne doit pas annoncer un lien invalide sur un compte déjà confirmé.
+        // Le jeton est donc conservé, il ne peut plus rien faire d'autre que reconfirmer.
+        if (user.EmailConfirmed)
+            return Ok(new MessageDto { Message = "Adresse déjà confirmée. Vous pouvez vous connecter." });
+
         if (user.EmailConfirmationTokenExpiry < DateTime.UtcNow)
             return BadRequest(new MessageDto { Message = "Le lien de confirmation a expiré. Demandez un nouveau lien." });
 
         user.EmailConfirmed = true;
-        user.EmailConfirmationToken = null;
-        user.EmailConfirmationTokenExpiry = null;
         await _context.SaveChangesAsync();
 
         return Ok(new MessageDto { Message = "Email confirmé avec succès. Vous pouvez maintenant vous connecter." });

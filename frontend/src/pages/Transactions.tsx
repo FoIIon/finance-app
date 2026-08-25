@@ -2,10 +2,8 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTransactions } from '../hooks/useTransactions';
 import { useDashboards } from '../hooks/useDashboards';
-import { categoriesApi } from '../api/categories';
 import { accountsApi } from '../api/accounts';
-import { useProjectEnvelopesQuery } from '../hooks/queries';
-import type { Category } from '../types/category';
+import { useProjectEnvelopesQuery, useCategoriesQuery } from '../hooks/queries';
 import { TransactionType } from '../types/transaction';
 import type { CreateTransaction, Transaction, TransactionFilters } from '../types/transaction';
 import type { Account } from '../types/dashboard';
@@ -17,7 +15,7 @@ const Transactions = () => {
   const { currentDashboard } = useDashboards();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const [categories, setCategories] = useState<Category[]>([]);
+  const { data: categories = [] } = useCategoriesQuery();
   const [accounts, setAccounts] = useState<Account[]>([]);
   // Le hook partagé remplace un chargement manuel qui, lui, ignorait les invalidations
   // de la clé project-envelopes déclenchées ailleurs dans la page.
@@ -67,7 +65,6 @@ const Transactions = () => {
   }, [showForm]);
 
   useEffect(() => {
-    categoriesApi.getAll().then((res) => setCategories(res.data));
     accountsApi.getAll().then((res) => setAccounts(res.data));
   }, []);
 
