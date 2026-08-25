@@ -1,5 +1,6 @@
 using FinanceApp.API.Data;
 using FinanceApp.API.Models;
+using Microsoft.Extensions.Logging;
 
 namespace FinanceApp.API.Services;
 
@@ -26,6 +27,7 @@ public static class TradeRepublicSession
         BankConnection connection,
         TradeRepublicClient client,
         AppDbContext context,
+        ILogger? logger = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(connection.EncryptedRefreshToken))
@@ -44,8 +46,12 @@ public static class TradeRepublicSession
         }
         catch (Exception ex)
         {
-            // Le refresh token lui-même est mort : on le dit en clair, au lieu de laisser
-            // remonter le message brut de Trade Republic.
+            // Le message rendu à l'utilisateur reste lisible, mais la cause réelle doit
+            // atterrir dans le journal : sans ça, un endpoint mort ressemble à un jeton mort.
+            logger?.LogWarning(ex,
+                "Renouvellement de session Trade Republic échoué pour la connexion {ConnectionId}.",
+                connection.Id);
+
             throw new InvalidOperationException(
                 "La session Trade Republic n'a pas pu être renouvelée. Relancez la connexion dans Banques.", ex);
         }

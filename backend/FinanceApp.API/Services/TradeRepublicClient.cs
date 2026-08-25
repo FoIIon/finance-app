@@ -279,47 +279,61 @@ public class TradeRepublicClient : IDisposable
     }
 
     /// <summary>
-    /// Rafraîchit la session via HTTP — le refresh token est envoyé en body JSON.
-    /// Si la réponse contient un tr_session dans Set-Cookie, le retourne ;
-    /// sinon tente de lire le sessionToken dans le body JSON.
+    /// Renouvelle la session Trade Republic.
+    ///
+    /// L'ancien <c>POST /api/v1/auth/web/refresh</c> répond <c>405 Method Not Allowed</c> depuis
+    /// que TR a posé un WAF devant son API v1 (constaté le 23/08/2026, reconfirmé le 25/08).
+    /// Le mécanisme réel est le keepalive utilisé par les clients de la communauté :
+    /// <c>GET /api/v1/auth/web/session</c> avec les cookies <c>tr_refresh</c> et <c>tr_device</c>,
+    /// qui fait tourner le cookie <c>tr_session</c>. Vérifié par pré-vol CORS le 25/08 :
+    /// <c>OPTIONS</c> sur cette route renvoie <c>access-control-allow-methods: GET</c> et
+    /// <c>access-control-allow-credentials: true</c>.
+    ///
+    /// Une session vit environ cinq minutes, ce renouvellement est donc le chemin normal,
+    /// pas un rattrapage d'exception.
     /// </summary>
     public async Task<string> RefreshSessionAsync(string refreshToken, string deviceToken, CancellationToken ct = default)
     {
         using var timeoutCts = CreateTimeoutToken(ct);
 
-        var body = JsonSerializer.Serialize(new { refreshToken });
-        var content = new StringContent(body, Encoding.UTF8, "application/json");
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/web/session");
+        AddBrowserHeaders(request);
+        AddTrV2Headers(request);
 
-        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/web/refresh");
-        request.Content = content;
-
-        // tr_device identifie l'appareil — envoyé en cookie s'il est disponible
-        if (!string.IsNullOrEmpty(deviceToken))
-            request.Headers.Add("Cookie", $"tr_device={deviceToken}");
+        var cookies = new List<string>();
+        if (!string.IsNullOrEmpty(refreshToken)) cookies.Add($"tr_refresh={refreshToken}");
+        if (!string.IsNullOrEmpty(deviceToken)) cookies.Add($"tr_device={deviceToken}");
+        if (cookies.Count > 0) request.Headers.Add("Cookie", string.Join("; ", cookies));
 
         var response = await _httpClient.SendAsync(request, timeoutCts.Token);
         var responseBody = await response.Content.ReadAsStringAsync(timeoutCts.Token);
 
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"Erreur refresh token ({(int)response.StatusCode}) : {responseBody}");
+        _logger.LogInformation("TR refresh session : HTTP {status}, body: {body}",
+            (int)response.StatusCode, responseBody.Length > 300 ? responseBody[..300] : responseBody);
 
-        // Cas 1 : session token dans Set-Cookie
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(
+                $"Erreur renouvellement de session ({(int)response.StatusCode}) : {responseBody}");
+
+        // Cas 1 : le nouveau tr_session arrive en Set-Cookie, c'est le cas nominal du keepalive.
         if (response.Headers.TryGetValues("Set-Cookie", out var cookieHeaders))
         {
             var sessionFromCookie = ExtractCookieValue(cookieHeaders.ToList(), "tr_session");
             if (sessionFromCookie != null) return sessionFromCookie;
         }
 
-        // Cas 2 : session token dans le body JSON
+        // Cas 2 : certaines réponses portent le jeton dans le corps.
         if (!string.IsNullOrWhiteSpace(responseBody))
         {
             using var doc = JsonDocument.Parse(responseBody);
             if (doc.RootElement.TryGetProperty("sessionToken", out var sessionProp))
                 return sessionProp.GetString()
-                    ?? throw new InvalidOperationException("sessionToken vide dans la réponse de refresh.");
+                    ?? throw new InvalidOperationException("sessionToken vide dans la réponse de renouvellement.");
         }
 
-        throw new InvalidOperationException($"Impossible d'extraire le session token de la réponse de refresh. Body: {responseBody[..Math.Min(200, responseBody.Length)]}");
+        throw new InvalidOperationException(
+            "Renouvellement accepté mais aucun jeton de session dans la réponse. Body : "
+            + responseBody[..Math.Min(200, responseBody.Length)]);
     }
 
     /// <summary>
