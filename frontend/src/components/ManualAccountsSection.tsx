@@ -8,7 +8,7 @@ import { categoriesApi } from '../api/categories';
 import type { Category } from '../types/category';
 import type { ManualAccount } from '../types/savingsGoal';
 import { formatCurrency } from '../utils/format';
-import { useToast } from '../context/ToastContext';
+import { useToast } from '../hooks/useToast';
 
 const ManualAccountsSection = () => {
   const { currentDashboard } = useDashboards();

@@ -1,28 +1,32 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { authApi } from '../api/auth';
 
 const ConfirmEmail = () => {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [message, setMessage] = useState('');
+  const [result, setResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+
+  // L'absence de token se déduit du rendu : la poser dans l'effet déclencherait
+  // un rendu en cascade (react-hooks/set-state-in-effect).
+  const status = result?.status ?? (token ? 'loading' : 'error');
+  const message = result?.message ?? (token ? '' : 'Token de confirmation manquant.');
+
+  // La confirmation consomme le jeton : le second appel echouerait. En developpement,
+  // StrictMode rejoue les effets au montage, ce qui affichait une erreur alors que la
+  // confirmation venait de reussir.
+  const attempted = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      setStatus('error');
-      setMessage('Token de confirmation manquant.');
-      return;
-    }
+    if (!token || attempted.current === token) return;
+    attempted.current = token;
 
     const confirm = async () => {
       try {
         const response = await authApi.confirmEmail(token);
-        setStatus('success');
-        setMessage(response.data.message);
+        setResult({ status: 'success', message: response.data.message });
       } catch {
-        setStatus('error');
-        setMessage('Le lien de confirmation est invalide ou a expiré.');
+        setResult({ status: 'error', message: 'Le lien de confirmation est invalide ou a expiré.' });
       }
     };
 

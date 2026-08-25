@@ -1,21 +1,6 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, type ReactNode } from 'react';
 import { registerToast } from '../api/toastBridge';
-
-export type ToastVariant = 'error' | 'success';
-
-export interface Toast {
-  id: number;
-  message: string;
-  variant: ToastVariant;
-}
-
-interface ToastContextType {
-  showToast: (message: string, variant?: ToastVariant) => void;
-}
-
-const ToastContext = createContext<ToastContextType>({
-  showToast: () => {},
-});
+import { ToastContext, type Toast, type ToastVariant } from './toast-context';
 
 let counter = 0;
 
@@ -69,5 +54,3 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
     </ToastContext.Provider>
   );
 };
-
-export const useToast = () => useContext(ToastContext);

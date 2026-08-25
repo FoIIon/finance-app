@@ -21,13 +21,15 @@ public class BankingController : ControllerBase
     private readonly GoCardlessClient _goCardless;
     private readonly IConfiguration _configuration;
     private readonly TradeRepublicAuthStore _trAuthStore;
+    private readonly ILogger<BankingController> _logger;
 
-    public BankingController(AppDbContext context, GoCardlessClient goCardless, IConfiguration configuration, TradeRepublicAuthStore trAuthStore)
+    public BankingController(AppDbContext context, GoCardlessClient goCardless, IConfiguration configuration, TradeRepublicAuthStore trAuthStore, ILogger<BankingController> logger)
     {
         _context = context;
         _goCardless = goCardless;
         _configuration = configuration;
         _trAuthStore = trAuthStore;
+        _logger = logger;
     }
 
     private int GetUserId()
@@ -91,7 +93,7 @@ public class BankingController : ControllerBase
             InstitutionLogo = dto.InstitutionLogo,
             RequisitionId = requisitionId,
             Reference = reference,
-            Status = BankConnectionStatus.Linked
+            Status = BankConnectionStatus.PendingAuthorization
         };
 
         _context.BankConnections.Add(connection);
@@ -115,44 +117,118 @@ public class BankingController : ControllerBase
 
         // Vérifier le statut de la réquisition
         var requisition = await _goCardless.GetRequisitionAsync(connection.RequisitionId);
-        var status = requisition.GetProperty("status").GetString();
+        var status = requisition.GetProperty("status").GetString() ?? "";
 
         if (status != "LN")
         {
-            connection.Status = BankConnectionStatus.Error;
+            _logger.LogWarning(
+                "Callback GoCardless : connexion {ConnectionId} ({Institution}), réquisition {RequisitionId} en statut {Status}.",
+                connection.Id, connection.InstitutionId, connection.RequisitionId, status);
+
+            connection.Status = GoCardlessRequisitionStatus.Map(status);
             await _context.SaveChangesAsync();
-            return BadRequest("La liaison bancaire a échoué.");
+            return BadRequest(GoCardlessRequisitionStatus.Describe(status));
         }
 
         // Récupérer les comptes liés
         var accounts = requisition.GetProperty("accounts");
+
+        // Une ligne déjà rapprochée dans ce callback ne doit pas l'être une seconde fois :
+        // sans ce garde, deux comptes du même payload se rabattent sur la même ligne et
+        // le premier disparaît sans laisser de trace.
+        var dejaRapproches = new HashSet<int>();
+
         foreach (var accountId in accounts.EnumerateArray())
         {
             var externalId = accountId.GetString()!;
-
-            // Éviter les doublons
-            if (connection.BankAccounts.Any(ba => ba.ExternalAccountId == externalId))
-                continue;
 
             try
             {
                 var details = await _goCardless.GetAccountDetailsAsync(externalId);
                 var account = details.GetProperty("account");
 
+                var iban = account.TryGetProperty("iban", out var ibanProp) ? ibanProp.GetString() ?? "" : "";
+                var ownerName = account.TryGetProperty("ownerName", out var owner) ? owner.GetString() ?? "" : "";
+                var accountName = account.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "";
+                var currency = account.TryGetProperty("currency", out var currencyProp) ? currencyProp.GetString() ?? "" : "";
+
+                // L'identifiant GoCardless n'est pas stable d'une réquisition à l'autre :
+                // le rapprochement se fait sur l'IBAN, sinon chaque reconnexion crée un doublon
+                // et laisse l'ancien compte orphelin avec ses transactions.
+                var candidats = connection.BankAccounts.Where(ba => !dejaRapproches.Contains(ba.Id)).ToList();
+                var known = BankAccountReconciler.FindMatch(candidats, externalId, iban, currency);
+                if (known != null)
+                {
+                    if (known.ExternalAccountId != externalId)
+                    {
+                        _logger.LogInformation(
+                            "Callback GoCardless : le compte {AccountId} change d'identifiant externe ({Ancien} vers {Nouveau}), transactions conservées.",
+                            known.Id, known.ExternalAccountId, externalId);
+                        known.ExternalAccountId = externalId;
+                    }
+
+                    dejaRapproches.Add(known.Id);
+
+                    if (!string.IsNullOrWhiteSpace(iban)) known.Iban = iban;
+                    if (!string.IsNullOrWhiteSpace(ownerName)) known.OwnerName = ownerName;
+                    if (!string.IsNullOrWhiteSpace(accountName)) known.AccountName = accountName;
+                    if (!string.IsNullOrWhiteSpace(currency)) known.Currency = currency;
+                    continue;
+                }
+
+                // Un IBAN déjà connu sur une AUTRE connexion de l'utilisateur, c'est le scénario
+                // du 22/08 : changement d'institution (CBC vers KBC), donc nouvelle connexion,
+                // donc rapprochement impossible ici. Le compte est créé, mais tracé, sinon le
+                // doublon et le compte devenu orphelin ne se voient qu'à la panne suivante.
+                if (!string.IsNullOrWhiteSpace(iban))
+                {
+                    // Comparaison en mémoire : SQLite compare en binaire, donc un IBAN stocké
+                    // avec des espaces échapperait au garde-fou. Les comptes manuels sont
+                    // exclus, un IBAN saisi à la main en miroir d'un compte réel n'est pas
+                    // un doublon à signaler.
+                    var autresComptes = await _context.BankAccounts
+                        .Where(ba => !ba.IsManual
+                                     && ba.BankConnectionId != null
+                                     && ba.BankConnectionId != connection.Id
+                                     && ba.BankConnection!.UserId == userId
+                                     && ba.Iban != "")
+                        .Select(ba => new { ba.Id, ba.Iban })
+                        .ToListAsync();
+
+                    var dejaConnuAilleurs = autresComptes
+                        .Where(a => BankAccountReconciler.SameIban(a.Iban, iban))
+                        .Select(a => a.Id)
+                        .ToList();
+
+                    if (dejaConnuAilleurs.Count > 0)
+                    {
+                        _logger.LogWarning(
+                            "Callback GoCardless : l'IBAN du compte {ExternalId} est déjà porté par le ou les comptes {Comptes} sur une autre connexion. Un doublon va être créé, l'historique reste sur l'ancien compte.",
+                            externalId, string.Join(", ", dejaConnuAilleurs));
+                    }
+                }
+
                 connection.BankAccounts.Add(new BankAccount
                 {
                     ExternalAccountId = externalId,
-                    Iban = account.TryGetProperty("iban", out var iban) ? iban.GetString() ?? "" : "",
-                    OwnerName = account.TryGetProperty("ownerName", out var owner) ? owner.GetString() ?? "" : "",
-                    AccountName = account.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",
-                    Currency = account.TryGetProperty("currency", out var currency) ? currency.GetString() ?? "" : ""
+                    Iban = iban,
+                    OwnerName = ownerName,
+                    AccountName = accountName,
+                    Currency = currency
                 });
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignorer les comptes inaccessibles
+                _logger.LogWarning(ex,
+                    "Callback GoCardless : compte {ExternalId} de la connexion {ConnectionId} inaccessible, ignoré.",
+                    externalId, connection.Id);
             }
         }
+
+        // Le statut ne passe au vert qu'ici, une fois la réquisition en LN et les comptes
+        // récupérés. Le poser à la création affichait « Connectée » sur une autorisation
+        // jamais menée à son terme, et la synchronisation tapait sur des accès morts.
+        connection.Status = BankConnectionStatus.Linked;
 
         await _context.SaveChangesAsync();
         return Ok(MapConnectionToDto(connection));
@@ -172,7 +248,7 @@ public class BankingController : ControllerBase
 
     /// <summary>
     /// Régénère un lien d'authentification GoCardless pour une connexion existante (Error/Expired).
-    /// Préserve les BankAccounts (matchés par ExternalAccountId au callback) et donc les transactions.
+    /// Préserve les BankAccounts (rapprochés par IBAN au callback) et donc les transactions.
     /// </summary>
     [HttpPost("connections/{id}/reconnect")]
     public async Task<ActionResult<ConnectBankResponse>> ReconnectConnection(int id)
@@ -194,7 +270,7 @@ public class BankingController : ControllerBase
 
         connection.RequisitionId = requisition.GetProperty("id").GetString()!;
         connection.Reference = reference;
-        connection.Status = BankConnectionStatus.Linked;
+        connection.Status = BankConnectionStatus.PendingAuthorization;
         await _context.SaveChangesAsync();
 
         return Ok(new ConnectBankResponse
@@ -280,7 +356,7 @@ public class BankingController : ControllerBase
     }
 
     [HttpPost("traderepublic/login")]
-    [EnableRateLimiting("auth")]
+    [EnableRateLimiting("tr-login")]
     public async Task<ActionResult<TradeRepublicLoginResponse>> TradeRepublicLogin(
         TradeRepublicLoginRequest dto,
         [FromServices] TradeRepublicClient trClient)
@@ -354,7 +430,7 @@ public class BankingController : ControllerBase
     }
 
     [HttpPost("traderepublic/verify")]
-    [EnableRateLimiting("auth")]
+    [EnableRateLimiting("tr-verify")]
     public async Task<ActionResult> TradeRepublicVerify(
         TradeRepublicVerifyRequest dto,
         [FromServices] TradeRepublicClient trClient)

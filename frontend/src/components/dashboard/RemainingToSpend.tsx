@@ -11,7 +11,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useDashboards } from '../../hooks/useDashboards';
-import { usePeriod } from '../../context/PeriodContext';
+import { usePeriod } from '../../hooks/usePeriod';
 import { useSummaryQuery } from '../../hooks/queries';
 import { transactionsApi } from '../../api/transactions';
 import { formatCurrency } from '../../utils/format';
