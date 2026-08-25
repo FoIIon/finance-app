@@ -36,6 +36,13 @@ public enum ValuationSource
     Manual = 0,
     TradeRepublic = 1,
     SpotApi = 2,
+    /// <summary>
+    /// Cours de clôture passé, reconstitué depuis l'historique Trade Republic. La valeur
+    /// totale portée par ces lignes applique la quantité ACTUELLE à un cours ancien : elle
+    /// donne la tendance d'un actif, elle ne dit pas ce que le portefeuille valait ce
+    /// jour-là. Exclue à ce titre du calcul de la courbe du patrimoine.
+    /// </summary>
+    TradeRepublicHistory = 3,
 }
 
 public enum MovementType

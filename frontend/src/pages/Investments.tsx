@@ -260,7 +260,8 @@ const Investments = () => {
       const { data } = await investmentsApi.importTradeRepublic(dashboardId);
       refresh();
       showToast(
-        `Trade Republic : ${data.total} lignes, ${data.created} ajoutées, ${data.valued} valorisées`,
+        `Trade Republic : ${data.total} lignes, ${data.created} ajoutées, ${data.valued} valorisées`
+          + (data.historyPoints > 0 ? `, ${data.historyPoints} points d'historique` : ''),
         'success',
       );
     } catch (err: unknown) {

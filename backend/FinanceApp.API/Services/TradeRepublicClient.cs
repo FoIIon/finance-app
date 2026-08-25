@@ -499,7 +499,11 @@ public class TradeRepublicClient : IDisposable
     /// cours n'a pas pu être récupéré : la position reste importable (quantité, prix de revient),
     /// seule sa valorisation du jour manque. Une valeur absente vaut mieux qu'une valeur inventée.
     /// </summary>
-    public record TrPortfolioSnapshot(TrPortfolioPosition Position, decimal? CurrentPrice, decimal? MarketValue);
+    public record TrPortfolioSnapshot(
+        TrPortfolioPosition Position,
+        decimal? CurrentPrice,
+        decimal? MarketValue,
+        IReadOnlyList<TradeRepublicPortfolioParser.TrPricePoint> PriceHistory);
 
     /// <summary>
     /// Récupère le portefeuille complet en une session WebSocket : positions
@@ -523,12 +527,11 @@ public class TradeRepublicClient : IDisposable
         _logger.LogInformation("TR portefeuille, marquage brut : {marquage}",
             TradeRepublicPortfolioParser.DescribeCategories(positionsJson));
 
-        var sondeHistoriqueFaite = false;
-
         var result = new List<TrPortfolioSnapshot>(positions.Count);
         foreach (var position in positions)
         {
             decimal? price = null;
+            IReadOnlyList<TradeRepublicPortfolioParser.TrPricePoint> history = [];
             try
             {
                 var instrumentJson = await SubscribeOnceRawAsync(
@@ -541,33 +544,26 @@ public class TradeRepublicClient : IDisposable
                         new { type = "ticker", id = $"{position.Isin}.{exchange}", token = sessionToken }, timeoutCts.Token);
                     price = TradeRepublicPortfolioParser.ParseTickerLastPrice(tickerJson);
 
-                    // Sonde unique et sans effet : la forme de l'historique de cours n'a
-                    // jamais été observée. On la relève sur une seule position, on la
-                    // journalise, et on n'en fait rien tant qu'elle n'est pas connue.
-                    if (!sondeHistoriqueFaite)
+                    // Historique de cours sur un an. Un échec ici ne doit pas faire perdre
+                    // la valorisation du jour, déjà obtenue.
+                    try
                     {
-                        sondeHistoriqueFaite = true;
-                        try
-                        {
-                            var sonde = await SubscribeOnceRawAsync(
-                                new
-                                {
-                                    type = "aggregateHistoryLight",
-                                    id = $"{position.Isin}.{exchange}",
-                                    range = "1y",
-                                    token = sessionToken
-                                },
-                                timeoutCts.Token);
+                        var historyJson = await SubscribeOnceRawAsync(
+                            new
+                            {
+                                type = "aggregateHistoryLight",
+                                id = $"{position.Isin}.{exchange}",
+                                range = "1y",
+                                token = sessionToken
+                            },
+                            timeoutCts.Token);
 
-                            _logger.LogInformation("TR sonde historique {id} : {reponse}",
-                                $"{position.Isin}.{exchange}",
-                                sonde.Length > 500 ? sonde[..500] + "…[tronqué]" : sonde);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogInformation("TR sonde historique indisponible pour {id} : {message}",
-                                $"{position.Isin}.{exchange}", ex.Message);
-                        }
+                        history = TradeRepublicPortfolioParser.ParsePriceHistory(historyJson);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning("TR historique indisponible pour {id} : {message}",
+                            $"{position.Isin}.{exchange}", ex.Message);
                     }
                 }
             }
@@ -578,7 +574,7 @@ public class TradeRepublicClient : IDisposable
             }
 
             var marketValue = price.HasValue ? price.Value * position.Quantity : (decimal?)null;
-            result.Add(new TrPortfolioSnapshot(position, price, marketValue));
+            result.Add(new TrPortfolioSnapshot(position, price, marketValue, history));
         }
 
         return result;

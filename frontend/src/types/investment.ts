@@ -21,6 +21,7 @@ export const InvestmentSource = {
 } as const;
 export type InvestmentSource = (typeof InvestmentSource)[keyof typeof InvestmentSource];
 
+/** TradeRepublicHistory = cours passé reconstitué, hors courbe du patrimoine. */
 export const ValuationSource = {
   Manual: 0,
   TradeRepublic: 1,
@@ -111,4 +112,5 @@ export interface TradeRepublicImportResult {
   created: number;
   updated: number;
   valued: number;
+  historyPoints: number;
 }
