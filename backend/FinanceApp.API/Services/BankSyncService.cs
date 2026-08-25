@@ -359,10 +359,9 @@ public class BankSyncService : BackgroundService
 
         try
         {
-            if (string.IsNullOrEmpty(connection.EncryptedSessionToken))
-                throw new InvalidOperationException("Session Trade Republic expirée — veuillez relancer la connexion.");
-
-            var sessionToken = trClient.DecryptToken(connection.EncryptedSessionToken);
+            // Renouvellement systématique : entre deux synchronisations espacées de six
+            // heures, le jeton stocké est toujours périmé.
+            var sessionToken = await TradeRepublicSession.RefreshAndStoreAsync(connection, trClient, context);
 
             // Récupérer les card transactions via HTTP REST (TR a abandonné le WebSocket pour les données)
             // La déduplication par ExternalId évite les doublons — pas besoin de filtrer par date
