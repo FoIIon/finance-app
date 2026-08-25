@@ -132,4 +132,6 @@ public class TradeRepublicImportResultDto
     public int Updated { get; set; }
     /// <summary>Lignes ayant reçu une valorisation du jour (cours récupéré).</summary>
     public int Valued { get; set; }
+    /// <summary>Points de cours passés ajoutés, hors courbe du patrimoine.</summary>
+    public int HistoryPoints { get; set; }
 }

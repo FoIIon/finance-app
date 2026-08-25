@@ -91,4 +91,24 @@ public class TradeRepublicPortfolioParserTests
         Assert.Contains("stocksAndETFs", resume);
         Assert.Contains("IE0007UPSEA3=fund", resume);
     }
+
+    [Fact]
+    public void ParsePriceHistory_lit_la_serie_journaliere_de_la_capture_reelle()
+    {
+        // Capture réelle du 25/08/2026, topic aggregateHistoryLight sur IE0007UPSEA3.LSX,
+        // tronquée aux premiers points. L'horodatage est en millisecondes, les cours
+        // arrivent en chaînes de caractères.
+        var serie = TradeRepublicPortfolioParser.ParsePriceHistory(Fixture("tr-aggregateHistoryLight.json"));
+
+        Assert.Equal(4, serie.Count);
+        Assert.Equal(new DateTime(2025, 8, 25), serie[0].AsOf);
+        Assert.Equal(4.3351m, serie[0].Close);
+        Assert.Equal(4.3577m, serie[3].Close);
+    }
+
+    [Fact]
+    public void ParsePriceHistory_reponse_sans_serie_rend_une_liste_vide()
+    {
+        Assert.Empty(TradeRepublicPortfolioParser.ParsePriceHistory("{}"));
+    }
 }

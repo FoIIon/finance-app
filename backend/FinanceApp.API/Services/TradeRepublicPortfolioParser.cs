@@ -124,4 +124,37 @@ public static class TradeRepublicPortfolioParser
 
         return string.Join(" | ", blocs);
     }
+
+    /// <summary>Un point de la série de cours renvoyée par aggregateHistoryLight.</summary>
+    public record TrPricePoint(DateTime AsOf, decimal Close);
+
+    /// <summary>
+    /// Série journalière de cours. Horodatage en millisecondes epoch, cours en chaînes de
+    /// caractères, comme le montre la capture du 25/08/2026.
+    /// </summary>
+    public static List<TrPricePoint> ParsePriceHistory(string json)
+    {
+        var points = new List<TrPricePoint>();
+        using var doc = JsonDocument.Parse(json);
+
+        if (!doc.RootElement.TryGetProperty("aggregates", out var aggregates)
+            || aggregates.ValueKind != JsonValueKind.Array)
+            return points;
+
+        foreach (var aggregate in aggregates.EnumerateArray())
+        {
+            if (!aggregate.TryGetProperty("time", out var time)
+                || !time.TryGetInt64(out var epochMs)) continue;
+
+            if (!aggregate.TryGetProperty("close", out var close)) continue;
+            var raw = close.ValueKind == JsonValueKind.String ? close.GetString() : close.GetRawText();
+            if (!decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var value)) continue;
+
+            points.Add(new TrPricePoint(
+                DateTimeOffset.FromUnixTimeMilliseconds(epochMs).UtcDateTime.Date,
+                value));
+        }
+
+        return points;
+    }
 }

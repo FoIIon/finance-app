@@ -247,8 +247,10 @@ public class InvestmentController : ControllerBase
         var ids = investments.Select(i => i.Id).ToList();
 
         // Agrégation côté client : SQLite ne sait pas grouper sur decimal en SQL.
+        // Les cours passés reconstitués appliquent la quantité actuelle à une date ancienne :
+        // ils donnent la tendance d'un actif, jamais ce que le portefeuille valait ce jour-là.
         var valuations = await _context.InvestmentValuations
-            .Where(v => ids.Contains(v.InvestmentId))
+            .Where(v => ids.Contains(v.InvestmentId) && v.Source != ValuationSource.TradeRepublicHistory)
             .ToListAsync();
 
         var valuationsByInvestment = valuations
@@ -359,7 +361,7 @@ public class InvestmentController : ControllerBase
 
         var defaultHolder = configuration["TradeRepublic:DefaultHolder"] ?? "Trade Republic";
         var today = DateTime.UtcNow.Date;
-        int created = 0, updated = 0, valued = 0;
+        int created = 0, updated = 0, valued = 0, historyPoints = 0;
 
         foreach (var snap in snapshots)
         {
@@ -429,9 +431,39 @@ public class InvestmentController : ControllerBase
                     });
                 }
 
-                await _context.SaveChangesAsync();
                 valued++;
             }
+
+            // Historique de cours : un point par jour de bourse, sur un an. On n'écrase
+            // jamais une valorisation existante, la valeur réelle du jour prime toujours.
+            if (snap.PriceHistory.Count > 0)
+            {
+                var datesConnues = await _context.InvestmentValuations
+                    .Where(v => v.InvestmentId == inv.Id)
+                    .Select(v => v.AsOf)
+                    .ToListAsync();
+
+                var deja = datesConnues.ToHashSet();
+
+                foreach (var point in snap.PriceHistory)
+                {
+                    if (!deja.Add(point.AsOf)) continue;
+
+                    _context.InvestmentValuations.Add(new InvestmentValuation
+                    {
+                        InvestmentId = inv.Id,
+                        AsOf = point.AsOf,
+                        UnitPrice = point.Close,
+                        // Quantité actuelle appliquée à un cours ancien : c'est ce qui rend
+                        // cette ligne inapte à la courbe du patrimoine, et la source le dit.
+                        MarketValue = point.Close * inv.Quantity,
+                        Source = ValuationSource.TradeRepublicHistory,
+                    });
+                    historyPoints++;
+                }
+            }
+
+            await _context.SaveChangesAsync();
         }
 
         return Ok(new TradeRepublicImportResultDto
@@ -440,6 +472,7 @@ public class InvestmentController : ControllerBase
             Created = created,
             Updated = updated,
             Valued = valued,
+            HistoryPoints = historyPoints,
         });
     }
 
