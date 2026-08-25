@@ -93,7 +93,7 @@ public class BankingController : ControllerBase
             InstitutionLogo = dto.InstitutionLogo,
             RequisitionId = requisitionId,
             Reference = reference,
-            Status = BankConnectionStatus.Linked
+            Status = BankConnectionStatus.PendingAuthorization
         };
 
         _context.BankConnections.Add(connection);
@@ -125,13 +125,19 @@ public class BankingController : ControllerBase
                 "Callback GoCardless : connexion {ConnectionId} ({Institution}), réquisition {RequisitionId} en statut {Status}.",
                 connection.Id, connection.InstitutionId, connection.RequisitionId, status);
 
-            connection.Status = MapRequisitionStatus(status);
+            connection.Status = GoCardlessRequisitionStatus.Map(status);
             await _context.SaveChangesAsync();
-            return BadRequest(DescribeRequisitionStatus(status));
+            return BadRequest(GoCardlessRequisitionStatus.Describe(status));
         }
 
         // Récupérer les comptes liés
         var accounts = requisition.GetProperty("accounts");
+
+        // Une ligne déjà rapprochée dans ce callback ne doit pas l'être une seconde fois :
+        // sans ce garde, deux comptes du même payload se rabattent sur la même ligne et
+        // le premier disparaît sans laisser de trace.
+        var dejaRapproches = new HashSet<int>();
+
         foreach (var accountId in accounts.EnumerateArray())
         {
             var externalId = accountId.GetString()!;
@@ -149,7 +155,8 @@ public class BankingController : ControllerBase
                 // L'identifiant GoCardless n'est pas stable d'une réquisition à l'autre :
                 // le rapprochement se fait sur l'IBAN, sinon chaque reconnexion crée un doublon
                 // et laisse l'ancien compte orphelin avec ses transactions.
-                var known = BankAccountReconciler.FindMatch(connection.BankAccounts, externalId, iban, currency);
+                var candidats = connection.BankAccounts.Where(ba => !dejaRapproches.Contains(ba.Id)).ToList();
+                var known = BankAccountReconciler.FindMatch(candidats, externalId, iban, currency);
                 if (known != null)
                 {
                     if (known.ExternalAccountId != externalId)
@@ -159,6 +166,8 @@ public class BankingController : ControllerBase
                             known.Id, known.ExternalAccountId, externalId);
                         known.ExternalAccountId = externalId;
                     }
+
+                    dejaRapproches.Add(known.Id);
 
                     if (!string.IsNullOrWhiteSpace(iban)) known.Iban = iban;
                     if (!string.IsNullOrWhiteSpace(ownerName)) known.OwnerName = ownerName;
@@ -173,13 +182,23 @@ public class BankingController : ControllerBase
                 // doublon et le compte devenu orphelin ne se voient qu'à la panne suivante.
                 if (!string.IsNullOrWhiteSpace(iban))
                 {
-                    var dejaConnuAilleurs = await _context.BankAccounts
-                        .Where(ba => ba.BankConnectionId != null
+                    // Comparaison en mémoire : SQLite compare en binaire, donc un IBAN stocké
+                    // avec des espaces échapperait au garde-fou. Les comptes manuels sont
+                    // exclus, un IBAN saisi à la main en miroir d'un compte réel n'est pas
+                    // un doublon à signaler.
+                    var autresComptes = await _context.BankAccounts
+                        .Where(ba => !ba.IsManual
+                                     && ba.BankConnectionId != null
                                      && ba.BankConnectionId != connection.Id
                                      && ba.BankConnection!.UserId == userId
-                                     && ba.Iban == iban)
-                        .Select(ba => ba.Id)
+                                     && ba.Iban != "")
+                        .Select(ba => new { ba.Id, ba.Iban })
                         .ToListAsync();
+
+                    var dejaConnuAilleurs = autresComptes
+                        .Where(a => BankAccountReconciler.SameIban(a.Iban, iban))
+                        .Select(a => a.Id)
+                        .ToList();
 
                     if (dejaConnuAilleurs.Count > 0)
                     {
@@ -206,33 +225,14 @@ public class BankingController : ControllerBase
             }
         }
 
+        // Le statut ne passe au vert qu'ici, une fois la réquisition en LN et les comptes
+        // récupérés. Le poser à la création affichait « Connectée » sur une autorisation
+        // jamais menée à son terme, et la synchronisation tapait sur des accès morts.
+        connection.Status = BankConnectionStatus.Linked;
+
         await _context.SaveChangesAsync();
         return Ok(MapConnectionToDto(connection));
     }
-
-    /// <summary>
-    /// Statuts de réquisition GoCardless : CR (créée), GC (consentement donné), UA (authentification
-    /// en cours), GA (sélection des comptes), SA (comptes sélectionnés), LN (liée), RJ (rejetée),
-    /// EX (expirée), SU (suspendue). Les états transitoires prennent PendingAuthorization,
-    /// rendu en jaune côté interface avec un bouton de reprise : l'autorisation n'est pas
-    /// finie, ce n'est pas une erreur, et il faut pouvoir la reprendre sans supprimer la
-    /// connexion (une suppression détacherait les transactions de leur compte).
-    /// </summary>
-    private static BankConnectionStatus MapRequisitionStatus(string status) => status switch
-    {
-        "EX" or "SU" => BankConnectionStatus.Expired,
-        "CR" or "GC" or "UA" or "GA" or "SA" => BankConnectionStatus.PendingAuthorization,
-        _ => BankConnectionStatus.Error
-    };
-
-    private static string DescribeRequisitionStatus(string status) => status switch
-    {
-        "EX" => "L'accès à la banque a expiré (statut EX). Relancez la connexion pour en obtenir un nouveau.",
-        "SU" => "L'accès à la banque est suspendu (statut SU). Relancez la connexion.",
-        "RJ" => "La banque a rejeté la demande d'accès (statut RJ). Si le refus se répète sans jamais afficher l'écran de login, l'intégration de cette banque est en cause : essayez celle du groupe bancaire.",
-        "CR" or "GC" or "UA" or "GA" or "SA" => $"L'autorisation n'est pas terminée côté banque (statut {status}). Reprenez le parcours de connexion jusqu'au bout.",
-        _ => $"La liaison bancaire a échoué (statut {status})."
-    };
 
     [HttpGet("connections")]
     public async Task<ActionResult<List<BankConnectionDto>>> GetConnections()
@@ -270,7 +270,7 @@ public class BankingController : ControllerBase
 
         connection.RequisitionId = requisition.GetProperty("id").GetString()!;
         connection.Reference = reference;
-        connection.Status = BankConnectionStatus.Linked;
+        connection.Status = BankConnectionStatus.PendingAuthorization;
         await _context.SaveChangesAsync();
 
         return Ok(new ConnectBankResponse

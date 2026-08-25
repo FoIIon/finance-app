@@ -20,10 +20,20 @@ public static class BankAccountReconciler
         var normalizedIban = NormalizeIban(iban);
         if (normalizedIban.Length > 0)
         {
-            var byIban = accounts.FirstOrDefault(a =>
-                NormalizeIban(a.Iban) == normalizedIban && CurrenciesAgree(a.Currency, currency));
-            if (byIban != null)
-                return byIban;
+            var sameIban = accounts.Where(a => NormalizeIban(a.Iban) == normalizedIban).ToList();
+
+            // Deux passes : la devise exacte d'abord. Sinon une ligne ancienne sans devise
+            // raflerait le rapprochement d'une devise portée explicitement par une autre.
+            var exact = sameIban.FirstOrDefault(a =>
+                !string.IsNullOrWhiteSpace(a.Currency)
+                && !string.IsNullOrWhiteSpace(currency)
+                && string.Equals(a.Currency.Trim(), currency.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (exact != null)
+                return exact;
+
+            var tolerant = sameIban.FirstOrDefault(a => CurrenciesAgree(a.Currency, currency));
+            if (tolerant != null)
+                return tolerant;
         }
 
         // Repli sur l'identifiant externe, sauf si les deux IBAN se contredisent : mieux
@@ -36,6 +46,18 @@ public static class BankAccountReconciler
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Deux IBAN désignent-ils le même compte, quelle que soit leur mise en forme.
+    /// Exposé pour que les comparaisons faites hors de cette classe passent par la
+    /// même normalisation, au lieu de comparer des chaînes brutes.
+    /// </summary>
+    public static bool SameIban(string? left, string? right)
+    {
+        var a = NormalizeIban(left);
+        var b = NormalizeIban(right);
+        return a.Length > 0 && a == b;
     }
 
     /// <summary>Une devise absente d'un côté n'est pas une contradiction.</summary>

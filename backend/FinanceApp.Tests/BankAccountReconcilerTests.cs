@@ -104,4 +104,42 @@ public class BankAccountReconcilerTests
 
         Assert.Null(match);
     }
+
+    [Fact]
+    public void FindMatch_IbanAndExternalIdPointToDifferentAccounts_TheIbanWins()
+    {
+        // La décision fondatrice de la classe : l'identifiant GoCardless bouge, l'IBAN non.
+        // Sans ce test, inverser les deux blocs de FindMatch ne ferait rien tomber.
+        var existing = new[] { Existing(1, "E1", "BE68539007547034"), Existing(2, "E2", "BE29NWBK60161331926819") };
+
+        var match = BankAccountReconciler.FindMatch(existing, "E1", "BE29NWBK60161331926819", "EUR");
+
+        Assert.NotNull(match);
+        Assert.Equal(2, match!.Id);
+    }
+
+    [Fact]
+    public void FindMatch_MultiCurrencyIban_ReturnsTheAccountOfThatCurrency()
+    {
+        // Le pendant positif du refus multidevise : c'est la raison d'être du paramètre.
+        var existing = new[] { Existing(1, "id-eur", "BE68539007547034", "EUR"), Existing(2, "id-usd", "BE68539007547034", "USD") };
+
+        var match = BankAccountReconciler.FindMatch(existing, "nouvel-id", "BE68539007547034", "USD");
+
+        Assert.NotNull(match);
+        Assert.Equal(2, match!.Id);
+    }
+
+    [Fact]
+    public void FindMatch_ExactCurrency_WinsOverAnAccountWithoutCurrency()
+    {
+        // Une ligne ancienne sans devise ne doit pas rafler le rapprochement d'une devise
+        // explicitement portée par une autre ligne du même IBAN.
+        var existing = new[] { Existing(1, "ancien-id", "BE68539007547034", ""), Existing(2, "id-usd", "BE68539007547034", "USD") };
+
+        var match = BankAccountReconciler.FindMatch(existing, "nouvel-id", "BE68539007547034", "USD");
+
+        Assert.NotNull(match);
+        Assert.Equal(2, match!.Id);
+    }
 }

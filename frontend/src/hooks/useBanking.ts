@@ -9,6 +9,9 @@ export const useBanking = () => {
   const [categoryRules, setCategoryRules] = useState<CategoryRule[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Slot dédié : trois fonctions du hook remettent error à null en entrant, et le
+  // diagnostic du retour de banque est irrécupérable une fois le ?ref= retiré de l'URL.
+  const [callbackError, setCallbackError] = useState<string | null>(null);
 
   const fetchConnections = useCallback(async () => {
     setLoading(true);
@@ -42,6 +45,7 @@ export const useBanking = () => {
     // Le message du serveur nomme le statut de réquisition (rejet, expiration, autorisation
     // inachevée). Sans ce catch il partait dans une promesse rejetée et l'utilisateur voyait
     // une connexion muette. L'erreur se pose après le rafraîchissement, qui remet error à null.
+    setCallbackError(null);
     let message: string | null = null;
     try {
       await bankingApi.callback(ref);
@@ -52,7 +56,7 @@ export const useBanking = () => {
         : "La liaison bancaire n'a pas abouti.";
     }
     await fetchConnections();
-    if (message) setError(message);
+    if (message) setCallbackError(message);
   };
 
   const deleteConnection = async (id: number) => {
@@ -122,6 +126,7 @@ export const useBanking = () => {
     categoryRules,
     loading,
     error,
+    callbackError,
     fetchConnections,
     fetchInstitutions,
     connectBank,
