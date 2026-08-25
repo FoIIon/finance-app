@@ -329,10 +329,18 @@ public class InvestmentController : ControllerBase
 
         if (connection == null)
             return BadRequest("Aucune connexion Trade Republic. Connecte-toi d'abord dans Banques.");
-        if (string.IsNullOrEmpty(connection.EncryptedSessionToken))
-            return BadRequest("Session Trade Republic absente. Relance la connexion dans Banques.");
+        // La session stockée est presque toujours périmée : on la renouvelle avant l'appel,
+        // sinon la souscription WebSocket se fait répondre AUTHENTICATION_ERROR.
+        string sessionToken;
+        try
+        {
+            sessionToken = await TradeRepublicSession.RefreshAndStoreAsync(connection, trClient, _context);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
 
-        var sessionToken = trClient.DecryptToken(connection.EncryptedSessionToken);
         var refreshToken = trClient.DecryptToken(connection.EncryptedRefreshToken!);
         var deviceToken = string.IsNullOrEmpty(connection.EncryptedDeviceToken)
             ? "" : trClient.DecryptToken(connection.EncryptedDeviceToken);
