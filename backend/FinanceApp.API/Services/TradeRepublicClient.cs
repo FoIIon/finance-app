@@ -651,7 +651,11 @@ public class TradeRepublicClient : IDisposable
                 using var doc = JsonDocument.Parse(payload.Json);
                 var root = doc.RootElement;
 
-                if (payload.IsError || root.TryGetProperty("errors", out _))
+                // TryGetProperty lève sur un tableau au lieu de rendre faux : sans ce garde,
+                // tout topic répondant par une liste (les soldes espèces, par exemple)
+                // remontait « requires an element of type Object ».
+                if (payload.IsError
+                    || (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("errors", out _)))
                     throw new InvalidOperationException($"Erreur Trade Republic : {payload.Json}");
 
                 var result = parser(root);
@@ -685,7 +689,11 @@ public class TradeRepublicClient : IDisposable
                 using var doc = JsonDocument.Parse(payload.Json);
                 var root = doc.RootElement;
 
-                if (payload.IsError || root.TryGetProperty("errors", out _))
+                // TryGetProperty lève sur un tableau au lieu de rendre faux : sans ce garde,
+                // tout topic répondant par une liste (les soldes espèces, par exemple)
+                // remontait « requires an element of type Object ».
+                if (payload.IsError
+                    || (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("errors", out _)))
                     throw new InvalidOperationException($"Erreur Trade Republic : {payload.Json}");
 
                 var result = parser(root);
