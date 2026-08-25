@@ -3,6 +3,27 @@ using FinanceApp.API.Models;
 namespace FinanceApp.API.Services;
 
 /// <summary>
+/// Ligne du portefeuille réduite à ce que la courbe du patrimoine exige : le coût de revient,
+/// le fait d'être archivée, et ses valorisations datées. Découplée de l'entité pour que le
+/// calcul reste pur.
+/// </summary>
+public record PortfolioLine(
+    decimal CostBasis,
+    bool IsArchived,
+    IReadOnlyList<(DateTime AsOf, decimal MarketValue)> Valuations);
+
+/// <summary>
+/// Point de la courbe du patrimoine. LinesIncluded dit sur combien de lignes le point
+/// repose : sans lui, une courbe qui monte parce qu'une ligne vient d'être valorisée
+/// pour la première fois se lirait comme une performance.
+/// </summary>
+public record PortfolioHistoryPoint(
+    DateTime AsOf,
+    decimal Value,
+    decimal Invested,
+    int LinesIncluded);
+
+/// <summary>
 /// Calculs de performance des investissements. Volontairement pur : aucune dépendance
 /// au DbContext, pour que les règles restent testables unitairement. Ces règles portent
 /// le risque d'erreur silencieuse (un chiffre faux reste plausible à l'œil).
@@ -69,5 +90,60 @@ public static class InvestmentCalculator
     {
         var threshold = source == ValuationSource.Manual ? ManualStaleThreshold : AutomaticStaleThreshold;
         return now - asOf > threshold;
+    }
+
+    /// <summary>
+    /// Courbe agrégée du patrimoine investi. Un point par date de valorisation (union des
+    /// dates de toutes les lignes, croissante, dédupliquée). Règles d'honnêteté :
+    /// une ligne n'entre dans un point qu'à partir de sa première valorisation (jamais
+    /// de valeur inventée avant la première mesure), sa dernière valeur connue est reportée
+    /// entre deux mesures, et une ligne archivée cesse d'être reportée après sa dernière
+    /// mesure (on ne traîne pas éternellement une position qu'on ne suit plus).
+    /// Invested somme les coûts de revient des mêmes lignes que Value : comparer un investi
+    /// total à une valeur partielle ferait mentir l'écart.
+    /// </summary>
+    public static List<PortfolioHistoryPoint> ComputePortfolioHistory(IReadOnlyList<PortfolioLine> lines)
+    {
+        // Une ligne jamais valorisée n'a rien à apporter à la courbe, à aucune date.
+        var measuredLines = lines
+            .Where(l => l.Valuations.Count > 0)
+            .Select(l => (l.CostBasis, l.IsArchived, Valuations: l.Valuations.OrderBy(v => v.AsOf).ToList()))
+            .ToList();
+
+        var dates = measuredLines
+            .SelectMany(l => l.Valuations.Select(v => v.AsOf))
+            .Distinct()
+            .OrderBy(d => d)
+            .ToList();
+
+        var result = new List<PortfolioHistoryPoint>(dates.Count);
+
+        foreach (var t in dates)
+        {
+            var value = 0m;
+            var invested = 0m;
+            var included = 0;
+
+            foreach (var line in measuredLines)
+            {
+                if (line.Valuations[0].AsOf > t) continue;
+                if (line.IsArchived && t > line.Valuations[^1].AsOf) continue;
+
+                var last = line.Valuations[0];
+                foreach (var v in line.Valuations)
+                {
+                    if (v.AsOf > t) break;
+                    last = v;
+                }
+
+                value += last.MarketValue;
+                invested += line.CostBasis;
+                included++;
+            }
+
+            result.Add(new PortfolioHistoryPoint(t, value, invested, included));
+        }
+
+        return result;
     }
 }

@@ -227,6 +227,208 @@ public class InvestmentController : ControllerBase
         return Ok(Map(investment, latest, DateTime.UtcNow));
     }
 
+    /// <summary>
+    /// Courbe agrégée du patrimoine investi du dashboard, un point par date de valorisation.
+    /// LinesTotal (lignes non archivées) est constant sur tous les points : il permet au
+    /// frontend d'annoncer une courbe partielle (« X lignes sur Y valorisées »).
+    /// </summary>
+    [HttpGet("history")]
+    public async Task<ActionResult<List<InvestmentHistoryPointDto>>> GetHistory([FromQuery] int dashboardId)
+    {
+        var userId = GetUserId();
+        if (!await UserCanAccessDashboard(dashboardId, userId)) return Forbid();
+
+        var investments = await _context.Investments
+            .Where(i => i.DashboardId == dashboardId)
+            .ToListAsync();
+
+        var ids = investments.Select(i => i.Id).ToList();
+
+        // Agrégation côté client : SQLite ne sait pas grouper sur decimal en SQL.
+        var valuations = await _context.InvestmentValuations
+            .Where(v => ids.Contains(v.InvestmentId))
+            .ToListAsync();
+
+        var valuationsByInvestment = valuations
+            .GroupBy(v => v.InvestmentId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<(DateTime, decimal)>)g
+                .Select(v => (v.AsOf, v.MarketValue))
+                .ToList());
+
+        var lines = investments
+            .Select(i => new PortfolioLine(
+                i.CostBasis,
+                i.IsArchived,
+                valuationsByInvestment.GetValueOrDefault(i.Id) ?? Array.Empty<(DateTime, decimal)>()))
+            .ToList();
+
+        var history = InvestmentCalculator.ComputePortfolioHistory(lines);
+        var linesTotal = investments.Count(i => !i.IsArchived);
+
+        var result = history
+            .Select(p => new InvestmentHistoryPointDto
+            {
+                AsOf = p.AsOf,
+                Value = p.Value,
+                Invested = p.Invested,
+                LinesIncluded = p.LinesIncluded,
+                LinesTotal = linesTotal,
+            })
+            .ToList();
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Toutes les valorisations des lignes non archivées du dashboard, par date croissante.
+    /// Sert aux sparklines du tableau : une requête au lieu d'une par ligne.
+    /// </summary>
+    [HttpGet("valuations")]
+    public async Task<ActionResult<List<InvestmentValuationDto>>> GetAllValuations([FromQuery] int dashboardId)
+    {
+        var userId = GetUserId();
+        if (!await UserCanAccessDashboard(dashboardId, userId)) return Forbid();
+
+        var valuations = await _context.InvestmentValuations
+            .Where(v => v.Investment.DashboardId == dashboardId && !v.Investment.IsArchived)
+            .OrderBy(v => v.AsOf)
+            .ThenBy(v => v.InvestmentId)
+            .Select(v => new InvestmentValuationDto
+            {
+                Id = v.Id,
+                InvestmentId = v.InvestmentId,
+                AsOf = v.AsOf,
+                UnitPrice = v.UnitPrice,
+                MarketValue = v.MarketValue,
+                Source = v.Source,
+            })
+            .ToListAsync();
+
+        return Ok(valuations);
+    }
+
+    /// <summary>
+    /// Importe le portefeuille Trade Republic dans le dashboard : positions (quantité, prix de
+    /// revient) et valorisation du jour au cours courant. Réconciliation par ISIN, une ligne
+    /// manuelle du même ISIN est adoptée plutôt que dupliquée. Idempotent : relancer met à jour
+    /// les lignes et remplace la valorisation du jour (contrainte unique InvestmentId + AsOf).
+    /// Utilise le session token stocké, valable quelques minutes après la connexion.
+    /// </summary>
+    [HttpPost("import-trade-republic")]
+    public async Task<ActionResult<TradeRepublicImportResultDto>> ImportTradeRepublic(
+        [FromQuery] int dashboardId,
+        [FromServices] TradeRepublicClient trClient,
+        [FromServices] IConfiguration configuration)
+    {
+        var userId = GetUserId();
+        if (!await UserCanAccessDashboard(dashboardId, userId)) return Forbid();
+
+        var connection = await _context.BankConnections
+            .FirstOrDefaultAsync(bc => bc.UserId == userId && bc.Provider == "TradeRepublic"
+                && bc.EncryptedRefreshToken != null);
+
+        if (connection == null)
+            return BadRequest("Aucune connexion Trade Republic. Connecte-toi d'abord dans Banques.");
+        if (string.IsNullOrEmpty(connection.EncryptedSessionToken))
+            return BadRequest("Session Trade Republic absente. Relance la connexion dans Banques.");
+
+        var sessionToken = trClient.DecryptToken(connection.EncryptedSessionToken);
+        var refreshToken = trClient.DecryptToken(connection.EncryptedRefreshToken!);
+        var deviceToken = string.IsNullOrEmpty(connection.EncryptedDeviceToken)
+            ? "" : trClient.DecryptToken(connection.EncryptedDeviceToken);
+
+        List<TradeRepublicClient.TrPortfolioSnapshot> snapshots;
+        try
+        {
+            snapshots = await trClient.ImportPortfolioSnapshotAsync(sessionToken, refreshToken, deviceToken);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Import Trade Republic échoué : {ex.Message}");
+        }
+
+        var defaultHolder = configuration["TradeRepublic:DefaultHolder"] ?? "Trade Republic";
+        var today = DateTime.UtcNow.Date;
+        int created = 0, updated = 0, valued = 0;
+
+        foreach (var snap in snapshots)
+        {
+            var pos = snap.Position;
+
+            // Réconciliation : d'abord par ExternalId, puis adoption d'une ligne manuelle du même
+            // ISIN (ExternalId nul) pour ne pas la dupliquer.
+            var inv = await _context.Investments
+                .FirstOrDefaultAsync(i => i.DashboardId == dashboardId && i.ExternalId == pos.Isin)
+                ?? await _context.Investments
+                .FirstOrDefaultAsync(i => i.DashboardId == dashboardId && i.Isin == pos.Isin && i.ExternalId == null);
+
+            if (inv == null)
+            {
+                inv = new Investment
+                {
+                    DashboardId = dashboardId,
+                    Name = pos.Name,
+                    Holder = defaultHolder,
+                    Kind = InvestmentKind.Security,
+                    Isin = pos.Isin,
+                    Quantity = pos.Quantity,
+                    Unit = InvestmentUnit.Share,
+                    CostBasis = pos.CostBasis,
+                    Source = InvestmentSource.TradeRepublic,
+                    ExternalId = pos.Isin,
+                };
+                _context.Investments.Add(inv);
+                created++;
+            }
+            else
+            {
+                inv.Quantity = pos.Quantity;
+                inv.CostBasis = pos.CostBasis;
+                inv.Name = pos.Name;
+                inv.ExternalId = pos.Isin;
+                inv.Source = InvestmentSource.TradeRepublic;
+                updated++;
+            }
+
+            await _context.SaveChangesAsync();
+
+            if (snap.MarketValue.HasValue)
+            {
+                var existing = await _context.InvestmentValuations
+                    .FirstOrDefaultAsync(v => v.InvestmentId == inv.Id && v.AsOf == today);
+
+                if (existing != null)
+                {
+                    existing.MarketValue = snap.MarketValue.Value;
+                    existing.UnitPrice = snap.CurrentPrice;
+                    existing.Source = ValuationSource.TradeRepublic;
+                }
+                else
+                {
+                    _context.InvestmentValuations.Add(new InvestmentValuation
+                    {
+                        InvestmentId = inv.Id,
+                        AsOf = today,
+                        MarketValue = snap.MarketValue.Value,
+                        UnitPrice = snap.CurrentPrice,
+                        Source = ValuationSource.TradeRepublic,
+                    });
+                }
+
+                await _context.SaveChangesAsync();
+                valued++;
+            }
+        }
+
+        return Ok(new TradeRepublicImportResultDto
+        {
+            Total = snapshots.Count,
+            Created = created,
+            Updated = updated,
+            Valued = valued,
+        });
+    }
+
     /// <summary>Historique des valorisations d'une ligne, de la plus récente à la plus ancienne.</summary>
     [HttpGet("{id}/valuations")]
     public async Task<ActionResult<List<InvestmentValuationDto>>> GetValuations(int id)

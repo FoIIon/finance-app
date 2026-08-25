@@ -61,6 +61,19 @@ export interface InvestmentValuation {
   source: ValuationSource;
 }
 
+/**
+ * Point d'historique du portefeuille. `value` et `invested` ne couvrent que les lignes
+ * déjà valorisées à cette date (report de dernière valeur) : comparer les deux reste
+ * honnête, mais `linesIncluded < linesTotal` signale une courbe partielle.
+ */
+export interface InvestmentHistoryPoint {
+  asOf: string;
+  value: number;
+  invested: number;
+  linesIncluded: number;
+  linesTotal: number;
+}
+
 export interface CreateInvestment {
   dashboardId: number;
   name: string;
@@ -89,4 +102,11 @@ export interface CreateValuation {
   asOf: string;
   marketValue: number;
   unitPrice?: number | null;
+}
+
+export interface TradeRepublicImportResult {
+  total: number;
+  created: number;
+  updated: number;
+  valued: number;
 }
