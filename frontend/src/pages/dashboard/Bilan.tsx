@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useDashboards } from '../../hooks/useDashboards';
-import { usePeriod } from '../../context/PeriodContext';
+import { usePeriod } from '../../hooks/usePeriod';
 import { transactionsApi } from '../../api/transactions';
 import { formatCurrency } from '../../utils/format';
 import { makeMonthPeriod } from '../../utils/periods';

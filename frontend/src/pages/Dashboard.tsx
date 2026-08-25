@@ -4,7 +4,7 @@ import { PeriodSelector } from '../components/dashboard/PeriodSelector';
 import { BankAccountSelector } from '../components/dashboard/BankAccountSelector';
 import { ExceptionalToggle } from '../components/dashboard/ExceptionalToggle';
 import { useAccountBalancesQuery } from '../hooks/queries';
-import { usePeriod } from '../context/PeriodContext';
+import { usePeriod } from '../hooks/usePeriod';
 
 const tabs = [
   { to: 'overview', label: 'Ce mois-ci', icon: '📊' },

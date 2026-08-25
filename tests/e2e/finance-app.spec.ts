@@ -73,14 +73,15 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.waitForURL('**/register-success**');
 
     // Confirmer l'email avec le jeton emis par le backend, puis se connecter.
-    // Attendre la fin de l'appel : naviguer avant l'annulerait et la connexion
-    // serait refusee. On n'asserte pas le message affiche : en dev, StrictMode
-    // double l'effet, le second appel consomme un jeton deja utilise et la page
-    // affiche « invalide » alors que la confirmation a reussi (bug dev-only).
+    // Attendre la confirmation effective avant de quitter l'ecran : partir sur /login
+    // des le chargement annulait la requete en vol et le compte restait non confirme.
+    // Le lien « Se connecter » n'existe que dans la branche succes, l'attendre vaut
+    // donc assertion. Le double appel de StrictMode ne fausse plus rien : la page se
+    // garde d'une seconde tentative et le serveur repond 200 sur un compte deja confirme.
     await page.goto(`/confirm-email?token=${confirmationTokenFor(testEmail)}`);
-    await expect(page.getByRole('link', { name: /Se connecter|Retour à la connexion/ })).toBeVisible({ timeout: 10000 });
-
-    await page.goto('/login');
+    await expect(page.getByRole('link', { name: 'Se connecter' })).toBeVisible({ timeout: 10000 });
+    await page.getByRole('link', { name: 'Se connecter' }).click();
+    await page.waitForURL('**/login');
     await page.getByPlaceholder('votre@email.com').fill(testEmail);
     await page.getByPlaceholder('••••••').fill(testPassword);
     await page.getByRole('button', { name: 'Se connecter' }).click();

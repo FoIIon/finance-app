@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { categoriesApi } from '../api/categories';
+import { useCategoriesQuery } from '../hooks/queries';
 import type { Category, CreateCategory } from '../types/category';
 
 // Palette de couleurs distinctes pour les nouvelles catégories
@@ -17,25 +18,14 @@ const getNextColor = (existingCategories: Category[]) => {
 };
 
 const Categories = () => {
-  const [categories, setCategories] = useState<Category[]>([]);
+  const { data: categories = [], refetch: refetchCategories, isError: loadFailed } = useCategoriesQuery();
   const [showForm, setShowForm] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [formData, setFormData] = useState<CreateCategory>({ name: '', icon: '', color: '#E74C3C' });
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchCategories = useCallback(async () => {
-    try {
-      const res = await categoriesApi.getAll();
-      setCategories(res.data);
-    } catch {
-      setError('Erreur lors du chargement des catégories');
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchCategories();
-  }, [fetchCategories]);
+  const loadError = loadFailed ? 'Erreur lors du chargement des catégories' : null;
 
   const openCreateForm = () => {
     setEditingCategory(null);
@@ -61,7 +51,7 @@ const Categories = () => {
       setFormData({ name: '', icon: '', color: getNextColor(categories) });
       setEditingCategory(null);
       setShowForm(false);
-      fetchCategories();
+      refetchCategories();
     } catch {
       setError('Erreur lors de la sauvegarde de la catégorie');
     }
@@ -77,7 +67,7 @@ const Categories = () => {
     try {
       await categoriesApi.delete(id);
       setDeleteConfirm(null);
-      fetchCategories();
+      refetchCategories();
     } catch {
       setDeleteConfirm(null);
       setError('Impossible de supprimer : cette catégorie est peut-être utilisée par des transactions.');
@@ -146,9 +136,9 @@ const Categories = () => {
         </div>
       )}
 
-      {error && (
+      {(error ?? loadError) && (
         <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-          {error}
+          {error ?? loadError}
         </div>
       )}
 

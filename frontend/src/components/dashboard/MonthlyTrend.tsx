@@ -1,5 +1,5 @@
 import { useDashboards } from '../../hooks/useDashboards';
-import { usePeriod } from '../../context/PeriodContext';
+import { usePeriod } from '../../hooks/usePeriod';
 import { useSummaryQuery } from '../../hooks/queries';
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } from 'recharts';
 import { formatCurrency } from '../../utils/format';

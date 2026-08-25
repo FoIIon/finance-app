@@ -7,7 +7,7 @@ import { TransactionType } from '../../types/transaction';
 import type { Period } from '../../utils/periods';
 import { periodToRange } from '../../utils/periods';
 import { formatCurrency } from '../../utils/format';
-import { PeriodContext } from '../../context/PeriodContext';
+import { PeriodContext } from '../../context/period-context';
 
 // Helper local — on lit le filtre depuis le context sans dépendre du sous-fichier (évite la circularité)
 const useBankFilter = () => useContext(PeriodContext).bankAccountFilter;

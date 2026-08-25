@@ -1,26 +1,29 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTransactions } from '../hooks/useTransactions';
 import { useDashboards } from '../hooks/useDashboards';
-import { categoriesApi } from '../api/categories';
 import { accountsApi } from '../api/accounts';
-import { projectEnvelopesApi } from '../api/projectEnvelopes';
-import type { ProjectEnvelopeProgress } from '../types/projectEnvelope';
-import type { Category } from '../types/category';
+import { useProjectEnvelopesQuery, useCategoriesQuery } from '../hooks/queries';
 import { TransactionType } from '../types/transaction';
 import type { CreateTransaction, Transaction, TransactionFilters } from '../types/transaction';
 import type { Account } from '../types/dashboard';
 import { formatCurrency } from '../utils/format';
-import { useToast } from '../context/ToastContext';
+import { useToast } from '../hooks/useToast';
 
 const Transactions = () => {
   const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setFixed, setEnvelope } = useTransactions();
   const { currentDashboard } = useDashboards();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const [categories, setCategories] = useState<Category[]>([]);
+  const { data: categories = [] } = useCategoriesQuery();
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [envelopes, setEnvelopes] = useState<ProjectEnvelopeProgress[]>([]);
+  // Le hook partagé remplace un chargement manuel qui, lui, ignorait les invalidations
+  // de la clé project-envelopes déclenchées ailleurs dans la page.
+  const { data: loadedEnvelopes } = useProjectEnvelopesQuery(currentDashboard?.id);
+  const envelopes = useMemo(
+    () => (loadedEnvelopes ?? []).filter((e) => !e.isArchived),
+    [loadedEnvelopes],
+  );
   const [showForm, setShowForm] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -62,16 +65,8 @@ const Transactions = () => {
   }, [showForm]);
 
   useEffect(() => {
-    categoriesApi.getAll().then((res) => setCategories(res.data));
     accountsApi.getAll().then((res) => setAccounts(res.data));
   }, []);
-
-  useEffect(() => {
-    if (!currentDashboard) { setEnvelopes([]); return; }
-    projectEnvelopesApi.getAll(currentDashboard.id)
-      .then((res) => setEnvelopes(res.data.filter((e) => !e.isArchived)))
-      .catch(() => setEnvelopes([]));
-  }, [currentDashboard]);
 
   useEffect(() => {
     const filters: TransactionFilters = { sortBy, sortDesc };

@@ -1,5 +1,5 @@
 import { useDashboards } from '../../hooks/useDashboards';
-import { usePeriod } from '../../context/PeriodContext';
+import { usePeriod } from '../../hooks/usePeriod';
 import { useAnomaliesQuery } from '../../hooks/queries';
 import { formatCurrency } from '../../utils/format';
 

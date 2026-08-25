@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using FinanceApp.API.Data;
@@ -61,12 +62,61 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<BankSyncService>()
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter("auth", opt =>
-    {
-        opt.PermitLimit = 5;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueLimit = 0;
-    });
+    // Les routes d'authentification sont anonymes : la seule clé disponible est l'adresse
+    // du client. Sans partition, le compteur était global à toute l'application, cinq
+    // requêtes par minute pour tous les utilisateurs réunis.
+    options.AddPolicy("auth", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "inconnu",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    // La connexion a son propre budget : partagé avec l'inscription, un enchaînement
+    // normal (inscription puis plusieurs connexions) épuisait le compteur et renvoyait
+    // un 429 que l'interface affichait en mot de passe incorrect.
+    options.AddPolicy("login", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "inconnu",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    // Trade Republic : un envoi de SMS et une vérification de code. Chacun garde son
+    // propre budget, serré, pour qu'une rafale de connexions n'ouvre pas la porte sur la
+    // vérification du code. Partition par utilisateur, ce qui exige que le limiteur
+    // s'exécute APRÈS l'authentification (voir l'ordre du pipeline plus bas).
+    static string ParUtilisateur(HttpContext ctx) =>
+        ctx.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? ctx.Connection.RemoteIpAddress?.ToString()
+            ?? "inconnu";
+
+    options.AddPolicy("tr-login", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ParUtilisateur(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("tr-verify", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ParUtilisateur(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -98,7 +148,6 @@ app.Use(async (context, next) =>
 });
 
 app.UseCors("Frontend");
-app.UseRateLimiter();
 
 // Sert le build frontend depuis wwwroot/ (déploiement Pi : backend + frontend sur la même origine)
 app.UseDefaultFiles();
@@ -106,6 +155,11 @@ app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// APRÈS l'authentification : les policies partitionnées par utilisateur lisent
+// HttpContext.User, qui est encore vide tant que UseAuthentication n'a pas tourné.
+app.UseRateLimiter();
+
 app.MapControllers();
 
 // SPA fallback : toute route non-API renvoie index.html (React Router gère le reste)

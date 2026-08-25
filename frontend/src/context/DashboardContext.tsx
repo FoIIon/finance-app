@@ -1,23 +1,8 @@
-import { createContext, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { dashboardsApi } from '../api/dashboards';
 import { useAuth } from '../hooks/useAuth';
 import type { Dashboard } from '../types/dashboard';
-
-interface DashboardContextType {
-  dashboards: Dashboard[];
-  currentDashboard: Dashboard | null;
-  setCurrentDashboard: (dashboard: Dashboard) => void;
-  refreshDashboards: () => Promise<void>;
-  loading: boolean;
-}
-
-export const DashboardContext = createContext<DashboardContextType>({
-  dashboards: [],
-  currentDashboard: null,
-  setCurrentDashboard: () => {},
-  refreshDashboards: async () => {},
-  loading: false,
-});
+import { DashboardContext } from './dashboard-context';
 
 const STORAGE_KEY = 'finance-app:currentDashboardId';
 

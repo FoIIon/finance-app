@@ -3,6 +3,7 @@ export const BankConnectionStatus = {
   Expired: 1,
   Error: 2,
   PendingTwoFactor: 3,
+  PendingAuthorization: 4,
 } as const;
 
 export type BankConnectionStatus = (typeof BankConnectionStatus)[keyof typeof BankConnectionStatus];

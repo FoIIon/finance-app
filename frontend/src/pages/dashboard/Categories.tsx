@@ -1,5 +1,5 @@
 import { useDashboards } from '../../hooks/useDashboards';
-import { usePeriod } from '../../context/PeriodContext';
+import { usePeriod } from '../../hooks/usePeriod';
 import { useSummaryQuery } from '../../hooks/queries';
 import { CategoryBreakdownBars } from '../../components/dashboard/CategoryBreakdown';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
