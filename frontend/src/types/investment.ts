@@ -26,6 +26,7 @@ export const ValuationSource = {
   Manual: 0,
   TradeRepublic: 1,
   SpotApi: 2,
+  TradeRepublicHistory: 3,
 } as const;
 export type ValuationSource = (typeof ValuationSource)[keyof typeof ValuationSource];
 

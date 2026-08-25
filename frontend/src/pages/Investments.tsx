@@ -66,6 +66,7 @@ const unitLabels: Record<number, string> = {
 };
 
 interface EditForm {
+  archivee: boolean;
   kind: number;
   name: string;
   holder: string;
@@ -77,6 +78,7 @@ interface EditForm {
 }
 
 const emptyEditForm: EditForm = {
+  archivee: false,
   kind: InvestmentKind.Security,
   name: '',
   holder: '',
@@ -129,6 +131,7 @@ const Investments = () => {
   const [detailFor, setDetailFor] = useState<Investment | null>(null);
   const [importing, setImporting] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [afficherArchivees, setAfficherArchivees] = useState(false);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['investments', dashboardId] });
@@ -152,20 +155,26 @@ const Investments = () => {
    * « la veille » est donc le dernier point connu, pas nécessairement hier.
    */
   const dailyByLine = useMemo(() => {
-    const map = new Map<number, { amount: number; pct: number | null }>();
+    const map = new Map<number, { amount: number; pct: number }>();
     for (const [id, values] of valuationsByLine) {
       if (values.length < 2) continue;
       const sorted = [...values].sort((a, b) => a.asOf.localeCompare(b.asOf));
       const last = sorted[sorted.length - 1];
       const previous = sorted[sorted.length - 2];
-      const amount = last.marketValue - previous.marketValue;
-      map.set(id, {
-        amount,
-        pct: previous.marketValue > 0 ? (amount / previous.marketValue) * 100 : null,
-      });
+
+      // Sur le COURS unitaire, jamais sur la valeur de marché : celle-ci porte la quantité,
+      // donc un renfort de position se lisait comme une performance de +100 %. Le cours en
+      // est indépendant. Sans les deux cours, on n'affiche rien plutôt qu'un faux nombre.
+      if (last.unitPrice == null || previous.unitPrice == null || previous.unitPrice <= 0) continue;
+
+      const pct = ((last.unitPrice - previous.unitPrice) / previous.unitPrice) * 100;
+      const ligne = (investments ?? []).find((i) => i.id === id);
+      const base = ligne?.marketValue ?? 0;
+
+      map.set(id, { amount: base * (pct / 100), pct });
     }
     return map;
-  }, [valuationsByLine]);
+  }, [valuationsByLine, investments]);
 
   const groups = useMemo(() => {
     if (grouping === 'none') return null;
@@ -240,6 +249,7 @@ const Investments = () => {
     setValuationFor(null);
     setEditingFor(i);
     setEditForm({
+      archivee: i.isArchived,
       kind: i.kind,
       name: i.name,
       holder: i.holder,
@@ -261,6 +271,7 @@ const Investments = () => {
       || editForm.kind === InvestmentKind.Crypto;
     const payload: UpdateInvestment = {
       kind: editForm.kind as InvestmentKind,
+      isArchived: editForm.archivee,
       name: editForm.name,
       holder: editForm.holder,
       isin: porteUnIsin ? editForm.isin || null : null,
@@ -305,7 +316,12 @@ const Investments = () => {
 
   if (isLoading) return <div className="p-6 text-white/60">Chargement...</div>;
 
-  const lines = investments ?? [];
+  // Une ligne vendue est archivée par l'import. Sans ce filtre elle restait affichée et
+  // comptée dans le total du tableau, alors que le grand chiffre du haut l'excluait déjà :
+  // deux totaux contradictoires sur le même écran.
+  const toutesLignes = investments ?? [];
+  const archivees = toutesLignes.filter((i) => i.isArchived);
+  const lines = afficherArchivees ? toutesLignes : toutesLignes.filter((i) => !i.isArchived);
 
   // Le poids décide de l'ordre de lecture : trié par nom, une ligne à 42 % du portefeuille
   // se retrouvait coincée entre deux lignes à moins de 1 %.
@@ -318,7 +334,7 @@ const Investments = () => {
   const valuationDates = new Set(lines.filter((i) => i.valuationAsOf).map((i) => i.valuationAsOf));
   const sharedValuationDate = valuationDates.size === 1 ? [...valuationDates][0]! : null;
 
-  const totals = lines.reduce(
+  const totals = lines.filter((i) => !i.isArchived).reduce(
     (acc, i) => ({
       invested: acc.invested + i.costBasis,
       value: acc.value + (i.marketValue ?? 0),
@@ -330,7 +346,7 @@ const Investments = () => {
   const totalPct = totals.invested > 0 ? (totals.gain / totals.invested) * 100 : null;
 
   const renderRow = (i: Investment) => (
-    <tr key={i.id} className="border-b border-white/5 text-white/90">
+    <tr key={i.id} className={`border-b border-white/5 ${i.isArchived ? 'text-white/40 italic' : 'text-white/90'}`}>
       <td className="p-3">
         <button
           type="button"
@@ -340,6 +356,7 @@ const Investments = () => {
           {i.name}
         </button>
         {showKindOnRows && <span className="text-white/40 ml-2">{kindLabels[i.kind]}</span>}
+        {i.isArchived && <span className="text-amber-400/70 ml-2 text-xs">archivée</span>}
       </td>
       <td className="p-3">{i.holder}</td>
       <td className="p-3">
@@ -350,13 +367,11 @@ const Investments = () => {
           const jour = dailyByLine.get(i.id);
           if (!jour) return <span className="text-white/30">—</span>;
           return (
-            <span className={jour.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+            <span className={jour.pct >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
               {jour.amount >= 0 ? '+' : ''}{formatCurrency(jour.amount)}
-              {jour.pct != null && (
-                <div className="text-xs opacity-70">
-                  {jour.pct >= 0 ? '+' : ''}{formatPercent(jour.pct)} %
-                </div>
-              )}
+              <div className="text-xs opacity-70">
+                {jour.pct >= 0 ? '+' : ''}{formatPercent(jour.pct)} %
+              </div>
             </span>
           );
         })()}
@@ -591,7 +606,17 @@ const Investments = () => {
       </form>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end items-center gap-4">
+        {archivees.length > 0 && (
+          <label className="flex items-center gap-2 text-sm text-white/50">
+            <input
+              type="checkbox"
+              checked={afficherArchivees}
+              onChange={(e) => setAfficherArchivees(e.target.checked)}
+            />
+            Afficher les {archivees.length} ligne(s) archivée(s)
+          </label>
+        )}
         <label className="flex items-center gap-2 text-sm text-white/50">
           Grouper par
           <select
@@ -642,7 +667,10 @@ const Investments = () => {
             <tfoot className="border-t border-white/10 text-white/80">
               <tr>
                 <td className="p-3 font-semibold" colSpan={6}>
-                  Total <span className="text-white/40 font-normal">({lines.length} lignes)</span>
+                  Total{' '}
+                  <span className="text-white/40 font-normal">
+                    ({lines.filter((i) => !i.isArchived).length} lignes)
+                  </span>
                 </td>
                 <td className="p-3 text-right font-semibold">{formatCurrency(totals.invested)}</td>
                 <td className="p-3 text-right font-semibold">
@@ -772,6 +800,14 @@ const Investments = () => {
             value={editForm.firstPurchaseDate}
             onChange={(e) => setEditForm({ ...editForm, firstPurchaseDate: e.target.value })}
           />
+          <label className="flex items-center gap-2 text-sm text-white/60">
+            <input
+              type="checkbox"
+              checked={editForm.archivee}
+              onChange={(e) => setEditForm({ ...editForm, archivee: e.target.checked })}
+            />
+            Archivée
+          </label>
           <button type="submit" className="bg-indigo-500 hover:bg-indigo-400 rounded-lg px-4 py-2 text-white">
             Enregistrer
           </button>

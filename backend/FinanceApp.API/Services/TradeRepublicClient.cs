@@ -311,8 +311,10 @@ public class TradeRepublicClient : IDisposable
         var response = await _httpClient.SendAsync(request, timeoutCts.Token);
         var responseBody = await response.Content.ReadAsStringAsync(timeoutCts.Token);
 
-        _logger.LogInformation("TR refresh session : HTTP {status}, body: {body}",
-            (int)response.StatusCode, responseBody.Length > 300 ? responseBody[..300] : responseBody);
+        // Jamais le corps : le code va justement y chercher un sessionToken vivant vingt
+        // lignes plus bas, et une ligne de journal annulerait le chiffrement fait ensuite.
+        _logger.LogInformation("TR refresh session : HTTP {status}, {taille} octets de réponse.",
+            (int)response.StatusCode, responseBody.Length);
 
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(
@@ -525,28 +527,8 @@ public class TradeRepublicClient : IDisposable
             new { type = "compactPortfolioByType", token = sessionToken }, timeoutCts.Token);
         var positions = TradeRepublicPortfolioParser.ParsePositions(positionsJson);
 
-        // Trade Republic ne documente pas comment elle marque une obligation. Cette trace
-        // donne les valeurs réelles de categoryType, instrumentType et bondInfo, au lieu de
-        // les faire deviner.
-        _logger.LogInformation("TR portefeuille, marquage brut : {marquage}",
-            TradeRepublicPortfolioParser.DescribeCategories(positionsJson));
-
         // Solde espèces : le portefeuille ne contient que des positions, aucune catégorie
         // de liquidités. Un échec ici ne doit pas faire perdre l'import des positions.
-        // Sonde de la timeline brute : les transactions telles qu'on les stocke ne portent
-        // que le libellé, sans ISIN, ce qui interdit de recouper une date de premier achat.
-        // La réponse brute contient peut-être l'identifiant, cette trace le dira.
-        try
-        {
-            var (statut, corps) = await ProbeRestAsync(sessionToken, "/api/v2/timeline/transactions", timeoutCts.Token);
-            _logger.LogInformation("TR sonde timeline brute : HTTP {statut}, {corps}",
-                statut, corps.Length > 900 ? corps[..900] + "…[tronqué]" : corps);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogInformation("TR sonde timeline indisponible : {message}", ex.Message);
-        }
-
         decimal? cash = null;
         try
         {
@@ -583,7 +565,13 @@ public class TradeRepublicClient : IDisposable
 
                     // Historique de cours sur un an. Un échec ici ne doit pas faire perdre
                     // la valorisation du jour, déjà obtenue.
-                    foreach (var plage in plageRetenue is null ? new[] { "max", "5y", "1y" } : new[] { plageRetenue })
+                    // La plage retenue passe en tête, mais le repli reste disponible : une
+                    // ligne récente peut refuser « max » que la première position acceptait.
+                    var plagesAEssayer = plageRetenue is null
+                        ? new[] { "max", "5y", "1y" }
+                        : new[] { plageRetenue }.Concat(new[] { "max", "5y", "1y" }.Where(p => p != plageRetenue)).ToArray();
+
+                    foreach (var plage in plagesAEssayer)
                     {
                         try
                         {
