@@ -79,4 +79,16 @@ public class TradeRepublicPortfolioParserTests
         var json = "{\"categories\":[{\"positions\":[{\"isin\":\"X\",\"name\":\"Sans quantité\"}]}]}";
         Assert.Empty(TradeRepublicPortfolioParser.ParsePositions(json));
     }
+
+    [Fact]
+    public void DescribeCategories_resume_le_marquage_brut_de_chaque_position()
+    {
+        // Trace de diagnostic : Trade Republic ne documente pas comment elle marque une
+        // obligation. Ce résumé, journalisé à l'import, donne les valeurs réelles au lieu
+        // de les faire deviner.
+        var resume = TradeRepublicPortfolioParser.DescribeCategories(Fixture("tr-compactPortfolioByType.json"));
+
+        Assert.Contains("stocksAndETFs", resume);
+        Assert.Contains("IE0007UPSEA3=fund", resume);
+    }
 }

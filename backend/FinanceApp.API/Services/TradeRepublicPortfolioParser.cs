@@ -90,4 +90,38 @@ public static class TradeRepublicPortfolioParser
             return e.GetString();
         return null;
     }
+
+    /// <summary>
+    /// Résumé brut du marquage de chaque position, pour le journal. Trade Republic ne
+    /// documente pas comment elle distingue une obligation d'un fonds actions : cette
+    /// trace donne les valeurs réelles au lieu de les faire deviner.
+    /// </summary>
+    public static string DescribeCategories(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("categories", out var categories)) return "aucune catégorie";
+
+        var blocs = new List<string>();
+        foreach (var category in categories.EnumerateArray())
+        {
+            var type = category.TryGetProperty("categoryType", out var ct) ? ct.GetString() ?? "?" : "?";
+            var marquages = new List<string>();
+
+            if (category.TryGetProperty("positions", out var positions))
+            {
+                foreach (var position in positions.EnumerateArray())
+                {
+                    var isin = position.TryGetProperty("isin", out var i) ? i.GetString() ?? "?" : "?";
+                    var instrument = position.TryGetProperty("instrumentType", out var it) ? it.GetString() ?? "" : "";
+                    var obligation = position.TryGetProperty("bondInfo", out var bi)
+                        && bi.ValueKind != JsonValueKind.Null ? "+bondInfo" : "";
+                    marquages.Add($"{isin}={instrument}{obligation}");
+                }
+            }
+
+            blocs.Add($"{type} [{string.Join(", ", marquages)}]");
+        }
+
+        return string.Join(" | ", blocs);
+    }
 }

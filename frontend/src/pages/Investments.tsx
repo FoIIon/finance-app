@@ -48,6 +48,7 @@ const kindLabels: Record<number, string> = {
   [InvestmentKind.Metal]: 'Métal',
   [InvestmentKind.InsuranceContract]: 'Assurance-vie',
   [InvestmentKind.Crypto]: 'Crypto',
+  [InvestmentKind.Bond]: 'Obligation',
 };
 
 /** « 6.028614 part » au milieu d'une page en français, et « part » pour 3 612 unités. */

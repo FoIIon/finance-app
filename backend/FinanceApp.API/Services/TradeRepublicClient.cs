@@ -516,6 +516,14 @@ public class TradeRepublicClient : IDisposable
             new { type = "compactPortfolioByType", token = sessionToken }, timeoutCts.Token);
         var positions = TradeRepublicPortfolioParser.ParsePositions(positionsJson);
 
+        // Trade Republic ne documente pas comment elle marque une obligation. Cette trace
+        // donne les valeurs réelles de categoryType, instrumentType et bondInfo, au lieu de
+        // les faire deviner.
+        _logger.LogInformation("TR portefeuille, marquage brut : {marquage}",
+            TradeRepublicPortfolioParser.DescribeCategories(positionsJson));
+
+        var sondeHistoriqueFaite = false;
+
         var result = new List<TrPortfolioSnapshot>(positions.Count);
         foreach (var position in positions)
         {
@@ -531,6 +539,35 @@ public class TradeRepublicClient : IDisposable
                     var tickerJson = await SubscribeOnceRawAsync(
                         new { type = "ticker", id = $"{position.Isin}.{exchange}", token = sessionToken }, timeoutCts.Token);
                     price = TradeRepublicPortfolioParser.ParseTickerLastPrice(tickerJson);
+
+                    // Sonde unique et sans effet : la forme de l'historique de cours n'a
+                    // jamais été observée. On la relève sur une seule position, on la
+                    // journalise, et on n'en fait rien tant qu'elle n'est pas connue.
+                    if (!sondeHistoriqueFaite)
+                    {
+                        sondeHistoriqueFaite = true;
+                        try
+                        {
+                            var sonde = await SubscribeOnceRawAsync(
+                                new
+                                {
+                                    type = "aggregateHistoryLight",
+                                    id = $"{position.Isin}.{exchange}",
+                                    range = "1y",
+                                    token = sessionToken
+                                },
+                                timeoutCts.Token);
+
+                            _logger.LogInformation("TR sonde historique {id} : {reponse}",
+                                $"{position.Isin}.{exchange}",
+                                sonde.Length > 500 ? sonde[..500] + "…[tronqué]" : sonde);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogInformation("TR sonde historique indisponible pour {id} : {message}",
+                                $"{position.Isin}.{exchange}", ex.Message);
+                        }
+                    }
                 }
             }
             catch (Exception ex)
