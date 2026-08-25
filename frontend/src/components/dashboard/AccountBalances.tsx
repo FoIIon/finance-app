@@ -4,7 +4,7 @@ import { useDashboards } from '../../hooks/useDashboards';
 import { useAccountBalancesQuery } from '../../hooks/queries';
 import { dashboardExtrasApi } from '../../api/savingsGoals';
 import { formatCurrency } from '../../utils/format';
-import { usePeriod } from '../../context/PeriodContext';
+import { usePeriod } from '../../hooks/usePeriod';
 import { periodToRange } from '../../utils/periods';
 
 export const AccountBalancesWidget = () => {

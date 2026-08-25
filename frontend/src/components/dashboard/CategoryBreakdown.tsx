@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useDashboards } from '../../hooks/useDashboards';
-import { usePeriod } from '../../context/PeriodContext';
+import { usePeriod } from '../../hooks/usePeriod';
 import { useSummaryQuery } from '../../hooks/queries';
 import { formatCurrency } from '../../utils/format';
 import { CategoryDetailModal } from './CategoryDetailModal';

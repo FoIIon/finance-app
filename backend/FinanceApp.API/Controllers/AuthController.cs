@@ -63,7 +63,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
-    [EnableRateLimiting("auth")]
+    [EnableRateLimiting("login")]
     public async Task<ActionResult<AuthResponseDto>> Login(LoginDto dto)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);

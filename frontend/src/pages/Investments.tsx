@@ -6,7 +6,7 @@ import { investmentsApi } from '../api/investments';
 import { InvestmentKind, InvestmentUnit } from '../types/investment';
 import type { Investment, CreateInvestment, UpdateInvestment } from '../types/investment';
 import { formatCurrency } from '../utils/format';
-import { useToast } from '../context/ToastContext';
+import { useToast } from '../hooks/useToast';
 
 interface InvestmentForm {
   name: string;

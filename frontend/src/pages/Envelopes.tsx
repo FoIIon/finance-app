@@ -8,7 +8,7 @@ import { shoppingItemsApi } from '../api/shoppingItems';
 import type { ProjectEnvelopeProgress, CreateProjectEnvelope } from '../types/projectEnvelope';
 import { TransactionType } from '../types/transaction';
 import { formatCurrency } from '../utils/format';
-import { useToast } from '../context/ToastContext';
+import { useToast } from '../hooks/useToast';
 
 interface EnvelopeForm {
   name: string;

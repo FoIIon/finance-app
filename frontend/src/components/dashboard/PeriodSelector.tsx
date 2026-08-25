@@ -1,4 +1,4 @@
-import { usePeriod } from '../../context/PeriodContext';
+import { usePeriod } from '../../hooks/usePeriod';
 import { makeMonthPeriod } from '../../utils/periods';
 
 export const PeriodSelector = () => {

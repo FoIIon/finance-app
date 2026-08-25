@@ -1,6 +1,6 @@
 import { useDashboards } from '../../hooks/useDashboards';
 import { useAccountBalancesQuery } from '../../hooks/queries';
-import { usePeriod } from '../../context/PeriodContext';
+import { usePeriod } from '../../hooks/usePeriod';
 
 export const BankAccountSelector = () => {
   const { currentDashboard } = useDashboards();
