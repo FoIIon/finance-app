@@ -120,4 +120,5 @@ export interface TradeRepublicImportResult {
   valued: number;
   historyPoints: number;
   cashBalance: number | null;
+  archived: number;
 }

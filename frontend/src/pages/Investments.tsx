@@ -288,7 +288,8 @@ const Investments = () => {
       refresh();
       showToast(
         `Trade Republic : ${data.total} lignes, ${data.created} ajoutées, ${data.valued} valorisées`
-          + (data.historyPoints > 0 ? `, ${data.historyPoints} points d'historique` : ''),
+          + (data.historyPoints > 0 ? `, ${data.historyPoints} points d'historique` : '')
+          + (data.archived > 0 ? `, ${data.archived} vendue(s) archivée(s)` : ''),
         'success',
       );
     } catch (err: unknown) {

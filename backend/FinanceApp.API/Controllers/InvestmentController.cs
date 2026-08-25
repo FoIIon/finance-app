@@ -499,6 +499,23 @@ public class InvestmentController : ControllerBase
             await _context.SaveChangesAsync();
         }
 
+        // Une position vendue disparaît simplement de la réponse : sans cette détection
+        // elle resterait active avec sa dernière valorisation, comptée indéfiniment.
+        var isinsPresents = snapshots.Select(s => s.Position.Isin).ToHashSet();
+        var lignesDuTableau = await _context.Investments
+            .Where(i => i.DashboardId == dashboardId)
+            .ToListAsync();
+
+        var aArchiver = SoldPositionDetector.LinesToArchive(lignesDuTableau, isinsPresents);
+        foreach (var ligne in aArchiver)
+        {
+            ligne.IsArchived = true;
+            _logger.LogInformation(
+                "Import Trade Republic : la ligne {LigneId} ({Nom}) a disparu du portefeuille, archivée.",
+                ligne.Id, ligne.Name);
+        }
+        if (aArchiver.Count > 0) await _context.SaveChangesAsync();
+
         return Ok(new TradeRepublicImportResultDto
         {
             Total = snapshots.Count,
@@ -507,6 +524,7 @@ public class InvestmentController : ControllerBase
             Valued = valued,
             HistoryPoints = historyPoints,
             CashBalance = import.CashBalance,
+            Archived = aArchiver.Count,
         });
     }
 

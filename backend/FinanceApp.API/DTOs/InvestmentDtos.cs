@@ -142,6 +142,8 @@ public class TradeRepublicImportResultDto
     public int HistoryPoints { get; set; }
     /// <summary>Solde espèces relevé, hors valeur du portefeuille.</summary>
     public decimal? CashBalance { get; set; }
+    /// <summary>Lignes disparues du portefeuille, donc vendues, archivées automatiquement.</summary>
+    public int Archived { get; set; }
 }
 
 public class CashBalanceDto
