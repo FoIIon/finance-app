@@ -323,7 +323,17 @@ public class TradeRepublicClient : IDisposable
         // Cas 1 : le nouveau tr_session arrive en Set-Cookie, c'est le cas nominal du keepalive.
         if (response.Headers.TryGetValues("Set-Cookie", out var cookieHeaders))
         {
-            var sessionFromCookie = ExtractCookieValue(cookieHeaders.ToList(), "tr_session");
+            var entetesCookies = cookieHeaders.ToList();
+
+            // Si Trade Republic fait tourner tr_refresh, le jeton stocké se périmerait au
+            // premier renouvellement et tout retomberait sur une reconnexion par SMS. Rien
+            // ne le gère aujourd'hui : cette trace dira s'il faut s'en occuper. Le nom du
+            // cookie seulement, jamais sa valeur.
+            if (ExtractCookieValue(entetesCookies, "tr_refresh") != null)
+                _logger.LogWarning(
+                    "TR renouvellement : un nouveau tr_refresh a été émis et n'est pas conservé.");
+
+            var sessionFromCookie = ExtractCookieValue(entetesCookies, "tr_session");
             if (sessionFromCookie != null) return sessionFromCookie;
         }
 
@@ -593,8 +603,8 @@ public class TradeRepublicClient : IDisposable
                             {
                                 plageRetenue = plage;
                                 _logger.LogInformation(
-                                    "TR historique : plage {plage} retenue, {points} points depuis le {debut:yyyy-MM-dd}.",
-                                    plage, serie.Count, serie[0].AsOf);
+                                    "TR historique : plage {plage} retenue, {points} points du {debut:yyyy-MM-dd} au {fin:yyyy-MM-dd}.",
+                                    plage, serie.Count, serie[0].AsOf, serie[^1].AsOf);
                             }
                             break;
                         }
