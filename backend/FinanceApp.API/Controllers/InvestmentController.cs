@@ -15,10 +15,12 @@ namespace FinanceApp.API.Controllers;
 public class InvestmentController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly ILogger<InvestmentController> _logger;
 
-    public InvestmentController(AppDbContext context)
+    public InvestmentController(AppDbContext context, ILogger<InvestmentController> logger)
     {
         _context = context;
+        _logger = logger;
     }
 
     private int GetUserId() =>
@@ -334,7 +336,7 @@ public class InvestmentController : ControllerBase
         string sessionToken;
         try
         {
-            sessionToken = await TradeRepublicSession.RefreshAndStoreAsync(connection, trClient, _context);
+            sessionToken = await TradeRepublicSession.RefreshAndStoreAsync(connection, trClient, _context, _logger);
         }
         catch (InvalidOperationException ex)
         {
