@@ -235,6 +235,26 @@ public class InvestmentController : ControllerBase
     /// LinesTotal (lignes non archivées) est constant sur tous les points : il permet au
     /// frontend d'annoncer une courbe partielle (« X lignes sur Y valorisées »).
     /// </summary>
+    /// <summary>
+    /// Solde espèces du compte Trade Republic. Exposé à part : il ne fait pas partie du
+    /// portefeuille et n'entre dans aucun calcul de performance.
+    /// </summary>
+    [HttpGet("cash")]
+    public async Task<ActionResult<CashBalanceDto>> GetCash()
+    {
+        var userId = GetUserId();
+        var connection = await _context.BankConnections
+            .Where(bc => bc.UserId == userId && bc.Provider == "TradeRepublic")
+            .OrderByDescending(bc => bc.CashBalanceUpdatedAt)
+            .FirstOrDefaultAsync();
+
+        return Ok(new CashBalanceDto
+        {
+            Amount = connection?.CashBalance,
+            UpdatedAt = connection?.CashBalanceUpdatedAt,
+        });
+    }
+
     [HttpGet("history")]
     public async Task<ActionResult<List<InvestmentHistoryPointDto>>> GetHistory([FromQuery] int dashboardId)
     {
@@ -350,14 +370,26 @@ public class InvestmentController : ControllerBase
         var deviceToken = string.IsNullOrEmpty(connection.EncryptedDeviceToken)
             ? "" : trClient.DecryptToken(connection.EncryptedDeviceToken);
 
-        List<TradeRepublicClient.TrPortfolioSnapshot> snapshots;
+        TradeRepublicClient.TrPortfolioImport import;
         try
         {
-            snapshots = await trClient.ImportPortfolioSnapshotAsync(sessionToken, refreshToken, deviceToken);
+            import = await trClient.ImportPortfolioSnapshotAsync(sessionToken, refreshToken, deviceToken);
         }
         catch (Exception ex)
         {
             return BadRequest($"Import Trade Republic échoué : {ex.Message}");
+        }
+
+        var snapshots = import.Positions;
+
+        // Le solde espèces est rangé sur la connexion, pas sur une ligne d'investissement :
+        // il s'affiche à part et n'entre ni dans la valeur du portefeuille ni dans la
+        // plus-value, faute de quoi il gonflerait une performance qu'il ne produit pas.
+        if (import.CashBalance.HasValue)
+        {
+            connection.CashBalance = import.CashBalance.Value;
+            connection.CashBalanceUpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
         }
 
         var defaultHolder = configuration["TradeRepublic:DefaultHolder"] ?? "Trade Republic";
@@ -474,6 +506,7 @@ public class InvestmentController : ControllerBase
             Updated = updated,
             Valued = valued,
             HistoryPoints = historyPoints,
+            CashBalance = import.CashBalance,
         });
     }
 

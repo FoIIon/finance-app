@@ -111,4 +111,21 @@ public class TradeRepublicPortfolioParserTests
     {
         Assert.Empty(TradeRepublicPortfolioParser.ParsePriceHistory("{}"));
     }
+
+    [Fact]
+    public void ParseCashBalance_lit_le_solde_euro_de_la_capture_reelle()
+    {
+        // Capture réelle du 25/08/2026, topic availableCash. La réponse est un TABLEAU,
+        // ce qui faisait échouer la lecture avant le correctif du même jour.
+        var solde = TradeRepublicPortfolioParser.ParseCashBalance(Fixture("tr-availableCash.json"));
+
+        Assert.Equal(12313.7m, solde);
+    }
+
+    [Fact]
+    public void ParseCashBalance_sans_ligne_en_euro_rend_null()
+    {
+        Assert.Null(TradeRepublicPortfolioParser.ParseCashBalance("[]"));
+        Assert.Null(TradeRepublicPortfolioParser.ParseCashBalance("[{\"currencyId\":\"USD\",\"amount\":42}]"));
+    }
 }

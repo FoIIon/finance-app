@@ -513,7 +513,9 @@ public class TradeRepublicClient : IDisposable
     /// (place de cotation) et son ticker. La connexion s'authentifie par les cookies
     /// (refresh + device), chaque souscription porte le session token.
     /// </summary>
-    public async Task<List<TrPortfolioSnapshot>> ImportPortfolioSnapshotAsync(
+    public record TrPortfolioImport(List<TrPortfolioSnapshot> Positions, decimal? CashBalance);
+
+    public async Task<TrPortfolioImport> ImportPortfolioSnapshotAsync(
         string sessionToken, string refreshToken, string deviceToken, CancellationToken ct = default)
     {
         using var timeoutCts = CreateTimeoutToken(ct, TimeSpan.FromSeconds(120));
@@ -529,21 +531,18 @@ public class TradeRepublicClient : IDisposable
         _logger.LogInformation("TR portefeuille, marquage brut : {marquage}",
             TradeRepublicPortfolioParser.DescribeCategories(positionsJson));
 
-        // Sonde du solde espèces : le portefeuille ne contient que des positions, aucune
-        // catégorie de liquidités. Deux noms de topic candidats, journalisés sans effet.
-        foreach (var topic in new[] { "availableCash", "cash" })
+        // Solde espèces : le portefeuille ne contient que des positions, aucune catégorie
+        // de liquidités. Un échec ici ne doit pas faire perdre l'import des positions.
+        decimal? cash = null;
+        try
         {
-            try
-            {
-                var reponse = await SubscribeOnceRawAsync(
-                    new { type = topic, token = sessionToken }, timeoutCts.Token);
-                _logger.LogInformation("TR sonde espèces {topic} : {reponse}",
-                    topic, reponse.Length > 300 ? reponse[..300] + "…[tronqué]" : reponse);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogInformation("TR sonde espèces {topic} indisponible : {message}", topic, ex.Message);
-            }
+            var cashJson = await SubscribeOnceRawAsync(
+                new { type = "availableCash", token = sessionToken }, timeoutCts.Token);
+            cash = TradeRepublicPortfolioParser.ParseCashBalance(cashJson);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("TR solde espèces indisponible : {message}", ex.Message);
         }
 
         var result = new List<TrPortfolioSnapshot>(positions.Count);
@@ -596,7 +595,7 @@ public class TradeRepublicClient : IDisposable
             result.Add(new TrPortfolioSnapshot(position, price, marketValue, history));
         }
 
-        return result;
+        return new TrPortfolioImport(result, cash);
     }
 
     /// <summary>Souscrit un topic, lit la première réponse, se désabonne, et renvoie le JSON brut.</summary>

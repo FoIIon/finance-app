@@ -1,5 +1,6 @@
 import type { Investment, InvestmentHistoryPoint } from '../../types/investment';
 import { formatCurrency, formatPercent } from '../../utils/format';
+import { useCashQuery } from '../../hooks/queries';
 import { splitHistory } from './portfolioPeriod';
 import type { PortfolioPeriod } from './portfolioPeriod';
 
@@ -12,6 +13,7 @@ interface Props {
 const signed = (v: number) => `${v >= 0 ? '+' : ''}${formatCurrency(v)}`;
 
 export const PortfolioSummary = ({ investments, history, period }: Props) => {
+  const { data: cash } = useCashQuery();
   const active = investments.filter((i) => !i.isArchived);
   const valued = active.filter((i) => i.marketValue != null);
 
@@ -74,7 +76,7 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
         )}
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 text-sm">
+      <div className="mt-4 grid gap-3 sm:grid-cols-3 text-sm">
         <div>
           <p className="text-white/50">Plus-value latente</p>
           {valued.length > 0 ? (
@@ -88,6 +90,23 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
             </p>
           ) : (
             <p className="text-white/30">—</p>
+          )}
+        </div>
+        <div>
+          {/* Volontairement hors de la valeur du portefeuille et de la plus-value : ce
+              n'est pas un actif dont on mesure la performance. */}
+          <p className="text-white/50">Espèces sur le compte</p>
+          {cash?.amount != null ? (
+            <p className="text-white/90 font-semibold">
+              {formatCurrency(cash.amount)}
+              {cash.updatedAt && (
+                <span className="text-white/40 font-normal ml-1">
+                  · au {new Date(cash.updatedAt).toLocaleDateString('fr-BE')}
+                </span>
+              )}
+            </p>
+          ) : (
+            <p className="text-white/30" title="Relevé au prochain import Trade Republic">—</p>
           )}
         </div>
         <div>
