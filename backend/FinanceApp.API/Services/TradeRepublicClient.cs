@@ -533,6 +533,20 @@ public class TradeRepublicClient : IDisposable
 
         // Solde espèces : le portefeuille ne contient que des positions, aucune catégorie
         // de liquidités. Un échec ici ne doit pas faire perdre l'import des positions.
+        // Sonde de la timeline brute : les transactions telles qu'on les stocke ne portent
+        // que le libellé, sans ISIN, ce qui interdit de recouper une date de premier achat.
+        // La réponse brute contient peut-être l'identifiant, cette trace le dira.
+        try
+        {
+            var (statut, corps) = await ProbeRestAsync(sessionToken, "/api/v2/timeline/transactions", timeoutCts.Token);
+            _logger.LogInformation("TR sonde timeline brute : HTTP {statut}, {corps}",
+                statut, corps.Length > 900 ? corps[..900] + "…[tronqué]" : corps);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation("TR sonde timeline indisponible : {message}", ex.Message);
+        }
+
         decimal? cash = null;
         try
         {
@@ -544,6 +558,11 @@ public class TradeRepublicClient : IDisposable
         {
             _logger.LogWarning("TR solde espèces indisponible : {message}", ex.Message);
         }
+
+        // Plage d'historique : « 1y » était codé en dur, d'où un « Max » qui ne dépassait
+        // jamais un an. On retient la plus longue que Trade Republic accepte réellement,
+        // déterminée sur la première position puis réutilisée pour les suivantes.
+        string? plageRetenue = null;
 
         var result = new List<TrPortfolioSnapshot>(positions.Count);
         foreach (var position in positions)
@@ -564,24 +583,38 @@ public class TradeRepublicClient : IDisposable
 
                     // Historique de cours sur un an. Un échec ici ne doit pas faire perdre
                     // la valorisation du jour, déjà obtenue.
-                    try
+                    foreach (var plage in plageRetenue is null ? new[] { "max", "5y", "1y" } : new[] { plageRetenue })
                     {
-                        var historyJson = await SubscribeOnceRawAsync(
-                            new
-                            {
-                                type = "aggregateHistoryLight",
-                                id = $"{position.Isin}.{exchange}",
-                                range = "1y",
-                                token = sessionToken
-                            },
-                            timeoutCts.Token);
+                        try
+                        {
+                            var historyJson = await SubscribeOnceRawAsync(
+                                new
+                                {
+                                    type = "aggregateHistoryLight",
+                                    id = $"{position.Isin}.{exchange}",
+                                    range = plage,
+                                    token = sessionToken
+                                },
+                                timeoutCts.Token);
 
-                        history = TradeRepublicPortfolioParser.ParsePriceHistory(historyJson);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning("TR historique indisponible pour {id} : {message}",
-                            $"{position.Isin}.{exchange}", ex.Message);
+                            var serie = TradeRepublicPortfolioParser.ParsePriceHistory(historyJson);
+                            if (serie.Count == 0) continue;
+
+                            history = serie;
+                            if (plageRetenue is null)
+                            {
+                                plageRetenue = plage;
+                                _logger.LogInformation(
+                                    "TR historique : plage {plage} retenue, {points} points depuis le {debut:yyyy-MM-dd}.",
+                                    plage, serie.Count, serie[0].AsOf);
+                            }
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogInformation("TR historique {plage} refusé pour {id} : {message}",
+                                plage, $"{position.Isin}.{exchange}", ex.Message);
+                        }
                     }
                 }
             }
