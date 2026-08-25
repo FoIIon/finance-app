@@ -34,7 +34,9 @@ public class TradeRepublicClient : IDisposable
         "compactPortfolioByType",
         "instrument",
         "ticker",
-        "aggregateHistoryLight"
+        "aggregateHistoryLight",
+        "availableCash",
+        "cash"
     };
 
     private static readonly Regex EchoPattern = new(@"^echo \d+$", RegexOptions.Compiled);
@@ -526,6 +528,23 @@ public class TradeRepublicClient : IDisposable
         // les faire deviner.
         _logger.LogInformation("TR portefeuille, marquage brut : {marquage}",
             TradeRepublicPortfolioParser.DescribeCategories(positionsJson));
+
+        // Sonde du solde espèces : le portefeuille ne contient que des positions, aucune
+        // catégorie de liquidités. Deux noms de topic candidats, journalisés sans effet.
+        foreach (var topic in new[] { "availableCash", "cash" })
+        {
+            try
+            {
+                var reponse = await SubscribeOnceRawAsync(
+                    new { type = topic, token = sessionToken }, timeoutCts.Token);
+                _logger.LogInformation("TR sonde espèces {topic} : {reponse}",
+                    topic, reponse.Length > 300 ? reponse[..300] + "…[tronqué]" : reponse);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation("TR sonde espèces {topic} indisponible : {message}", topic, ex.Message);
+            }
+        }
 
         var result = new List<TrPortfolioSnapshot>(positions.Count);
         foreach (var position in positions)

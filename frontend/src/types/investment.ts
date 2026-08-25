@@ -91,6 +91,7 @@ export interface CreateInvestment {
 }
 
 export interface UpdateInvestment {
+  kind?: InvestmentKind;
   name?: string;
   holder?: string;
   isin?: string | null;
