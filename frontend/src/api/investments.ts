@@ -6,8 +6,7 @@ import type {
   CreateInvestment,
   UpdateInvestment,
   CreateValuation,
-  TradeRepublicImportResult,
-} from '../types/investment';
+  TradeRepublicImportResult, CashBalance } from '../types/investment';
 
 export const investmentsApi = {
   getAll: (dashboardId: number) =>
@@ -27,6 +26,8 @@ export const investmentsApi = {
 
   getValuations: (id: number) =>
     apiClient.get<InvestmentValuation[]>(`/investment/${id}/valuations`),
+
+  getCash: () => apiClient.get<CashBalance>('/investment/cash'),
 
   getHistory: (dashboardId: number) =>
     apiClient.get<InvestmentHistoryPoint[]>('/investment/history', { params: { dashboardId } }),

@@ -127,6 +127,15 @@ export const useInvestmentsQuery = (dashboardId: number | undefined) =>
     },
   });
 
+export const useCashQuery = () =>
+  useQuery({
+    queryKey: ['tr-cash'],
+    queryFn: async () => {
+      const res = await investmentsApi.getCash();
+      return res.data;
+    },
+  });
+
 export const useCategoriesQuery = () =>
   useQuery({
     queryKey: ['categories'],

@@ -140,4 +140,12 @@ public class TradeRepublicImportResultDto
     public int Valued { get; set; }
     /// <summary>Points de cours passés ajoutés, hors courbe du patrimoine.</summary>
     public int HistoryPoints { get; set; }
+    /// <summary>Solde espèces relevé, hors valeur du portefeuille.</summary>
+    public decimal? CashBalance { get; set; }
+}
+
+public class CashBalanceDto
+{
+    public decimal? Amount { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 }

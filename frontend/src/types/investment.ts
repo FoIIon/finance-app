@@ -108,10 +108,16 @@ export interface CreateValuation {
   unitPrice?: number | null;
 }
 
+export interface CashBalance {
+  amount: number | null;
+  updatedAt: string | null;
+}
+
 export interface TradeRepublicImportResult {
   total: number;
   created: number;
   updated: number;
   valued: number;
   historyPoints: number;
+  cashBalance: number | null;
 }

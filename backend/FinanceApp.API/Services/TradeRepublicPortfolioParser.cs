@@ -157,4 +157,27 @@ public static class TradeRepublicPortfolioParser
 
         return points;
     }
+
+    /// <summary>Solde espèces en euros du compte Trade Republic.</summary>
+    public static decimal? ParseCashBalance(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
+
+        foreach (var entree in doc.RootElement.EnumerateArray())
+        {
+            var devise = entree.TryGetProperty("currencyId", out var c) ? c.GetString() : null;
+            if (!string.Equals(devise, "EUR", StringComparison.OrdinalIgnoreCase)) continue;
+
+            if (!entree.TryGetProperty("amount", out var montant)) continue;
+
+            if (montant.ValueKind == JsonValueKind.Number) return montant.GetDecimal();
+
+            var brut = montant.GetString();
+            if (decimal.TryParse(brut, NumberStyles.Any, CultureInfo.InvariantCulture, out var valeur))
+                return valeur;
+        }
+
+        return null;
+    }
 }

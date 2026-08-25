@@ -17,6 +17,14 @@ public class BankConnection
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastSyncAt { get; set; }
 
+    /// <summary>
+    /// Solde espèces du compte, en euros. Relevé chez Trade Republic à l'import du
+    /// portefeuille. Volontairement tenu hors de la valeur du portefeuille et de la
+    /// plus-value : ce n'est pas un actif dont on mesure la performance.
+    /// </summary>
+    public decimal? CashBalance { get; set; }
+    public DateTime? CashBalanceUpdatedAt { get; set; }
+
     public User User { get; set; } = null!;
     public ICollection<BankAccount> BankAccounts { get; set; } = new List<BankAccount>();
 }
