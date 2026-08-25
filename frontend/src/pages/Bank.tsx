@@ -44,7 +44,7 @@ const statusColor = (status: BankConnectionStatus) => {
 const Bank = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const {
-    connections, institutions, categoryRules, loading, error,
+    connections, institutions, categoryRules, loading, error, callbackError,
     fetchInstitutions, connectBank, handleCallback,
     deleteConnection, syncConnection, reconnectConnection, updateAccount,
     fetchCategoryRules, createCategoryRule, updateCategoryRule, deleteCategoryRule,
@@ -276,9 +276,9 @@ const Bank = () => {
         </button>
       </div>
 
-      {(error || syncError) && (
+      {(error || syncError || callbackError) && (
         <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-          {error || syncError}
+          {callbackError || error || syncError}
         </div>
       )}
 
