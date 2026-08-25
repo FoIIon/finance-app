@@ -8,12 +8,14 @@ const KIND_COLORS: Record<number, string> = {
   [InvestmentKind.Security]: '#6366f1',
   [InvestmentKind.Metal]: '#d97706',
   [InvestmentKind.InsuranceContract]: '#059669',
+  [InvestmentKind.Crypto]: '#8b5cf6',
 };
 
 const KIND_LABELS: Record<number, string> = {
   [InvestmentKind.Security]: 'Titre coté',
   [InvestmentKind.Metal]: 'Métal',
   [InvestmentKind.InsuranceContract]: 'Assurance-vie',
+  [InvestmentKind.Crypto]: 'Crypto',
 };
 
 const HOLDER_PALETTE = ['#6366f1', '#d97706', '#059669', '#ef4444', '#8b5cf6'];
@@ -59,6 +61,13 @@ const Donut = ({ title, data }: { title: string; data: Slice[] }) => (
     <h4 className="text-sm font-medium text-white/70 mb-1">{title}</h4>
     {data.length === 0 ? (
       <p className="text-white/30 text-center py-10 text-sm">Aucune ligne valorisée</p>
+    ) : data.length === 1 ? (
+      // Un camembert à une seule part est un rectangle compliqué : il occupe la hauteur
+      // d'un graphique pour n'apprendre qu'une chose, laquelle tient sur une ligne.
+      <p className="text-white/60 py-10 text-sm text-center">
+        <span className="text-white/90">{data[0].name}</span> porte la totalité,{' '}
+        {formatCurrency(data[0].value)}
+      </p>
     ) : (
       <ResponsiveContainer width="100%" height={230}>
         <PieChart>

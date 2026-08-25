@@ -287,6 +287,10 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.goto('/investments');
     await page.waitForURL('**/investments');
 
+    // Le formulaire de saisie manuelle est désormais replié : c'est l'action la plus rare
+    // de l'écran depuis que l'import Trade Republic existe.
+    await page.getByRole('button', { name: 'Ajouter une ligne à la main' }).click();
+
     await page.getByPlaceholder('Nom').fill(investmentName);
     await page.getByPlaceholder('Titulaire').fill('Sébastien');
     await page.getByPlaceholder('Quantité').fill('10');

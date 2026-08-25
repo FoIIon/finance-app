@@ -379,7 +379,7 @@ public class InvestmentController : ControllerBase
                     DashboardId = dashboardId,
                     Name = pos.Name,
                     Holder = defaultHolder,
-                    Kind = InvestmentKind.Security,
+                    Kind = InvestmentKindClassifier.FromTradeRepublic(pos.Isin, pos.InstrumentType),
                     Isin = pos.Isin,
                     Quantity = pos.Quantity,
                     Unit = InvestmentUnit.Share,
@@ -397,6 +397,9 @@ public class InvestmentController : ControllerBase
                 inv.Name = pos.Name;
                 inv.ExternalId = pos.Isin;
                 inv.Source = InvestmentSource.TradeRepublic;
+                // Reclasse aussi les lignes déjà importées : les trois cryptos du 25/08 sont
+                // entrées en Titre coté avant que le type existe.
+                inv.Kind = InvestmentKindClassifier.FromTradeRepublic(pos.Isin, pos.InstrumentType);
                 updated++;
             }
 
