@@ -478,6 +478,12 @@ public class InvestmentController : ControllerBase
 
                 var deja = datesConnues.ToHashSet();
 
+                // La valorisation du jour vient d'être ajoutée au contexte et n'est pas
+                // encore en base : une requête SQL ne la voit pas. Sans cette ligne, le jour
+                // où Trade Republic renvoie un agrégat pour la séance en cours, l'index
+                // unique (InvestmentId, AsOf) fait échouer tout l'import.
+                deja.Add(today);
+
                 foreach (var point in snap.PriceHistory)
                 {
                     if (!deja.Add(point.AsOf)) continue;

@@ -69,4 +69,40 @@ public class SoldPositionDetectorTests
 
         Assert.Empty(aArchiver);
     }
+
+    [Fact]
+    public void LinesToArchive_DisparitionMassive_NArchiveRien()
+    {
+        // Une réponse partielle n'est pas une vente générale. Le parseur saute en silence
+        // une position sans ISIN, sans quantité ou sans prix de revient : un changement de
+        // forme chez Trade Republic ferait disparaître des lignes vivantes.
+        var lignes = new[]
+        {
+            Ligne(1, "A"), Ligne(2, "B"), Ligne(3, "C"), Ligne(4, "D"),
+            Ligne(5, "E"), Ligne(6, "F"), Ligne(7, "G"), Ligne(8, "H"),
+        };
+
+        // Trois sur huit manquent, soit plus du quart.
+        var aArchiver = SoldPositionDetector.LinesToArchive(
+            lignes, new HashSet<string> { "A", "B", "C", "D", "E" });
+
+        Assert.Empty(aArchiver);
+    }
+
+    [Fact]
+    public void LinesToArchive_DisparitionRaisonnable_ArchiveQuandMeme()
+    {
+        // Une vente sur huit lignes reste sous le seuil : c'est le cas nominal.
+        var lignes = new[]
+        {
+            Ligne(1, "A"), Ligne(2, "B"), Ligne(3, "C"), Ligne(4, "D"),
+            Ligne(5, "E"), Ligne(6, "F"), Ligne(7, "G"), Ligne(8, "H"),
+        };
+
+        var aArchiver = SoldPositionDetector.LinesToArchive(
+            lignes, new HashSet<string> { "A", "B", "C", "D", "E", "F", "G" });
+
+        Assert.Single(aArchiver);
+        Assert.Equal(8, aArchiver[0].Id);
+    }
 }

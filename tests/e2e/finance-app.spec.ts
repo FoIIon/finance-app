@@ -329,6 +329,9 @@ test.describe.serial('FinanceApp E2E', () => {
     // l'identité de la ligne, son montant investi, la courbe et le choix de la période.
     // \s couvre l'espace fine insécable que Intl place comme séparateur de milliers.
     await expect(dialog).toContainText(investmentName);
+    // La valorisation saisie au test 10, pas seulement le montant investi : sans elle
+    // l'assertion passerait aussi sur un panneau vide de toute donnée.
+    await expect(dialog).toContainText(/1\s250,00/);
     await expect(dialog).toContainText(/1\s000,00/);
     await expect(dialog.getByRole('group', { name: 'Période' })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'YTD' })).toBeVisible();
