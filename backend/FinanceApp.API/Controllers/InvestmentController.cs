@@ -397,9 +397,10 @@ public class InvestmentController : ControllerBase
                 inv.Name = pos.Name;
                 inv.ExternalId = pos.Isin;
                 inv.Source = InvestmentSource.TradeRepublic;
-                // Reclasse aussi les lignes déjà importées : les trois cryptos du 25/08 sont
-                // entrées en Titre coté avant que le type existe.
-                inv.Kind = InvestmentKindClassifier.FromTradeRepublic(pos.Isin, pos.InstrumentType);
+                // Le type n'est PAS réécrit ici : Trade Republic ne distingue pas une
+                // obligation d'un fonds actions (vérifié le 25/08, le fonds obligataire à
+                // échéance sort en « fund »). L'import propose un type à la création, le
+                // choix fait à la main dans l'application prime ensuite.
                 updated++;
             }
 

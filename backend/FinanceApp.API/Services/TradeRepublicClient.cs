@@ -33,7 +33,8 @@ public class TradeRepublicClient : IDisposable
         "timeline",
         "compactPortfolioByType",
         "instrument",
-        "ticker"
+        "ticker",
+        "aggregateHistoryLight"
     };
 
     private static readonly Regex EchoPattern = new(@"^echo \d+$", RegexOptions.Compiled);
