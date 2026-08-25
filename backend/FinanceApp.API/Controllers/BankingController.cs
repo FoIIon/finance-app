@@ -332,7 +332,7 @@ public class BankingController : ControllerBase
     }
 
     [HttpPost("traderepublic/login")]
-    [EnableRateLimiting("auth")]
+    [EnableRateLimiting("banking")]
     public async Task<ActionResult<TradeRepublicLoginResponse>> TradeRepublicLogin(
         TradeRepublicLoginRequest dto,
         [FromServices] TradeRepublicClient trClient)
@@ -406,7 +406,7 @@ public class BankingController : ControllerBase
     }
 
     [HttpPost("traderepublic/verify")]
-    [EnableRateLimiting("auth")]
+    [EnableRateLimiting("banking")]
     public async Task<ActionResult> TradeRepublicVerify(
         TradeRepublicVerifyRequest dto,
         [FromServices] TradeRepublicClient trClient)
