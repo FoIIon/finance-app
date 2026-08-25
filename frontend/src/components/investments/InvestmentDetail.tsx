@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -12,15 +12,12 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { investmentsApi } from '../../api/investments';
-import { ValuationSource } from '../../types/investment';
+import { PortfolioPeriodSelector } from './PortfolioPeriodSelector';
+import { periodStart } from './portfolioPeriod';
+import type { PortfolioPeriod } from './portfolioPeriod';
 import type { Investment } from '../../types/investment';
 import { formatCurrency } from '../../utils/format';
 
-const sourceLabels: Record<number, string> = {
-  [ValuationSource.Manual]: 'Manuelle',
-  [ValuationSource.TradeRepublic]: 'Trade Republic',
-  [ValuationSource.SpotApi]: 'Cours spot',
-};
 
 interface Props {
   investment: Investment;
@@ -36,11 +33,19 @@ export const InvestmentDetail = ({ investment, onClose }: Props) => {
     },
   });
 
+  const [period, setPeriod] = useState<PortfolioPeriod>('6M');
+
   // L'API renvoie l'historique en ordre décroissant : la courbe le veut croissant.
   const ascending = useMemo(
     () => [...(valuations ?? [])].sort((a, b) => a.asOf.localeCompare(b.asOf)),
     [valuations]
   );
+
+  const shown = useMemo(() => {
+    const start = periodStart(period);
+    if (!start) return ascending;
+    return ascending.filter((v) => new Date(v.asOf) >= start);
+  }, [ascending, period]);
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
@@ -82,7 +87,7 @@ export const InvestmentDetail = ({ investment, onClose }: Props) => {
         ) : ascending.length >= 2 ? (
           <div className="mb-4">
             <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={ascending} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
+              <LineChart data={shown} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                 <XAxis
                   dataKey="asOf"
@@ -119,10 +124,10 @@ export const InvestmentDetail = ({ investment, onClose }: Props) => {
                 <Line
                   type="monotone"
                   dataKey="marketValue"
-                  stroke="#6366f1"
-                  strokeWidth={2}
-                  dot={{ fill: '#6366f1', r: 3, strokeWidth: 0 }}
-                  activeDot={{ r: 4 }}
+                  stroke="#3987e5"
+                  strokeWidth={1.25}
+                  dot={false}
+                  activeDot={{ r: 3, strokeWidth: 0 }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -133,35 +138,8 @@ export const InvestmentDetail = ({ investment, onClose }: Props) => {
           </p>
         )}
 
-        <div className="flex-1 overflow-y-auto -mx-2 px-2">
-          {isLoading ? (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-10 rounded bg-white/5 animate-pulse" />
-              ))}
-            </div>
-          ) : !valuations || valuations.length === 0 ? (
-            <p className="text-white/30 text-center py-8 text-sm">Aucune valorisation</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="text-white/50 border-b border-white/10">
-                <tr>
-                  <th className="text-left p-2">Date</th>
-                  <th className="text-right p-2">Valeur</th>
-                  <th className="text-left p-2">Source</th>
-                </tr>
-              </thead>
-              <tbody>
-                {valuations.map((v) => (
-                  <tr key={v.id} className="border-b border-white/5 text-white/90">
-                    <td className="p-2">{new Date(v.asOf).toLocaleDateString('fr-BE')}</td>
-                    <td className="p-2 text-right">{formatCurrency(v.marketValue)}</td>
-                    <td className="p-2 text-white/60">{sourceLabels[v.source]}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+        <div className="flex justify-center">
+          <PortfolioPeriodSelector value={period} onChange={setPeriod} />
         </div>
 
         <p className="mt-4 text-xs text-white/40 bg-white/5 rounded-lg px-3 py-2">

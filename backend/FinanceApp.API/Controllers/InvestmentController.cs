@@ -134,6 +134,7 @@ public class InvestmentController : ControllerBase
         if (investment == null) return NotFound();
         if (!await UserCanAccessDashboard(investment.DashboardId, userId)) return Forbid();
 
+        if (dto.Kind.HasValue) investment.Kind = dto.Kind.Value;
         if (dto.Name != null) investment.Name = dto.Name;
         if (dto.Holder != null) investment.Holder = dto.Holder;
         if (dto.Isin != null) investment.Isin = dto.Isin;

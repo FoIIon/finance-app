@@ -66,6 +66,7 @@ const unitLabels: Record<number, string> = {
 };
 
 interface EditForm {
+  kind: number;
   name: string;
   holder: string;
   isin: string;
@@ -76,6 +77,7 @@ interface EditForm {
 }
 
 const emptyEditForm: EditForm = {
+  kind: InvestmentKind.Security,
   name: '',
   holder: '',
   isin: '',
@@ -144,6 +146,26 @@ const Investments = () => {
     }
     return map;
   }, [allValuations]);
+
+  /**
+   * Variation depuis le point de valorisation précédent. L'import ne tourne qu'au clic :
+   * « la veille » est donc le dernier point connu, pas nécessairement hier.
+   */
+  const dailyByLine = useMemo(() => {
+    const map = new Map<number, { amount: number; pct: number | null }>();
+    for (const [id, values] of valuationsByLine) {
+      if (values.length < 2) continue;
+      const sorted = [...values].sort((a, b) => a.asOf.localeCompare(b.asOf));
+      const last = sorted[sorted.length - 1];
+      const previous = sorted[sorted.length - 2];
+      const amount = last.marketValue - previous.marketValue;
+      map.set(id, {
+        amount,
+        pct: previous.marketValue > 0 ? (amount / previous.marketValue) * 100 : null,
+      });
+    }
+    return map;
+  }, [valuationsByLine]);
 
   const groups = useMemo(() => {
     if (grouping === 'none') return null;
@@ -218,6 +240,7 @@ const Investments = () => {
     setValuationFor(null);
     setEditingFor(i);
     setEditForm({
+      kind: i.kind,
       name: i.name,
       holder: i.holder,
       isin: i.isin ?? '',
@@ -232,12 +255,16 @@ const Investments = () => {
     e.preventDefault();
     if (!editingFor) return;
 
-    const isContract = editingFor.kind === InvestmentKind.InsuranceContract;
+    const isContract = editForm.kind === InvestmentKind.InsuranceContract;
+    const porteUnIsin = editForm.kind === InvestmentKind.Security
+      || editForm.kind === InvestmentKind.Bond
+      || editForm.kind === InvestmentKind.Crypto;
     const payload: UpdateInvestment = {
+      kind: editForm.kind as InvestmentKind,
       name: editForm.name,
       holder: editForm.holder,
-      isin: editingFor.kind === InvestmentKind.Security ? editForm.isin || null : null,
-      metalCode: editingFor.kind === InvestmentKind.Metal ? editForm.metalCode : null,
+      isin: porteUnIsin ? editForm.isin || null : null,
+      metalCode: editForm.kind === InvestmentKind.Metal ? editForm.metalCode : null,
       costBasis: parseFloat(editForm.costBasis || '0'),
       firstPurchaseDate: editForm.firstPurchaseDate || null,
       ...(isContract ? {} : { quantity: parseFloat(editForm.quantity || '0') }),
@@ -317,6 +344,22 @@ const Investments = () => {
       <td className="p-3">
         <Sparkline valuations={valuationsByLine.get(i.id) ?? []} costBasis={i.costBasis} />
       </td>
+      <td className="p-3 text-right whitespace-nowrap">
+        {(() => {
+          const jour = dailyByLine.get(i.id);
+          if (!jour) return <span className="text-white/30">—</span>;
+          return (
+            <span className={jour.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+              {jour.amount >= 0 ? '+' : ''}{formatCurrency(jour.amount)}
+              {jour.pct != null && (
+                <div className="text-xs opacity-70">
+                  {jour.pct >= 0 ? '+' : ''}{formatPercent(jour.pct)} %
+                </div>
+              )}
+            </span>
+          );
+        })()}
+      </td>
       <td className="p-3 text-right">
         {i.kind === InvestmentKind.InsuranceContract ? '—' : formatQuantity(i.quantity, unitLabels[i.unit])}
       </td>
@@ -382,7 +425,7 @@ const Investments = () => {
     const st = groupSubtotals(rows);
     return (
       <tr key={`group-${name}`} className="border-b border-white/10 bg-white/5 text-white/80">
-        <td className="p-3 font-semibold" colSpan={5}>
+        <td className="p-3 font-semibold" colSpan={6}>
           {name} <span className="text-white/40 font-normal">({rows.length})</span>
         </td>
         <td className="p-3 text-right font-medium">{formatCurrency(st.invested)}</td>
@@ -570,6 +613,7 @@ const Investments = () => {
               <th className="text-left p-3">Ligne</th>
               <th className="text-left p-3">Titulaire</th>
               <th className="text-left p-3">Tendance</th>
+              <th className="text-right p-3">Jour</th>
               <th className="text-right p-3">Quantité</th>
               <th className="text-right p-3">PRU</th>
               <th className="text-right p-3">Investi</th>
@@ -596,7 +640,7 @@ const Investments = () => {
           {lines.length > 0 && (
             <tfoot className="border-t border-white/10 text-white/80">
               <tr>
-                <td className="p-3 font-semibold" colSpan={5}>
+                <td className="p-3 font-semibold" colSpan={6}>
                   Total <span className="text-white/40 font-normal">({lines.length} lignes)</span>
                 </td>
                 <td className="p-3 text-right font-semibold">{formatCurrency(totals.invested)}</td>
@@ -655,6 +699,18 @@ const Investments = () => {
       {editingFor && (
         <form onSubmit={handleEdit} className="bg-[#1a1a3e] rounded-2xl border border-white/10 p-4 flex flex-wrap gap-3 items-center">
           <span className="text-white">Modifier {editingFor.name}</span>
+          {/* Trade Republic ne distingue pas une obligation d'un fonds actions : le type
+              se corrige ici, et l'import ne le réécrit plus. */}
+          <select
+            aria-label="Type d'actif"
+            className="bg-white/5 rounded-lg px-3 py-2 text-white"
+            value={editForm.kind}
+            onChange={(e) => setEditForm({ ...editForm, kind: Number(e.target.value) })}
+          >
+            {Object.entries(kindLabels).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
           <input
             required
             placeholder="Nom"

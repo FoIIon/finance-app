@@ -309,7 +309,8 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.getByRole('button', { name: 'Enregistrer' }).click();
 
     // 1000 investis, 1250 valorisés : 250 € de plus-value, soit 25 %.
-    await expect(row).toContainText('25.0');
+    // Notation française depuis le 25/08/2026 : la virgule décimale, comme le reste de la page.
+    await expect(row).toContainText('25,0');
   });
 
   test('Test 11 : Résumé du portefeuille et détail de ligne', async () => {
@@ -324,10 +325,17 @@ test.describe.serial('FinanceApp E2E', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 
-    // L'historique contient la valorisation saisie au test 10 (1 250,00 €, source manuelle).
+    // Le panneau ne liste plus les valorisations une à une depuis le 25/08/2026 : il porte
+    // l'identité de la ligne, son montant investi, la courbe et le choix de la période.
     // \s couvre l'espace fine insécable que Intl place comme séparateur de milliers.
-    await expect(dialog).toContainText(/1\s250,00/);
-    await expect(dialog).toContainText('Manuelle');
+    await expect(dialog).toContainText(investmentName);
+    await expect(dialog).toContainText(/1\s000,00/);
+    await expect(dialog.getByRole('group', { name: 'Période' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'YTD' })).toBeVisible();
+
+    // Une seule valorisation ne fait pas une courbe, et le panneau le dit au lieu
+    // d'afficher un trait plat trompeur.
+    await expect(dialog).toContainText('Pas assez de valorisations');
 
     // Fermeture du détail
     await dialog.getByRole('button', { name: 'Fermer' }).click();

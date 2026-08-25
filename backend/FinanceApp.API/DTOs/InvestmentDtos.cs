@@ -67,6 +67,12 @@ public class CreateInvestmentDto
 
 public class UpdateInvestmentDto
 {
+    /// <summary>
+    /// Trade Republic ne distingue pas une obligation d'un fonds actions : le type doit
+    /// donc pouvoir être corrigé à la main, et l'import ne le réécrit plus ensuite.
+    /// </summary>
+    public InvestmentKind? Kind { get; set; }
+
     [MaxLength(120)]
     public string? Name { get; set; }
 
