@@ -22,6 +22,8 @@ const testEmail = `test-${Date.now()}@test.com`;
 const testPassword = 'Test123456';
 const testDescription = `Achat test ${Date.now()}`;
 const updatedDescription = `Achat modifie ${Date.now()}`;
+// Partagé entre les tests 10 et 11 : la ligne créée puis valorisée sert au parcours détail
+const investmentName = `ETF World ${Date.now()}`;
 
 test.describe.serial('FinanceApp E2E', () => {
   let page: Page;
@@ -70,12 +72,14 @@ test.describe.serial('FinanceApp E2E', () => {
     // L'inscription ne connecte pas : elle renvoie sur l'ecran d'attente de confirmation
     await page.waitForURL('**/register-success**');
 
-    // Confirmer l'email avec le jeton emis par le backend, puis se connecter
-    await page.goto(`/confirm-email?token=${confirmationTokenFor(testEmail)}`);
-    await page.waitForURL('**/confirm-email**');
-
+    // Confirmer l'email avec le jeton emis par le backend, puis se connecter.
     // Attendre la confirmation effective avant de quitter l'ecran : partir sur /login
     // des le chargement annulait la requete en vol et le compte restait non confirme.
+    // Le lien « Se connecter » n'existe que dans la branche succes, l'attendre vaut
+    // donc assertion. Le double appel de StrictMode ne fausse plus rien : la page se
+    // garde d'une seconde tentative et le serveur repond 200 sur un compte deja confirme.
+    await page.goto(`/confirm-email?token=${confirmationTokenFor(testEmail)}`);
+    await expect(page.getByRole('link', { name: 'Se connecter' })).toBeVisible({ timeout: 10000 });
     await page.getByRole('link', { name: 'Se connecter' }).click();
     await page.waitForURL('**/login');
     await page.getByPlaceholder('votre@email.com').fill(testEmail);
@@ -283,8 +287,6 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.goto('/investments');
     await page.waitForURL('**/investments');
 
-    const investmentName = `ETF World ${Date.now()}`;
-
     await page.getByPlaceholder('Nom').fill(investmentName);
     await page.getByPlaceholder('Titulaire').fill('Sébastien');
     await page.getByPlaceholder('Quantité').fill('10');
@@ -304,5 +306,27 @@ test.describe.serial('FinanceApp E2E', () => {
 
     // 1000 investis, 1250 valorisés : 250 € de plus-value, soit 25 %.
     await expect(row).toContainText('25.0');
+  });
+
+  test('Test 11 : Résumé du portefeuille et détail de ligne', async () => {
+    // On est toujours sur /investments après le test 10. Le gros chiffre du résumé
+    // doit refléter la valorisation saisie : un montant non nul.
+    const total = page.getByLabel('Valeur totale du portefeuille');
+    await expect(total).toBeVisible();
+    await expect(total).not.toHaveText(/^0[,.]00/);
+
+    // Le clic sur le nom de la ligne ouvre le panneau de détail
+    await page.getByRole('button', { name: investmentName }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    // L'historique contient la valorisation saisie au test 10 (1 250,00 €, source manuelle).
+    // \s couvre l'espace fine insécable que Intl place comme séparateur de milliers.
+    await expect(dialog).toContainText(/1\s250,00/);
+    await expect(dialog).toContainText('Manuelle');
+
+    // Fermeture du détail
+    await dialog.getByRole('button', { name: 'Fermer' }).click();
+    await expect(dialog).not.toBeVisible();
   });
 });
