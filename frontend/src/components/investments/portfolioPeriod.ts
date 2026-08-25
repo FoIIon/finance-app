@@ -32,7 +32,10 @@ export const periodStart = (period: PortfolioPeriod, now = new Date()): Date | n
  */
 export const splitHistory = (history: InvestmentHistoryPoint[], period: PortfolioPeriod) => {
   const start = periodStart(period);
-  if (!start) return { baseline: history[0] ?? null, points: history };
+  // Un point unique n'est pas une baseline : il EST la valeur courante. Le comparer à
+  // lui-même affichait « +0,00 € (+0,0 %) » en vert, soit une stabilité mesurée là où
+  // il n'y a aucune mesure.
+  if (!start) return { baseline: history.length > 1 ? history[0] : null, points: history };
   const baseline = [...history].reverse().find((p) => new Date(p.asOf) <= start) ?? null;
   const points = history.filter((p) => new Date(p.asOf) > start);
   return { baseline, points };

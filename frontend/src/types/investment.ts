@@ -2,6 +2,7 @@ export const InvestmentKind = {
   Security: 0,
   Metal: 1,
   InsuranceContract: 2,
+  Crypto: 3,
 } as const;
 export type InvestmentKind = (typeof InvestmentKind)[keyof typeof InvestmentKind];
 

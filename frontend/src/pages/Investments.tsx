@@ -47,6 +47,14 @@ const kindLabels: Record<number, string> = {
   [InvestmentKind.Security]: 'Titre coté',
   [InvestmentKind.Metal]: 'Métal',
   [InvestmentKind.InsuranceContract]: 'Assurance-vie',
+  [InvestmentKind.Crypto]: 'Crypto',
+};
+
+/** « 6.028614 part » au milieu d'une page en français, et « part » pour 3 612 unités. */
+const formatQuantity = (quantity: number, unit: string) => {
+  const value = quantity.toLocaleString('fr-BE', { maximumFractionDigits: 6 });
+  const plural = quantity >= 2 && (unit === 'part' || unit === 'contrat') ? `${unit}s` : unit;
+  return `${value} ${plural}`;
 };
 
 const unitLabels: Record<number, string> = {
@@ -117,6 +125,7 @@ const Investments = () => {
   const [grouping, setGrouping] = useState<Grouping>('none');
   const [detailFor, setDetailFor] = useState<Investment | null>(null);
   const [importing, setImporting] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['investments', dashboardId] });
@@ -266,6 +275,30 @@ const Investments = () => {
 
   if (isLoading) return <div className="p-6 text-white/60">Chargement...</div>;
 
+  const lines = investments ?? [];
+
+  // Le poids décide de l'ordre de lecture : trié par nom, une ligne à 42 % du portefeuille
+  // se retrouvait coincée entre deux lignes à moins de 1 %.
+  const orderedLines = [...lines].sort((a, b) => (b.marketValue ?? -1) - (a.marketValue ?? -1));
+
+  // Répéter treize fois la même information n'en fait pas une information.
+  const distinctKinds = new Set(lines.map((i) => i.kind));
+  const showKindOnRows = distinctKinds.size > 1;
+
+  const valuationDates = new Set(lines.filter((i) => i.valuationAsOf).map((i) => i.valuationAsOf));
+  const sharedValuationDate = valuationDates.size === 1 ? [...valuationDates][0]! : null;
+
+  const totals = lines.reduce(
+    (acc, i) => ({
+      invested: acc.invested + i.costBasis,
+      value: acc.value + (i.marketValue ?? 0),
+      gain: acc.gain + (i.gainAmount ?? 0),
+      hasValued: acc.hasValued || i.marketValue != null,
+    }),
+    { invested: 0, value: 0, gain: 0, hasValued: false },
+  );
+  const totalPct = totals.invested > 0 ? (totals.gain / totals.invested) * 100 : null;
+
   const renderRow = (i: Investment) => (
     <tr key={i.id} className="border-b border-white/5 text-white/90">
       <td className="p-3">
@@ -276,20 +309,20 @@ const Investments = () => {
         >
           {i.name}
         </button>
-        <span className="text-white/40 ml-2">{kindLabels[i.kind]}</span>
+        {showKindOnRows && <span className="text-white/40 ml-2">{kindLabels[i.kind]}</span>}
       </td>
       <td className="p-3">{i.holder}</td>
       <td className="p-3">
         <Sparkline valuations={valuationsByLine.get(i.id) ?? []} costBasis={i.costBasis} />
       </td>
       <td className="p-3 text-right">
-        {i.kind === InvestmentKind.InsuranceContract ? '—' : `${i.quantity} ${unitLabels[i.unit]}`}
+        {i.kind === InvestmentKind.InsuranceContract ? '—' : formatQuantity(i.quantity, unitLabels[i.unit])}
       </td>
       <td className="p-3 text-right">{i.unitCost != null ? formatCurrency(i.unitCost) : '—'}</td>
       <td className="p-3 text-right">{formatCurrency(i.costBasis)}</td>
       <td className={`p-3 text-right ${i.isStale ? 'text-white/40' : ''}`}>
         {i.marketValue != null ? formatCurrency(i.marketValue) : '—'}
-        {i.valuationAsOf && (
+        {i.valuationAsOf && !sharedValuationDate && (
           <div className="text-xs text-white/40">
             au {new Date(i.valuationAsOf).toLocaleDateString('fr-BE')}
           </div>
@@ -391,6 +424,17 @@ const Investments = () => {
 
       <AllocationCharts investments={investments ?? []} />
 
+      {/* Ajouter une ligne à la main est l'action la plus rare de l'écran depuis que
+          l'import existe : elle ne mérite pas une bande permanente en pleine page. */}
+      {!showAddForm ? (
+        <button
+          type="button"
+          onClick={() => setShowAddForm(true)}
+          className="self-start rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-white/80"
+        >
+          Ajouter une ligne à la main
+        </button>
+      ) : (
       <form onSubmit={handleCreate} className="bg-[#1a1a3e] rounded-2xl border border-white/10 p-4 grid gap-3 md:grid-cols-7">
         <input
           required
@@ -491,7 +535,15 @@ const Investments = () => {
         <button type="submit" className="bg-indigo-500 hover:bg-indigo-400 rounded-lg px-4 py-2 text-white font-medium">
           Ajouter
         </button>
+        <button
+          type="button"
+          onClick={() => setShowAddForm(false)}
+          className="rounded-lg px-4 py-2 text-white/50 hover:text-white"
+        >
+          Annuler
+        </button>
       </form>
+      )}
 
       <div className="flex justify-end">
         <label className="flex items-center gap-2 text-sm text-white/50">
@@ -519,7 +571,14 @@ const Investments = () => {
               <th className="text-right p-3">Quantité</th>
               <th className="text-right p-3">PRU</th>
               <th className="text-right p-3">Investi</th>
-              <th className="text-right p-3">Valeur</th>
+              <th className="text-right p-3">
+                Valeur
+                {sharedValuationDate && (
+                  <div className="text-xs font-normal text-white/30">
+                    au {new Date(sharedValuationDate).toLocaleDateString('fr-BE')}
+                  </div>
+                )}
+              </th>
               <th className="text-right p-3">Plus-value</th>
               <th className="text-right p-3">Rendement</th>
               <th className="p-3"></th>
@@ -530,8 +589,34 @@ const Investments = () => {
               ? groups.map(([name, rows]) => (
                   [renderGroupHeader(name, rows), ...rows.map(renderRow)]
                 ))
-              : (investments ?? []).map(renderRow)}
+              : orderedLines.map(renderRow)}
           </tbody>
+          {lines.length > 0 && (
+            <tfoot className="border-t border-white/10 text-white/80">
+              <tr>
+                <td className="p-3 font-semibold" colSpan={5}>
+                  Total <span className="text-white/40 font-normal">({lines.length} lignes)</span>
+                </td>
+                <td className="p-3 text-right font-semibold">{formatCurrency(totals.invested)}</td>
+                <td className="p-3 text-right font-semibold">
+                  {totals.hasValued ? formatCurrency(totals.value) : '—'}
+                </td>
+                <td className={`p-3 text-right font-semibold ${totals.gain >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {totals.hasValued ? (
+                    <>
+                      {formatCurrency(totals.gain)}
+                      <div className="text-xs opacity-70 font-normal">
+                        {totalPct != null ? `${totalPct.toFixed(1)} %` : '—'}
+                      </div>
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td className="p-3" colSpan={2}></td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
