@@ -6,6 +6,7 @@ import { savingsGoalsApi, dashboardExtrasApi } from '../api/savingsGoals';
 import { projectEnvelopesApi } from '../api/projectEnvelopes';
 import { shoppingItemsApi } from '../api/shoppingItems';
 import { investmentsApi } from '../api/investments';
+import { loansApi } from '../api/loans';
 import type { Period } from '../utils/periods';
 import { periodToRange } from '../utils/periods';
 import { PeriodContext } from '../context/period-context';
@@ -161,6 +162,37 @@ export const useInvestmentValuationsQuery = (dashboardId: number | undefined) =>
     enabled: !!dashboardId,
     queryFn: async () => {
       const res = await investmentsApi.getAllValuations(dashboardId!);
+      return res.data;
+    },
+  });
+
+export const useLoansQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['loans', dashboardId],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      const res = await loansApi.getAll(dashboardId!);
+      return res.data;
+    },
+  });
+
+export const useDebtSummaryQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['debt-summary', dashboardId],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      const res = await loansApi.getSummary(dashboardId!);
+      return res.data;
+    },
+  });
+
+/** Échéancier d'un emprunt. Chargé seulement quand la ligne est dépliée. */
+export const useLoanScheduleQuery = (loanId: number | undefined, months?: number) =>
+  useQuery({
+    queryKey: ['loan-schedule', loanId, months],
+    enabled: !!loanId,
+    queryFn: async () => {
+      const res = await loansApi.getSchedule(loanId!, months);
       return res.data;
     },
   });

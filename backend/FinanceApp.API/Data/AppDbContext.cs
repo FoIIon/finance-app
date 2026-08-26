@@ -26,6 +26,7 @@ public class AppDbContext : DbContext
     public DbSet<Investment> Investments => Set<Investment>();
     public DbSet<InvestmentValuation> InvestmentValuations => Set<InvestmentValuation>();
     public DbSet<InvestmentMovement> InvestmentMovements => Set<InvestmentMovement>();
+    public DbSet<Loan> Loans => Set<Loan>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -320,6 +321,34 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<Investment>()
             .HasIndex(i => i.DashboardId);
+
+        // Loan
+        modelBuilder.Entity<Loan>()
+            .Property(l => l.InitialPrincipal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Loan>()
+            .Property(l => l.MonthlyPayment)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Loan>()
+            .Property(l => l.AnchorPrincipal)
+            .HasPrecision(18, 2);
+
+        // Le taux mensuel se déduit du taux annuel : quatre décimales de trop peu et le
+        // solde reconstruit dérive de plusieurs euros sur la durée du prêt.
+        modelBuilder.Entity<Loan>()
+            .Property(l => l.AnnualRatePercent)
+            .HasPrecision(9, 6);
+
+        modelBuilder.Entity<Loan>()
+            .HasOne(l => l.Dashboard)
+            .WithMany()
+            .HasForeignKey(l => l.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Loan>()
+            .HasIndex(l => l.DashboardId);
 
         // InvestmentValuation
         modelBuilder.Entity<InvestmentValuation>()
