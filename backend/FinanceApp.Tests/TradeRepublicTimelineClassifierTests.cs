@@ -159,12 +159,33 @@ public class TradeRepublicTimelineClassifierTests
     }
 
     [Fact]
+    public void Classify_ArrondisTr_SontUnInvestissement()
+    {
+        // SPARE_CHANGE_AGGREGATE, relevé en prod le 27/08/2026 : la monnaie arrondie sur les
+        // paiements carte est réinvestie. Comptée en dépense, elle gonflait le variable du mois.
+        Assert.Equal(TrLineKind.Investment, Classify("Un instrument au nom sobre", "SPARE_CHANGE_AGGREGATE"));
+    }
+
+    [Fact]
+    public void Classify_VirementBancaireEntrant_LaisseLeNomDecider()
+    {
+        // BANK_TRANSACTION_INCOMING, relevé en prod le 27/08/2026, décrit le canal et non la nature.
+        // Une alimentation par Sébastien est un transfert interne, mais de l'argent envoyé par un
+        // tiers est un vrai revenu : le classer d'office en transfert l'escamoterait.
+        Assert.Equal(TrLineKind.InternalTransfer, Classify("LIBERT - LAMBRECHT", "BANK_TRANSACTION_INCOMING"));
+        Assert.Equal(TrLineKind.Flow, Classify("PAPY LIBERT", "BANK_TRANSACTION_INCOMING"));
+    }
+
+    [Fact]
     public void IsKnownEventType_ReconnaitLesTypesVusEnProd()
     {
-        // Les deux seuls types que la timeline a livrés le 27/08/2026. Ce test les épingle : s'ils
-        // cessent d'être reconnus, la table de correspondance a dérivé.
+        // Les quatre types que la timeline a livrés le 27/08/2026. Ce test les épingle : s'ils
+        // cessent d'être reconnus, la table de correspondance a dérivé et le journal recommencera
+        // à signaler comme inconnu ce qui est déjà traité.
         Assert.True(TradeRepublicTimelineClassifier.IsKnownEventType("CARD_TRANSACTION"));
         Assert.True(TradeRepublicTimelineClassifier.IsKnownEventType("SSP_CORPORATE_ACTION_CASH"));
+        Assert.True(TradeRepublicTimelineClassifier.IsKnownEventType("BANK_TRANSACTION_INCOMING"));
+        Assert.True(TradeRepublicTimelineClassifier.IsKnownEventType("SPARE_CHANGE_AGGREGATE"));
     }
 
     [Fact]
