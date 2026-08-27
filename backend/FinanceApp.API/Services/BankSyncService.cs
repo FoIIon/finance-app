@@ -172,6 +172,11 @@ public class BankSyncService : BackgroundService
             return;
         }
 
+        // Routage perso/commun : compte logique Perso et mots-clés des règles perso, chargés une fois.
+        // Une transaction d'un compte bancaire perso part sur ce compte au lieu du commun (PersoScopeRouter).
+        var persoAccountId = await PersoAccounts.GetOrCreatePersoAccountIdAsync(context, connection.UserId);
+        var persoKeywords = rules.Where(r => r.RouteToPerso).Select(r => r.Keyword).ToList();
+
         // Remonter à 90 jours s'il reste des transactions sans counterparty
         var hasMissingCounterparty = await context.Transactions
             .AnyAsync(t => t.AccountId == defaultAccount.Id && t.IsImported && t.CounterpartyName == null);
@@ -282,14 +287,18 @@ public class BankSyncService : BackgroundService
                         }
                     }
 
+                    var type = parsedAmount >= 0 ? TransactionType.Income : TransactionType.Expense;
+                    var scope = PersoScopeRouter.Decide(
+                        account.IsPersonal, externalId, type, description, counterparty, persoKeywords);
+
                     var transaction = new Transaction
                     {
                         Amount = Math.Abs(parsedAmount),
                         Description = description,
                         Date = bookingDate,
-                        Type = parsedAmount >= 0 ? TransactionType.Income : TransactionType.Expense,
+                        Type = type,
                         CategoryId = categoryId,
-                        AccountId = defaultAccount.Id,
+                        AccountId = scope == TransactionScope.Perso ? persoAccountId : defaultAccount.Id,
                         ExternalId = externalId,
                         IsImported = true,
                         CounterpartyName = counterparty,
@@ -404,6 +413,13 @@ public class BankSyncService : BackgroundService
                 _logger.LogWarning("Aucun compte trouvé pour l'utilisateur {UserId}.", connection.UserId);
                 return;
             }
+
+            // Routage perso/commun. La carte TR sert au commun (remboursé) comme au perso (abos de
+            // Sébastien) : une dépense TR est commune par défaut, seules celles qui matchent une règle
+            // perso partent côté Perso. Voir PersoScopeRouter.
+            var persoAccountId = await PersoAccounts.GetOrCreatePersoAccountIdAsync(context, connection.UserId);
+            var persoKeywords = rules.Where(r => r.RouteToPerso).Select(r => r.Keyword).ToList();
+            var trBankAccount = connection.BankAccounts.FirstOrDefault(ba => ba.IsActive);
 
             // Noms des titulaires de tous les comptes suivis : c'est ce qui permet de reconnaître
             // qu'un libellé TR désigne un mouvement interne et non un commerçant.
@@ -527,19 +543,23 @@ public class BankSyncService : BackgroundService
                         break;
                 }
 
+                var type = tx.Amount >= 0 ? TransactionType.Income : TransactionType.Expense;
+                var scope = PersoScopeRouter.Decide(
+                    trBankAccount?.IsPersonal ?? false, externalId, type, tx.Title, tx.Title, persoKeywords);
+
                 var transaction = new Transaction
                 {
                     Amount = Math.Abs(tx.Amount),
                     Description = tx.Title,
                     Date = tx.Date,
-                    Type = tx.Amount >= 0 ? TransactionType.Income : TransactionType.Expense,
+                    Type = type,
                     CategoryId = categoryId,
-                    AccountId = defaultAccount.Id,
+                    AccountId = scope == TransactionScope.Perso ? persoAccountId : defaultAccount.Id,
                     ExternalId = externalId,
                     IsImported = true,
                     CounterpartyName = tx.Title,
                     IsFixed = isFixed,
-                    BankAccountId = connection.BankAccounts.FirstOrDefault(ba => ba.IsActive)?.Id
+                    BankAccountId = trBankAccount?.Id
                 };
 
                 context.Transactions.Add(transaction);

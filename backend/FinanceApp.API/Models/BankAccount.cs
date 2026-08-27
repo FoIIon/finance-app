@@ -11,6 +11,13 @@ public class BankAccount
     public string AccountName { get; set; } = string.Empty;
     public string Currency { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
+    /// <summary>
+    /// Compte personnel : ses transactions sont routées vers le dashboard Perso au lieu du Commun.
+    /// Sert à sortir les dépenses perso de Sébastien du bilan commun d'Audrey (compte Argenta perso).
+    /// Un compte non marqué est commun par défaut. Voir PersoScopeRouter et le doc
+    /// projects/app-finance/perso-commun-2026-08-27.md dans le repo Yen.
+    /// </summary>
+    public bool IsPersonal { get; set; } = false;
     /// <summary>Solde réel récupéré via l'API banque (GoCardless balances). Pour comptes manuels = solde calculé à BalanceUpdatedAt.</summary>
     public decimal? RealBalance { get; set; }
     /// <summary>Solde booké (hors transactions pending) récupéré via l'API banque (GoCardless balances). Sert d'ancrage stable pour les courbes rétrospectives (RealBalance peut inclure du pending).</summary>
