@@ -7,6 +7,7 @@ import {
   useLoanScheduleQuery,
   useAccountBalancesQuery,
   useInvestmentsQuery,
+  useCashQuery,
 } from '../hooks/queries';
 import { loansApi } from '../api/loans';
 import { LoanKind } from '../types/loan';
@@ -258,6 +259,7 @@ const Debts = () => {
   const { data: summary } = useDebtSummaryQuery(dashboardId);
   const { data: balances } = useAccountBalancesQuery(dashboardId);
   const { data: investments } = useInvestmentsQuery(dashboardId);
+  const { data: brokerCash } = useCashQuery();
 
   const [form, setForm] = useState<LoanForm>(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -266,12 +268,15 @@ const Debts = () => {
 
   const netWorth = useMemo(() => {
     const cash = balances?.reduce((s, b) => s + b.balance, 0) ?? 0;
+    // Les espèces qui dorment chez le courtier sont hors de la performance du
+    // portefeuille, jamais hors du patrimoine : c'est de l'argent disponible.
+    const broker = brokerCash?.amount ?? 0;
     const invested = investments
       ?.filter((i) => !i.isArchived && i.marketValue != null)
       .reduce((s, i) => s + (i.marketValue ?? 0), 0) ?? 0;
     const debt = summary?.totalRemainingPrincipal ?? 0;
-    return { cash, invested, debt, net: cash + invested - debt };
-  }, [balances, investments, summary]);
+    return { cash, broker, invested, debt, net: cash + broker + invested - debt };
+  }, [balances, brokerCash, investments, summary]);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['loans', dashboardId] });
@@ -423,6 +428,13 @@ const Debts = () => {
           <span className="text-white/90">{formatCurrency(netWorth.cash)}</span>
           <span className="text-white/30">comptes</span>
           <span className="text-white/30">+</span>
+          {netWorth.broker > 0 && (
+            <>
+              <span className="text-white/90">{formatCurrency(netWorth.broker)}</span>
+              <span className="text-white/30">espèces courtier</span>
+              <span className="text-white/30">+</span>
+            </>
+          )}
           <span className="text-white/90">{formatCurrency(netWorth.invested)}</span>
           <span className="text-white/30">investis</span>
           <span className="text-white/30">−</span>

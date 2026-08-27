@@ -243,15 +243,24 @@ public class InvestmentController : ControllerBase
     public async Task<ActionResult<CashBalanceDto>> GetCash()
     {
         var userId = GetUserId();
-        var connection = await _context.BankConnections
-            .Where(bc => bc.UserId == userId && bc.Provider == "TradeRepublic")
-            .OrderByDescending(bc => bc.CashBalanceUpdatedAt)
-            .FirstOrDefaultAsync();
+        // Un ménage peut détenir plusieurs comptes Trade Republic (un par personne).
+        // Ne renvoyer que le dernier rafraîchi ferait disparaître les autres du
+        // patrimoine sans le moindre signe.
+        var connections = await _context.BankConnections
+            .Where(bc => bc.UserId == userId
+                      && bc.Provider == "TradeRepublic"
+                      && bc.CashBalance != null)
+            .ToListAsync();
 
+        if (connections.Count == 0)
+            return Ok(new CashBalanceDto { Amount = null, UpdatedAt = null });
+
+        // La date affichée est celle du relevé le plus ancien : c'est elle qui date
+        // réellement le total.
         return Ok(new CashBalanceDto
         {
-            Amount = connection?.CashBalance,
-            UpdatedAt = connection?.CashBalanceUpdatedAt,
+            Amount = connections.Sum(bc => bc.CashBalance),
+            UpdatedAt = connections.Min(bc => bc.CashBalanceUpdatedAt),
         });
     }
 
