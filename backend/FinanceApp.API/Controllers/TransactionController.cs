@@ -616,32 +616,48 @@ public class TransactionController : ControllerBase
                 CategoryIcon = t.Category.Icon,
                 CategoryColor = t.Category.Color,
                 IsTransfer = t.Category.IsTransfer,
+                ExcludeFromMonthlyReport = t.Category.ExcludeFromMonthlyReport,
                 t.IsFixed,
             })
             .ToListAsync();
 
+        // Hors bilan : les mouvements dont le montant du mois ne se décide pas dans le mois, et dont
+        // la contrepartie est déjà comptée ailleurs. Le balayage du compte joint vers le livret emporte
+        // le reliquat du mois précédent, donc le soustraire ici compte le même euro en positif en M−1
+        // puis en négatif en M. Les virements entre deux comptes suivis gonflent, eux, les deux côtés
+        // du bilan à la fois. Ces lignes sont rendues à part, en information, jamais soustraites.
+        // Diagnostic complet : projects/app-finance/double-comptage-2026-08-27.md dans le repo Yen.
+        var horsBilanItems = raw
+            .Where(t => t.ExcludeFromMonthlyReport)
+            .Select(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount })
+            .ToList();
+
+        // Tout le reste alimente les quatre blocs du modèle d'Audrey.
+        var retenu = raw.Where(t => !t.ExcludeFromMonthlyReport).ToList();
+
         // Bloc ENTRÉES : revenus non-transfert (hors régularisations fixes, déduites du bloc FIXE)
-        var entreesItems = raw.Where(t => t.Type == TransactionType.Income && !t.IsTransfer && !t.IsFixed).ToList();
+        var entreesItems = retenu.Where(t => t.Type == TransactionType.Income && !t.IsTransfer && !t.IsFixed).ToList();
         // Bloc FIXE : dépenses non-transfert marquées charge fixe, nettes des régularisations
         // (revenus fixes : remboursement énergie…) qui comptent en négatif
-        var fixeItems = raw
+        var fixeItems = retenu
             .Where(t => !t.IsTransfer && t.IsFixed)
             .Select(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount })
             .ToList();
-        // Bloc MISES DE CÔTÉ : catégories transfert (épargne, virements perso), nettes des retraits
-        // (un retrait d'épargne = Income transfert, il réduit la mise de côté du mois au lieu de disparaître)
-        var misesItems = raw
+        // Bloc MISES DE CÔTÉ : catégories transfert gardées au bilan (achat de titres, ordre permanent
+        // décidé dans le mois), nettes des retraits (un retrait = Income transfert, compté en négatif)
+        var misesItems = retenu
             .Where(t => t.IsTransfer)
             .Select(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount })
             .ToList();
         // Bloc VARIABLE : dépenses non-transfert non-fixes (le reste)
-        var variableItems = raw.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer && !t.IsFixed).ToList();
+        var variableItems = retenu.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer && !t.IsFixed).ToList();
 
         var entrees = entreesItems.Sum(t => t.Amount);
         var fixe = fixeItems.Sum(t => t.Amount);
         var mises = misesItems.Sum(t => t.Amount);
         var variable = variableItems.Sum(t => t.Amount);
         var variableExceptionnel = variableItems.Where(t => t.IsExceptional).Sum(t => t.Amount);
+        var horsBilan = horsBilanItems.Sum(t => t.Amount);
 
         static List<CategoryBreakdownDto> Breakdown(IEnumerable<(int Id, string Name, string Icon, string Color, decimal Amount)> items) =>
             items
@@ -667,6 +683,7 @@ public class TransactionController : ControllerBase
             MisesDeCote = mises,
             Variable = variable,
             VariableExceptionnel = variableExceptionnel,
+            HorsBilan = horsBilan,
             Total = entrees - fixe - mises - variable,
             EntreesByCategory = Breakdown(entreesItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
             FixeByCategory = Breakdown(fixeItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount)))
@@ -674,6 +691,8 @@ public class TransactionController : ControllerBase
             MisesDeCoteByCategory = Breakdown(misesItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount)))
                 .Where(c => c.Amount != 0).ToList(),
             VariableByCategory = Breakdown(variableItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
+            HorsBilanByCategory = Breakdown(horsBilanItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount)))
+                .Where(c => c.Amount != 0).ToList(),
         });
     }
 

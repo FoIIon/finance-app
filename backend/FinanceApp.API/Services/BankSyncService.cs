@@ -146,8 +146,13 @@ public class BankSyncService : BackgroundService
         }
 
         // Charger les règles de catégorisation de l'utilisateur
+        // Du mot-clé le plus long au plus court : c'est la règle la plus spécifique qui doit gagner.
+        // Sans cet ordre, le premier créé l'emportait, et « Vacance » raflait « Legumes vacances »
+        // au nez d'une règle alimentaire pourtant plus précise (règle de nature du 27/08/2026).
         var rules = await context.CategoryRules
             .Where(cr => cr.UserId == connection.UserId)
+            .OrderByDescending(cr => cr.Keyword.Length)
+            .ThenBy(cr => cr.Id)
             .ToListAsync();
 
         // Catégorie par défaut : "Autres"
@@ -366,15 +371,28 @@ public class BankSyncService : BackgroundService
             // Récupérer les card transactions via HTTP REST (TR a abandonné le WebSocket pour les données)
             // La déduplication par ExternalId évite les doublons — pas besoin de filtrer par date
             var cardTransactions = await trClient.GetCardTransactionsHttpAsync(sessionToken);
+            if (cardTransactions.Count == 0)
+            {
+                connection.LastSyncAt = DateTime.UtcNow;
+                await context.SaveChangesAsync();
+                return;
+            }
 
             // Charger les règles de catégorisation
+            // Même ordre que côté GoCardless : le mot-clé le plus long gagne.
             var rules = await context.CategoryRules
                 .Where(cr => cr.UserId == connection.UserId)
+                .OrderByDescending(cr => cr.Keyword.Length)
+                .ThenBy(cr => cr.Id)
                 .ToListAsync();
 
             var defaultCategory = await context.Categories
-                .FirstOrDefaultAsync(c => c.Name == "Autres" && c.IsDefault);
+                .FirstOrDefaultAsync(c => c.Name == SystemCategories.Autres && c.IsDefault);
             var defaultCategoryId = defaultCategory?.Id ?? 10;
+
+            // Les deux catégories où ranger ce qui n'est pas de la consommation du ménage.
+            var virementInterneId = await SystemCategories.VirementInterneIdAsync(context);
+            var investissementId = await SystemCategories.InvestissementIdAsync(context);
 
             var defaultAccount = await context.Accounts
                 .Where(a => a.UserId == connection.UserId)
@@ -387,23 +405,125 @@ public class BankSyncService : BackgroundService
                 return;
             }
 
+            // Noms des titulaires de tous les comptes suivis : c'est ce qui permet de reconnaître
+            // qu'un libellé TR désigne un mouvement interne et non un commerçant.
+            var ownerNames = (await context.BankAccounts
+                    .Where(ba => ba.UserId == connection.UserId
+                              || (ba.BankConnection != null && ba.BankConnection.UserId == connection.UserId))
+                    .Select(ba => new { ba.OwnerName, ba.AccountName })
+                    .ToListAsync())
+                .SelectMany(ba => new[] { ba.OwnerName, ba.AccountName })
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct()
+                .ToList();
+
+            // Noms d'instruments du portefeuille, pour reconnaître un achat de titres au libellé
+            // quand TR ne fournit pas d'eventType.
+            var dashboardIds = await context.DashboardMembers
+                .Where(m => m.UserId == connection.UserId)
+                .Select(m => m.DashboardId)
+                .ToListAsync();
+            var instrumentNames = TradeRepublicTimelineClassifier.UnambiguousInstrumentNames(
+                await context.Investments
+                    .Where(i => !i.IsArchived && dashboardIds.Contains(i.DashboardId))
+                    .ToListAsync());
+
+            // Candidats au rapprochement : les transactions rattachées à un vrai compte bancaire sur
+            // la fenêtre couverte par la timeline TR, élargie de la tolérance de date.
+            var windowStart = cardTransactions.Min(t => t.Date).Date.AddDays(-InternalTransferReconciler.MaxDayGap);
+            var windowEnd = cardTransactions.Max(t => t.Date).Date.AddDays(InternalTransferReconciler.MaxDayGap + 1);
+            var bankLegEntities = await context.Transactions
+                .Where(t => t.AccountId == defaultAccount.Id
+                         && t.BankAccountId != null
+                         && t.Date >= windowStart && t.Date < windowEnd)
+                .ToListAsync();
+            var bankLegs = bankLegEntities
+                .Select(t => new TransferLeg(t.Id, t.Date, t.Amount, t.Type == TransactionType.Expense, t.CounterpartyName))
+                .ToList();
+            var claimedLegs = new HashSet<int>();
+
+            var unknownEventTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var imported = 0;
+            var reconciled = 0;
+
             foreach (var tx in cardTransactions)
             {
+                var kind = TradeRepublicTimelineClassifier.Classify(tx.Title, tx.EventType, ownerNames, instrumentNames);
+
+                // Aucun euro n'a bougé : un paiement refusé n'a pas à figurer au budget.
+                if (kind == TrLineKind.Ignore) continue;
+
+                // Journaliser les eventType non cartographiés. C'est la seule façon de resserrer la
+                // table de classement sur ce que TR envoie vraiment, au lieu de suppositions.
+                if (!string.IsNullOrWhiteSpace(tx.EventType) && kind == TrLineKind.Flow)
+                    unknownEventTypes.Add(tx.EventType);
+
                 var externalId = $"tr-{tx.Id}";
 
+                // Ligne déjà connue : ni ré-import, ni nouveau rapprochement. Le rapprochement n'a
+                // lieu qu'une fois, au premier import du mouvement, ce qui le rend idempotent et
+                // protège les dépenses dont TR ne renvoie plus le paiement carte correspondant.
+                // Cas vécu : le débit de 60,62 € du 12/08/2026 au Leclerc drive, dont l'alimentation
+                // TR est bien en base mais dont le paiement carte est sorti de la fenêtre TR. Le
+                // neutraliser effacerait la seule trace de cette dépense.
                 var existing = await context.Transactions.FirstOrDefaultAsync(t => t.ExternalId == externalId);
                 if (existing != null) continue;
 
-                var categoryId = defaultCategoryId;
-                var isFixed = false;
-                foreach (var rule in rules)
+                // Un mouvement interne a une jambe bancaire déjà importée par GoCardless. La neutraliser,
+                // sinon le paiement carte qu'elle finance est compté deux fois : une fois au débit du
+                // compte joint, une fois chez le commerçant.
+                if (kind == TrLineKind.InternalTransfer)
                 {
-                    if (tx.Title.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase))
+                    var mirror = InternalTransferReconciler.FindMirror(
+                        Math.Abs(tx.Amount), tx.Date, tx.Amount >= 0m, bankLegs, ownerNames, claimedLegs);
+
+                    if (mirror != null)
                     {
-                        categoryId = rule.CategoryId;
-                        isFixed = rule.MarkAsFixed;
-                        break;
+                        claimedLegs.Add(mirror.Id);
+                        var legEntity = bankLegEntities.First(t => t.Id == mirror.Id);
+                        if (legEntity.CategoryId != virementInterneId)
+                        {
+                            _logger.LogInformation(
+                                "Virement interne rapproche : transaction bancaire {LegId} du {LegDate:yyyy-MM-dd} "
+                                + "({Amount} EUR, {Leg}) passe de la categorie {OldCategory} a Virement interne, "
+                                + "jambe du mouvement TR {TrTitle}.",
+                                legEntity.Id, legEntity.Date, legEntity.Amount, legEntity.Description,
+                                legEntity.CategoryId, tx.Title);
+                            legEntity.CategoryId = virementInterneId;
+                            legEntity.IsFixed = false;
+                            reconciled++;
+                        }
                     }
+                    else
+                    {
+                        _logger.LogInformation(
+                            "Mouvement interne TR sans jambe bancaire rapprochee : {Amount} EUR le {Date:yyyy-MM-dd} ({Title}).",
+                            Math.Abs(tx.Amount), tx.Date, tx.Title);
+                    }
+                }
+
+                int categoryId;
+                var isFixed = false;
+                switch (kind)
+                {
+                    case TrLineKind.InternalTransfer:
+                        categoryId = virementInterneId;
+                        break;
+                    case TrLineKind.Investment:
+                        categoryId = investissementId;
+                        break;
+                    default:
+                        categoryId = defaultCategoryId;
+                        foreach (var rule in rules)
+                        {
+                            if (tx.Title.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase))
+                            {
+                                categoryId = rule.CategoryId;
+                                isFixed = rule.MarkAsFixed;
+                                break;
+                            }
+                        }
+                        break;
                 }
 
                 var transaction = new Transaction
@@ -422,7 +542,18 @@ public class BankSyncService : BackgroundService
                 };
 
                 context.Transactions.Add(transaction);
+                imported++;
             }
+
+            if (unknownEventTypes.Count > 0)
+                _logger.LogInformation(
+                    "Trade Republic : eventType non cartographies, traites comme flux ordinaire - {EventTypes}.",
+                    string.Join(", ", unknownEventTypes.OrderBy(e => e, StringComparer.Ordinal)));
+
+            if (imported > 0 || reconciled > 0)
+                _logger.LogInformation(
+                    "Trade Republic : {Imported} ligne(s) importee(s), {Reconciled} jambe(s) bancaire(s) neutralisee(s).",
+                    imported, reconciled);
 
             connection.LastSyncAt = DateTime.UtcNow;
             await context.SaveChangesAsync();

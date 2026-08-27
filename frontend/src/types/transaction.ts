@@ -102,18 +102,25 @@ export interface MonthlyReport {
   entrees: number;
   /** Dépenses non-transfert marquées charge fixe, nettes des régularisations (revenus fixes). */
   fixe: number;
-  /** Dépenses sur catégories transfert (épargne, virements perso). */
+  /** Mises de côté volontaires du mois (achat de titres, ordre permanent). Hors balayage automatique. */
   misesDeCote: number;
   /** Dépenses non-transfert non-fixes (le reste). */
   variable: number;
   /** Part exceptionnelle du bloc variable. */
   variableExceptionnel: number;
+  /**
+   * Mouvements sortis du bilan : balayage du compte joint vers le livret, virements entre comptes
+   * suivis. Affiché en information sous le total, jamais soustrait — c'est le reliquat du mois
+   * précédent, pas une charge du mois en cours.
+   */
+  horsBilan: number;
   /** entrees − fixe − misesDeCote − variable. */
   total: number;
   entreesByCategory: CategoryBreakdown[];
   fixeByCategory: CategoryBreakdown[];
   misesDeCoteByCategory: CategoryBreakdown[];
   variableByCategory: CategoryBreakdown[];
+  horsBilanByCategory: CategoryBreakdown[];
 }
 
 export interface BurndownDay {
