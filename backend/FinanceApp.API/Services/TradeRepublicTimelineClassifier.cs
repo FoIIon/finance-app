@@ -67,6 +67,21 @@ public static class TradeRepublicTimelineClassifier
     };
 
     /// <summary>
+    /// Vrai si cet `eventType` figure dans la table ci-dessus. Sert à ne journaliser comme inconnus
+    /// que les types qui le sont vraiment : sans cette distinction, tout paiement carte correctement
+    /// reconnu apparaissait dans la liste des types à cartographier, et la liste ne signalait plus rien.
+    ///
+    /// Types observés en prod le 27/08/2026, tous deux reconnus : CARD_TRANSACTION et
+    /// SSP_CORPORATE_ACTION_CASH (dividende versé en espèces).
+    /// </summary>
+    public static bool IsKnownEventType(string? eventType)
+    {
+        if (string.IsNullOrWhiteSpace(eventType)) return false;
+        var normalized = eventType.Trim().ToLowerInvariant();
+        return EventTypeMap.Any(e => normalized.StartsWith(e.Prefix, StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Classe une ligne.
     /// </summary>
     /// <param name="title">Libellé TR de la ligne.</param>
