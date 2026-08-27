@@ -61,9 +61,28 @@ public static class TradeRepublicTimelineClassifier
         ("benefits_saveback", TrLineKind.Investment),
         ("benefits_spare_change", TrLineKind.Investment),
 
+        // Arrondis TR : la monnaie collectée finit en titres, jamais en consommation.
+        ("spare_change_aggregate", TrLineKind.Investment),
+
         // Intérêts et dividendes : de l'argent qui entre pour de bon.
         ("interest_payout", TrLineKind.Flow),
         ("ssp_corporate_action", TrLineKind.Flow),
+    };
+
+    /// <summary>
+    /// Types connus mais qui ne tranchent rien : ils décrivent le canal, pas la nature. Un virement
+    /// bancaire entrant sur le compte courtier est presque toujours une alimentation par Sébastien,
+    /// mais rien n'interdit qu'un tiers lui envoie de l'argent. Les classer d'office en transfert
+    /// escamoterait ce revenu, donc on laisse le nom décider. Les lister ici évite qu'ils polluent
+    /// le journal des types à cartographier.
+    ///
+    /// BANK_TRANSACTION_INCOMING observé en prod le 27/08/2026, sur les alimentations de la carte
+    /// et sur le dépôt de 720 €, tous correctement reconnus par le nom du titulaire.
+    /// </summary>
+    private static readonly string[] NonDecisiveEventTypes =
+    {
+        "bank_transaction_incoming",
+        "bank_transaction_outgoing",
     };
 
     /// <summary>
@@ -78,7 +97,8 @@ public static class TradeRepublicTimelineClassifier
     {
         if (string.IsNullOrWhiteSpace(eventType)) return false;
         var normalized = eventType.Trim().ToLowerInvariant();
-        return EventTypeMap.Any(e => normalized.StartsWith(e.Prefix, StringComparison.Ordinal));
+        return EventTypeMap.Any(e => normalized.StartsWith(e.Prefix, StringComparison.Ordinal))
+            || NonDecisiveEventTypes.Any(e => normalized.StartsWith(e, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -97,10 +117,14 @@ public static class TradeRepublicTimelineClassifier
         if (!string.IsNullOrWhiteSpace(eventType))
         {
             var normalized = eventType.Trim().ToLowerInvariant();
-            foreach (var (prefix, kind) in EventTypeMap)
+            var nonDecisive = NonDecisiveEventTypes.Any(e => normalized.StartsWith(e, StringComparison.Ordinal));
+            if (!nonDecisive)
             {
-                if (normalized.StartsWith(prefix, StringComparison.Ordinal))
-                    return kind;
+                foreach (var (prefix, kind) in EventTypeMap)
+                {
+                    if (normalized.StartsWith(prefix, StringComparison.Ordinal))
+                        return kind;
+                }
             }
         }
 
