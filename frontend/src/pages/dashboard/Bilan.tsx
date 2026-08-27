@@ -148,6 +148,7 @@ const DashboardBilan = () => {
 
   const totalPositive = report.total >= 0;
   const noFixed = report.fixeByCategory.length === 0;
+  const horsBilan = report.horsBilanByCategory ?? [];
 
   return (
     <div className="space-y-5 animate-[fadeIn_0.15s_ease-out]">
@@ -225,6 +226,36 @@ const DashboardBilan = () => {
           </span>
         </div>
       </div>
+
+      {/* HORS BILAN — affiché, jamais soustrait.
+          Le balayage du compte joint vers le livret emporte le reliquat du mois précédent : le
+          soustraire ici comptait le même euro en positif un mois puis en négatif le suivant, ce
+          qui faisait passer août 2026 à −397 € alors que le mois était à +1 144 €. */}
+      {horsBilan.length > 0 && (
+        <div className="bg-white/[0.03] backdrop-blur-xl rounded-2xl border border-white/10 p-5">
+          <div className="flex items-baseline justify-between gap-3 mb-1">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-white/40">Hors bilan</h3>
+            <span className="text-lg font-semibold text-white/50" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+              {formatCurrency(report.horsBilan)}
+            </span>
+          </div>
+          <p className="text-white/40 text-xs mb-3">
+            Balayage vers l'épargne et virements entre tes comptes. Non compté dans le total : cet argent
+            n'a pas quitté la famille, et le balayage du 7 emporte le reliquat du mois précédent.
+          </p>
+          <div className="space-y-1">
+            {horsBilan.map((c) => (
+              <div key={c.categoryId} className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2 min-w-0">
+                  <span aria-hidden="true">{c.categoryIcon}</span>
+                  <span className="text-white/60 truncate">{c.categoryName}</span>
+                </span>
+                <span className="text-white/50 text-xs whitespace-nowrap ml-2">{formatCurrency(c.amount)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {selected && currentDashboard && (
         <CategoryDetailModal

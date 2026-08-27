@@ -12,6 +12,13 @@ public class TrCardTransaction
     public decimal Amount { get; set; }
     public string Title { get; set; } = string.Empty;
     public DateTime Date { get; set; }
+    /// <summary>
+    /// `eventType` de la timeline TR. Dit ce que la ligne est vraiment : paiement carte, alimentation
+    /// du compte, exécution d'ordre. Sans lui, un achat d'ETF et un achat de pain se ressemblent.
+    /// Null quand TR ne le fournit pas, auquel cas le classement retombe sur le libellé
+    /// (voir TradeRepublicTimelineClassifier).
+    /// </summary>
+    public string? EventType { get; set; }
 }
 
 public class TradeRepublicClient : IDisposable
@@ -395,8 +402,9 @@ public class TradeRepublicClient : IDisposable
 
             var title = item.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
             var txId = item.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? "" : "";
+            var eventType = item.TryGetProperty("eventType", out var et) ? et.GetString() : null;
 
-            list.Add(new TrCardTransaction { Id = txId, Amount = amount, Title = title, Date = txDate });
+            list.Add(new TrCardTransaction { Id = txId, Amount = amount, Title = title, Date = txDate, EventType = eventType });
         }
         return list;
     }
@@ -448,7 +456,8 @@ public class TradeRepublicClient : IDisposable
                     Id = txId,
                     Amount = amount,
                     Title = title,
-                    Date = txDate
+                    Date = txDate,
+                    EventType = eventType
                 });
             }
             return list;

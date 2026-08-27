@@ -155,19 +155,27 @@ public class MonthlyReportDto
     /// <summary>Dépenses non-transfert marquées « charge fixe » (Transaction.IsFixed),
     /// nettes des régularisations (revenus fixes : remboursement énergie…).</summary>
     public decimal Fixe { get; set; }
-    /// <summary>Catégories transfert (épargne, virements perso) — les « mises de côté » d'Audrey,
-    /// nettes des retraits (Income transfert compté en négatif).</summary>
+    /// <summary>Catégories transfert gardées au bilan (achat de titres, ordre permanent) — les
+    /// « mises de côté » d'Audrey, nettes des retraits (Income transfert compté en négatif).
+    /// Le balayage automatique vers le livret n'est PAS ici, voir <see cref="HorsBilan"/>.</summary>
     public decimal MisesDeCote { get; set; }
     /// <summary>Dépenses non-transfert non-fixes — le reste variable.</summary>
     public decimal Variable { get; set; }
     /// <summary>Part exceptionnelle du bloc variable (dépenses IsExceptional).</summary>
     public decimal VariableExceptionnel { get; set; }
+    /// <summary>
+    /// Mouvements sortis du bilan (Category.ExcludeFromMonthlyReport) : balayage du compte joint vers
+    /// le livret, virements entre comptes suivis. Rendu pour affichage en information sous le total,
+    /// jamais soustrait — c'est le reliquat du mois précédent, pas une charge du mois en cours.
+    /// </summary>
+    public decimal HorsBilan { get; set; }
     /// <summary>Entrées − Fixe − MisesDeCote − Variable : ce qu'il reste sur le mois.</summary>
     public decimal Total { get; set; }
     public List<CategoryBreakdownDto> EntreesByCategory { get; set; } = new();
     public List<CategoryBreakdownDto> FixeByCategory { get; set; } = new();
     public List<CategoryBreakdownDto> MisesDeCoteByCategory { get; set; } = new();
     public List<CategoryBreakdownDto> VariableByCategory { get; set; } = new();
+    public List<CategoryBreakdownDto> HorsBilanByCategory { get; set; } = new();
 }
 
 /// <summary>Un point de la courbe burn-down : cumul du mois au soir du jour <see cref="Day"/>.</summary>
