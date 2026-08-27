@@ -158,6 +158,25 @@ public class TradeRepublicTimelineClassifierTests
         Assert.Equal(TrLineKind.Investment, Classify("Bitcoin", "un_type_que_TR_inventera"));
     }
 
+    [Fact]
+    public void IsKnownEventType_ReconnaitLesTypesVusEnProd()
+    {
+        // Les deux seuls types que la timeline a livrés le 27/08/2026. Ce test les épingle : s'ils
+        // cessent d'être reconnus, la table de correspondance a dérivé.
+        Assert.True(TradeRepublicTimelineClassifier.IsKnownEventType("CARD_TRANSACTION"));
+        Assert.True(TradeRepublicTimelineClassifier.IsKnownEventType("SSP_CORPORATE_ACTION_CASH"));
+    }
+
+    [Fact]
+    public void IsKnownEventType_SignaleCeQuiEstVraimentInconnu()
+    {
+        // La distinction sert au journal : sans elle, chaque paiement carte correctement reconnu
+        // apparaissait dans la liste des types à cartographier, et la liste ne signalait plus rien.
+        Assert.False(TradeRepublicTimelineClassifier.IsKnownEventType("un_type_que_TR_inventera"));
+        Assert.False(TradeRepublicTimelineClassifier.IsKnownEventType(null));
+        Assert.False(TradeRepublicTimelineClassifier.IsKnownEventType("   "));
+    }
+
     // ---------------------------------------------------------------- sélection des instruments
 
     [Fact]

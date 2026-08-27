@@ -455,8 +455,9 @@ public class BankSyncService : BackgroundService
 
                 // Journaliser les eventType non cartographiés. C'est la seule façon de resserrer la
                 // table de classement sur ce que TR envoie vraiment, au lieu de suppositions.
-                if (!string.IsNullOrWhiteSpace(tx.EventType) && kind == TrLineKind.Flow)
-                    unknownEventTypes.Add(tx.EventType);
+                if (!string.IsNullOrWhiteSpace(tx.EventType)
+                    && !TradeRepublicTimelineClassifier.IsKnownEventType(tx.EventType))
+                    unknownEventTypes.Add(tx.EventType!);
 
                 var externalId = $"tr-{tx.Id}";
 
