@@ -237,6 +237,43 @@ public static class TradeRepublicPortfolioParser
         return (items, after);
     }
 
+    /// <summary>
+    /// La page de timeline sans ses lignes : toutes les propriétés racine (le tableau items
+    /// remplacé par son nombre d'éléments), et les clés du premier item. Sert au journal, pour
+    /// découvrir la forme réelle du curseur de pagination sans logguer de données.
+    /// </summary>
+    public static string DescribeTimelineEnvelope(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return $"racine {root.ValueKind}";
+            var parts = new List<string>();
+            foreach (var prop in root.EnumerateObject())
+            {
+                if (prop.Name == "items" && prop.Value.ValueKind == JsonValueKind.Array)
+                {
+                    var n = prop.Value.GetArrayLength();
+                    var cles = n > 0 && prop.Value[0].ValueKind == JsonValueKind.Object
+                        ? string.Join("|", prop.Value[0].EnumerateObject().Select(p => p.Name))
+                        : "";
+                    parts.Add($"items[{n}]{{{cles}}}");
+                }
+                else
+                {
+                    var raw = prop.Value.GetRawText();
+                    parts.Add($"{prop.Name}={(raw.Length > 200 ? raw[..200] + "…" : raw)}");
+                }
+            }
+            return string.Join(", ", parts);
+        }
+        catch (Exception ex)
+        {
+            return $"illisible : {ex.Message}";
+        }
+    }
+
     /// <summary>Solde espèces en euros du compte Trade Republic.</summary>
     public static decimal? ParseCashBalance(string json)
     {

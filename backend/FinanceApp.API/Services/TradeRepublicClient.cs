@@ -670,6 +670,10 @@ public class TradeRepublicClient : IDisposable
                 throw new InvalidOperationException($"TR timeline HTTP {(int)response.StatusCode}: {body[..Math.Min(200, body.Length)]}");
 
             var (items, next) = TradeRepublicPortfolioParser.ParseTimelinePage(body);
+            // Diagnostic de pagination (28/08/2026 : deux pages puis arrêt, plus ancienne 13/08).
+            // On journalise la structure de la page sans ses lignes, pour voir le vrai nom du curseur.
+            _logger.LogInformation("TR timeline page {page} ({url}) : {lignes} lignes, curseur lu « {next} », structure : {structure}",
+                page + 1, url, items.Count, next ?? "(aucun)", TradeRepublicPortfolioParser.DescribeTimelineEnvelope(body));
             var nouveaux = 0;
             foreach (var item in items)
             {
