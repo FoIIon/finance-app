@@ -537,7 +537,8 @@ public class BankSyncService : BackgroundService
                 }
 
                 var type = tx.Amount >= 0 ? TransactionType.Income : TransactionType.Expense;
-                var scope = PersoScopeRouter.Decide(trBankAccountIsPersonal, externalId, type, matchedRule);
+                var scope = PersoScopeRouter.Decide(
+                    trBankAccountIsPersonal, externalId, type, matchedRule, isInvestment: kind == TrLineKind.Investment);
 
                 var transaction = new Transaction
                 {

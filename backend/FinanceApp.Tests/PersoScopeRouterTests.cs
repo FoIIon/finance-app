@@ -113,6 +113,28 @@ public class PersoScopeRouterTests
         Assert.Equal(TransactionScope.Common, scope);
     }
 
+    // ---------------------------------------------------------------- titres Trade Republic
+
+    [Fact]
+    public void MouvementDeTitresTr_EstPerso_DansLesDeuxSens()
+    {
+        // Les 200 € de Bitcoin du 17/08 (id 556) : la catégorie Investissement est forcée à l'import,
+        // aucune règle ne matche, et pourtant le portefeuille est celui de Sébastien.
+        var achat = PersoScopeRouter.Decide(false, "tr-556", TransactionType.Expense, matchedRule: null, isInvestment: true);
+        Assert.Equal(TransactionScope.Perso, achat);
+        var vente = PersoScopeRouter.Decide(false, "tr-557", TransactionType.Income, matchedRule: null, isInvestment: true);
+        Assert.Equal(TransactionScope.Perso, vente);
+    }
+
+    [Fact]
+    public void MouvementDeTitres_HorsTr_ResteCommun()
+    {
+        // Un achat de titres saisi à la main ou venu d'une banque GoCardless ne bascule pas : la règle
+        // ne parle que du portefeuille Trade Republic.
+        var scope = PersoScopeRouter.Decide(false, "gc-42", TransactionType.Expense, matchedRule: null, isInvestment: true);
+        Assert.Equal(TransactionScope.Common, scope);
+    }
+
     [Fact]
     public void LignesTr_ReconnuesParLePrefixe()
     {
