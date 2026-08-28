@@ -33,8 +33,7 @@ public class AccountController : ControllerBase
         {
             Id = a.Id,
             Name = a.Name,
-            CreatedAt = a.CreatedAt,
-            IsPersonalScope = a.IsPersonalScope
+            CreatedAt = a.CreatedAt
         }));
     }
 
@@ -46,8 +45,7 @@ public class AccountController : ControllerBase
         {
             Id = account.Id,
             Name = account.Name,
-            CreatedAt = account.CreatedAt,
-            IsPersonalScope = account.IsPersonalScope
+            CreatedAt = account.CreatedAt
         });
     }
 
@@ -65,8 +63,7 @@ public class AccountController : ControllerBase
         {
             Id = account.Id,
             Name = account.Name,
-            CreatedAt = account.CreatedAt,
-            IsPersonalScope = account.IsPersonalScope
+            CreatedAt = account.CreatedAt
         });
     }
 

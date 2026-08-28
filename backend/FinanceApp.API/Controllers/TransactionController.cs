@@ -347,8 +347,9 @@ public class TransactionController : ControllerBase
     {
         var userId = GetUserId();
 
-        var rules = await _context.CategoryRules
-            .Where(cr => cr.UserId == userId)
+        // Même ordre qu'à l'import : le mot-clé le plus long gagne.
+        var rules = await CategoryRuleMatcher
+            .InApplicationOrder(_context.CategoryRules.Where(cr => cr.UserId == userId))
             .ToListAsync();
 
         var defaultCategory = await _context.Categories
@@ -372,24 +373,21 @@ public class TransactionController : ControllerBase
         int fixedUpdated = 0;
         foreach (var tx in transactions)
         {
-            foreach (var rule in rules)
+            var rule = CategoryRuleMatcher.FirstMatch(rules, tx.Description, tx.CounterpartyName);
+            if (rule == null) continue;
+
+            if (tx.CategoryId == defaultCategoryId)
             {
-                if (tx.Description.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase) ||
-                    (tx.CounterpartyName != null && tx.CounterpartyName.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase)))
-                {
-                    if (tx.CategoryId == defaultCategoryId)
-                    {
-                        tx.CategoryId = rule.CategoryId;
-                        updated++;
-                    }
-                    if (tx.IsFixed != rule.MarkAsFixed)
-                    {
-                        tx.IsFixed = rule.MarkAsFixed;
-                        fixedUpdated++;
-                    }
-                    break;
-                }
+                tx.CategoryId = rule.CategoryId;
+                updated++;
             }
+            if (tx.IsFixed != rule.MarkAsFixed)
+            {
+                tx.IsFixed = rule.MarkAsFixed;
+                fixedUpdated++;
+            }
+            // Le périmètre perso/commun n'est volontairement pas rejoué ici : une ligne déplacée à la
+            // main par Sébastien ne doit pas revenir de force au Commun. Voir PersoScopeRouter.
         }
 
         await _context.SaveChangesAsync();
@@ -948,6 +946,39 @@ public class TransactionController : ControllerBase
     }
 
     /// <summary>
+    /// Les comptes bancaires actifs de l'utilisateur (connectés ou manuels) qui relèvent du périmètre du
+    /// dashboard. Les agrégats (bilan, courbes) filtrent déjà par compte logique. Les soldes, eux, sont
+    /// portés par le compte bancaire, qui n'appartient à aucun dashboard : avant le 28/08/2026 le widget
+    /// Soldes du Commun comptait l'Argenta perso et divergeait du bilan d'exactement ce montant.
+    /// Règle : un dashboard qui ne contient que le compte logique Perso ne voit que les comptes bancaires
+    /// marqués perso, un dashboard sans compte Perso ne voit que les autres, un dashboard mixte voit tout.
+    /// </summary>
+    private async Task<List<BankAccount>> GetBankAccountsInScopeAsync(List<int> accountIds)
+    {
+        var userId = GetUserId();
+
+        var bankAccounts = await _context.BankAccounts
+            .Include(ba => ba.BankConnection)
+            .Where(ba => ba.IsActive && (
+                (ba.BankConnection != null && ba.BankConnection.UserId == userId)
+                || (ba.IsManual && ba.UserId == userId)
+            ))
+            .ToListAsync();
+
+        var scopes = await _context.Accounts
+            .Where(a => accountIds.Contains(a.Id))
+            .Select(a => a.IsPersonalScope)
+            .Distinct()
+            .ToListAsync();
+        var hasPerso = scopes.Contains(true);
+        var hasCommon = scopes.Contains(false);
+
+        if (hasPerso && !hasCommon) return bankAccounts.Where(ba => ba.IsPersonal).ToList();
+        if (hasCommon && !hasPerso) return bankAccounts.Where(ba => !ba.IsPersonal).ToList();
+        return bankAccounts;
+    }
+
+    /// <summary>
     /// Total des soldes du dashboard, ancré sur le solde booké (hors pending) pour les comptes GoCardless.
     /// Réplique la résolution manuel/GoCardless de <see cref="GetAccountBalances"/> (branche non-historique),
     /// mais préfère BookedBalance à RealBalance — RealBalance (interimAvailable) reste utilisé partout ailleurs
@@ -958,15 +989,7 @@ public class TransactionController : ControllerBase
         var accountIds = await GetAccountIds(dashboardId);
         if (!accountIds.Any()) return 0m;
 
-        var userId = GetUserId();
-
-        var bankAccounts = await _context.BankAccounts
-            .Include(ba => ba.BankConnection)
-            .Where(ba => ba.IsActive && (
-                (ba.BankConnection != null && ba.BankConnection.UserId == userId)
-                || (ba.IsManual && ba.UserId == userId)
-            ))
-            .ToListAsync();
+        var bankAccounts = await GetBankAccountsInScopeAsync(accountIds);
 
         if (!bankAccounts.Any())
         {
@@ -1142,21 +1165,13 @@ public class TransactionController : ControllerBase
         var accountIds = await GetAccountIds(dashboardId);
         if (!accountIds.Any()) return Ok(new List<AccountBalanceDto>());
 
-        var userId = GetUserId();
         var now = DateTime.UtcNow;
         var asOf = to;
         // Si la borne dépasse maintenant (ex: période "Cette année" jusqu'à 31 déc), on plafonne à now
         if (asOf.HasValue && asOf.Value > now) asOf = null;
         var historical = asOf.HasValue;
 
-        // Comptes connectés via BankConnection + comptes manuels (BankConnection.UserId == userId OU IsManual && UserId == userId)
-        var bankAccounts = await _context.BankAccounts
-            .Include(ba => ba.BankConnection)
-            .Where(ba => ba.IsActive && (
-                (ba.BankConnection != null && ba.BankConnection.UserId == userId)
-                || (ba.IsManual && ba.UserId == userId)
-            ))
-            .ToListAsync();
+        var bankAccounts = await GetBankAccountsInScopeAsync(accountIds);
 
         if (!bankAccounts.Any())
         {

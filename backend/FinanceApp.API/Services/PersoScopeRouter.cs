@@ -24,7 +24,13 @@ public enum TransactionScope
 ///
 /// Deux règles, et une seule direction par défaut : commun.
 ///   1. Tout mouvement d'un compte bancaire marqué perso (BankAccount.IsPersonal) est perso.
-///   2. Une dépense carte Trade Republic qui matche une règle perso (CategoryRule.RouteToPerso) est perso.
+///   2. Une dépense carte Trade Republic dont la règle de catégorisation gagnante porte
+///      CategoryRule.RouteToPerso est perso.
+///
+/// La règle 2 s'appuie sur la règle **gagnante** de la catégorisation, pas sur une seconde recherche
+/// de mots-clés. Revue du 28/08/2026 : une boucle séparée sur les seuls mots-clés perso laissait une
+/// règle courte « Orange » en perso rafler « ORANGE BELGIUM », pourtant catégorisée par une règle
+/// commune plus longue. La règle qui catégorise est celle qui route, et une seule.
 ///
 /// On ne déduit JAMAIS le perso de l'absence de remboursement. Sébastien rembourse parfois plusieurs
 /// achats communs en un seul virement, ce qui casse tout appariement, et surtout une course commune pas
@@ -34,41 +40,32 @@ public enum TransactionScope
 /// </summary>
 public static class PersoScopeRouter
 {
+    /// <summary>Préfixe des ExternalId produits par la synchronisation Trade Republic.</summary>
+    public const string TradeRepublicExternalIdPrefix = "tr-";
+
     /// <summary>
     /// Décide le périmètre d'une transaction.
     /// </summary>
     /// <param name="bankAccountIsPersonal">Le compte bancaire porteur est-il marqué perso.</param>
     /// <param name="externalId">ExternalId de la transaction. Les lignes Trade Republic portent « tr-… ».</param>
     /// <param name="type">Dépense ou revenu.</param>
-    /// <param name="description">Libellé.</param>
-    /// <param name="counterpartyName">Contrepartie, si connue.</param>
-    /// <param name="persoRuleKeywords">Mots-clés des règles perso (CategoryRule.RouteToPerso).</param>
+    /// <param name="matchedRule">La règle de catégorisation gagnante, ou null si aucune n'a matché.</param>
     public static TransactionScope Decide(
         bool bankAccountIsPersonal,
         string? externalId,
         TransactionType type,
-        string description,
-        string? counterpartyName,
-        IEnumerable<string> persoRuleKeywords)
+        CategoryRule? matchedRule)
     {
         // 1. Un compte bancaire perso ne porte que du perso, quel que soit le sens du mouvement.
         //    C'est ce qui envoie la jambe entrante des 830 € (dotation épargne perso) côté Perso, donc
         //    jamais comptée en revenu commun, pendant que la jambe sortante reste une dépense du Commun.
         if (bankAccountIsPersonal) return TransactionScope.Perso;
 
-        // 2. Une dépense carte Trade Republic explicitement désignée perso par une règle. On se limite
-        //    aux dépenses (un revenu TR — dividende, intérêts — reste commun) et aux lignes TR, seules
-        //    concernées par l'usage mixte de la carte. Un match ailleurs ne doit pas router.
-        if (type == TransactionType.Expense && IsTradeRepublicLine(externalId))
-        {
-            foreach (var keyword in persoRuleKeywords)
-            {
-                if (string.IsNullOrWhiteSpace(keyword)) continue;
-                if (description.Contains(keyword, StringComparison.OrdinalIgnoreCase)
-                    || (counterpartyName != null && counterpartyName.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
-                    return TransactionScope.Perso;
-            }
-        }
+        // 2. Une dépense carte Trade Republic dont la règle gagnante est perso. On se limite aux
+        //    dépenses (un revenu TR, dividende ou intérêts, reste commun) et aux lignes TR, seules
+        //    concernées par l'usage mixte de la carte. Une règle perso qui matche ailleurs ne route pas.
+        if (type == TransactionType.Expense && IsTradeRepublicLine(externalId) && matchedRule?.RouteToPerso == true)
+            return TransactionScope.Perso;
 
         // 3. Tout le reste est commun. Un perso non prévu par une règle reste donc visible au Commun,
         //    jamais escamoté : le sens du risque est volontaire.
@@ -77,5 +74,5 @@ public static class PersoScopeRouter
 
     /// <summary>Vrai si la transaction vient de la timeline Trade Republic (ExternalId « tr-… »).</summary>
     public static bool IsTradeRepublicLine(string? externalId) =>
-        externalId != null && externalId.StartsWith("tr-", StringComparison.Ordinal);
+        externalId != null && externalId.StartsWith(TradeRepublicExternalIdPrefix, StringComparison.Ordinal);
 }

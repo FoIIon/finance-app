@@ -8,19 +8,26 @@ namespace FinanceApp.Tests;
 /// Le routage perso/commun d'une transaction. Les cas viennent des lignes réelles d'août 2026 : le
 /// compte Argenta perso connecté le 05/08, la carte Trade Republic à usage mixte, l'ordre permanent
 /// des 830 €. Règle posée le 27/08 : commun par défaut, le perso se désigne explicitement.
+/// Depuis le 28/08, le périmètre se lit sur la règle de catégorisation gagnante, pas sur une seconde
+/// recherche de mots-clés.
 /// </summary>
 public class PersoScopeRouterTests
 {
     /// <summary>Les abos perso de Sébastien, payés carte TR et non remboursés depuis le commun.</summary>
-    private static readonly string[] ReglesPerso = ["Anthropic", "Orange"];
+    private static readonly List<CategoryRule> Regles =
+    [
+        new() { Id = 1, Keyword = "ORANGE BELGIUM", CategoryId = 12, RouteToPerso = false },
+        new() { Id = 2, Keyword = "Anthropic", CategoryId = 20, RouteToPerso = true },
+        new() { Id = 3, Keyword = "Orange", CategoryId = 20, RouteToPerso = true },
+        new() { Id = 4, Keyword = "Colruyt", CategoryId = 7, RouteToPerso = false },
+    ];
 
-    private static TransactionScope Route(
-        bool bankPerso,
-        string? externalId,
-        TransactionType type,
-        string description,
-        string? counterparty = null) =>
-        PersoScopeRouter.Decide(bankPerso, externalId, type, description, counterparty ?? description, ReglesPerso);
+    private static TransactionScope Route(bool bankPerso, string? externalId, TransactionType type, string description)
+    {
+        var ordered = Regles.OrderByDescending(r => r.Keyword.Length).ThenBy(r => r.Id);
+        var matched = CategoryRuleMatcher.FirstMatch(ordered, description, description);
+        return PersoScopeRouter.Decide(bankPerso, externalId, type, matched);
+    }
 
     // ---------------------------------------------------------------- compte bancaire perso
 
@@ -63,7 +70,16 @@ public class PersoScopeRouterTests
     }
 
     [Fact]
-    public void RevenuTr_ResteCommun_MemeSiUnMotClePourraitMatcher()
+    public void RegleCommuneLongue_BatRegleCourtePerso()
+    {
+        // Revue du 28/08 : « Orange » (perso) est un sous-mot de « ORANGE BELGIUM » (règle commune du
+        // jeu par défaut). La règle la plus longue catégorise, et c'est elle qui route : la facture
+        // commune payée carte TR reste au Commun.
+        Assert.Equal(TransactionScope.Common, Route(false, "tr-600", TransactionType.Expense, "ORANGE BELGIUM SA"));
+    }
+
+    [Fact]
+    public void RevenuTr_ResteCommun_MemeSiUneRegleMatche()
     {
         // Un revenu TR (dividende, intérêts) n'est pas un achat perso. Le remboursement Apple de 1,20 €
         // du 13/08 est un dividende en espèces, pas une dépense : il ne se route pas côté Perso.
@@ -73,7 +89,7 @@ public class PersoScopeRouterTests
     // ---------------------------------------------------------------- garde-fous
 
     [Fact]
-    public void DepenseBancaireCommune_MatchantUnMotClePerso_ResteCommune()
+    public void DepenseBancaireCommune_MatchantUneReglePerso_ResteCommune()
     {
         // Une facture Orange domiciliée sur le compte joint n'est pas une ligne TR : la règle perso ne
         // s'applique qu'à la carte Trade Republic. Sans ce garde, un abo commun basculerait en perso.
@@ -90,11 +106,18 @@ public class PersoScopeRouterTests
     }
 
     [Fact]
-    public void SansReglePerso_ToutEstCommunSaufCompteBancairePerso()
+    public void SansRegleGagnante_ToutEstCommunSaufCompteBancairePerso()
     {
         var scope = PersoScopeRouter.Decide(
-            bankAccountIsPersonal: false, externalId: "tr-580", type: TransactionType.Expense,
-            description: "Anthropic", counterpartyName: "Anthropic", persoRuleKeywords: []);
+            bankAccountIsPersonal: false, externalId: "tr-580", type: TransactionType.Expense, matchedRule: null);
         Assert.Equal(TransactionScope.Common, scope);
+    }
+
+    [Fact]
+    public void LignesTr_ReconnuesParLePrefixe()
+    {
+        Assert.True(PersoScopeRouter.IsTradeRepublicLine($"{PersoScopeRouter.TradeRepublicExternalIdPrefix}42"));
+        Assert.False(PersoScopeRouter.IsTradeRepublicLine("gc-42"));
+        Assert.False(PersoScopeRouter.IsTradeRepublicLine(null));
     }
 }
