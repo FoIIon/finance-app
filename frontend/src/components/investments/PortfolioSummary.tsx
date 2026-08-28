@@ -32,15 +32,27 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
   // Règle d'honnêteté : sans point d'historique daté au plus tard au début de la
   // période, il n'existe aucune baseline légitime, donc aucune variation affichable.
   const { baseline } = splitHistory(history, period);
-  const variation = baseline !== null ? totalValue - baseline.value : null;
-  const variationPct =
-    baseline !== null && baseline.value > 0 ? ((totalValue - baseline.value) / baseline.value) * 100 : null;
+  const lastPoint = history.length > 0 ? history[history.length - 1] : null;
+
+  // Sur une série rebâtie depuis la timeline, la valeur bouge surtout par les apports : comparer
+  // la valeur d'aujourd'hui au premier point (200 € au premier ordre) affichait +8 000 %. La
+  // variation d'une période est donc celle du RÉSULTAT (valeur − investi net), apports neutralisés,
+  // rapportée à l'investi net en début de période. Les deux bornes viennent de la même série.
+  const surResultat =
+    baseline !== null && lastPoint !== null && baseline.reconstructed && lastPoint.reconstructed
+    && baseline.invested != null && lastPoint.invested != null;
+  const variation = surResultat
+    ? (lastPoint!.value - lastPoint!.invested!) - (baseline!.value - baseline!.invested!)
+    : baseline !== null ? totalValue - baseline.value : null;
+  const baseInvesti = surResultat ? (baseline!.invested! > 0 ? baseline!.invested! : lastPoint!.invested!) : null;
+  const variationPct = surResultat
+    ? (baseInvesti != null && baseInvesti > 0 && variation != null ? (variation / baseInvesti) * 100 : null)
+    : baseline !== null && baseline.value > 0 ? ((totalValue - baseline.value) / baseline.value) * 100 : null;
 
   // Des lignes entrées dans la courbe depuis la baseline gonflent la variation :
   // sans cette mention, un apport se lirait comme une performance.
-  const lastPoint = history.length > 0 ? history[history.length - 1] : null;
   const includesContributions =
-    baseline !== null && lastPoint !== null && lastPoint.linesIncluded > baseline.linesIncluded;
+    !surResultat && baseline !== null && lastPoint !== null && lastPoint.linesIncluded > baseline.linesIncluded;
 
   // Résultat total, ventes comprises : dernier point rebâti depuis la timeline TR. Valeur moins
   // investi net (achats − ventes). C'est le chiffre que la plus-value latente ne donne pas :
@@ -68,6 +80,14 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
             {variationPct !== null && (
               <span className="text-sm font-medium opacity-80 ml-1">
                 ({variationPct >= 0 ? '+' : ''}{formatPercent(variationPct)} %)
+              </span>
+            )}
+            {surResultat && (
+              <span
+                className="text-xs font-normal text-white/40 ml-2"
+                title="Variation du résultat (valeur moins investi net) sur la période, apports et retraits neutralisés, rapportée à l'investi net en début de période"
+              >
+                hors apports
               </span>
             )}
             {includesContributions && (
