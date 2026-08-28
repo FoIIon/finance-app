@@ -74,10 +74,12 @@ const Bank = () => {
   // Règles de catégorisation
   const [ruleKeyword, setRuleKeyword] = useState('');
   const [ruleMarkAsFixed, setRuleMarkAsFixed] = useState(false);
+  const [ruleRouteToPerso, setRuleRouteToPerso] = useState(false);
   const [ruleCategoryId, setRuleCategoryId] = useState<number>(0);
   const [editingRule, setEditingRule] = useState<CategoryRule | null>(null);
   const [editKeyword, setEditKeyword] = useState('');
   const [editMarkAsFixed, setEditMarkAsFixed] = useState(false);
+  const [editRouteToPerso, setEditRouteToPerso] = useState(false);
   const [editCategoryId, setEditCategoryId] = useState<number>(0);
   const [ruleDeleteConfirm, setRuleDeleteConfirm] = useState<number | null>(null);
 
@@ -215,17 +217,22 @@ const Bank = () => {
   };
 
   const handleToggleAccount = async (account: BankAccount) => {
-    await updateAccount(account.id, !account.isActive);
+    await updateAccount(account.id, { isActive: !account.isActive });
+  };
+
+  const handleTogglePersonal = async (account: BankAccount) => {
+    await updateAccount(account.id, { isPersonal: !account.isPersonal });
   };
 
   const handleAddRule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ruleKeyword.trim() || ruleCategoryId === 0) return;
-    const data: CreateCategoryRule = { keyword: ruleKeyword.trim(), categoryId: ruleCategoryId, markAsFixed: ruleMarkAsFixed };
+    const data: CreateCategoryRule = { keyword: ruleKeyword.trim(), categoryId: ruleCategoryId, markAsFixed: ruleMarkAsFixed, routeToPerso: ruleRouteToPerso };
     await createCategoryRule(data);
     setRuleKeyword('');
     setRuleCategoryId(0);
     setRuleMarkAsFixed(false);
+    setRuleRouteToPerso(false);
   };
 
   const handleStartEditRule = (rule: CategoryRule) => {
@@ -233,11 +240,12 @@ const Bank = () => {
     setEditKeyword(rule.keyword);
     setEditCategoryId(rule.categoryId);
     setEditMarkAsFixed(rule.markAsFixed);
+    setEditRouteToPerso(rule.routeToPerso);
   };
 
   const handleSaveEditRule = async () => {
     if (!editingRule) return;
-    await updateCategoryRule(editingRule.id, { keyword: editKeyword.trim(), categoryId: editCategoryId, markAsFixed: editMarkAsFixed });
+    await updateCategoryRule(editingRule.id, { keyword: editKeyword.trim(), categoryId: editCategoryId, markAsFixed: editMarkAsFixed, routeToPerso: editRouteToPerso });
     setEditingRule(null);
   };
 
@@ -304,6 +312,7 @@ const Bank = () => {
               onDeleteConfirm={() => handleDelete(conn.id)}
               onDeleteCancel={() => setDeleteConfirm(null)}
               onToggleAccount={handleToggleAccount}
+              onTogglePersonal={handleTogglePersonal}
               onReauth={conn.institutionId === 'trade-republic' && conn.status === BankConnectionStatus.Error ? handleReauth : undefined}
               onReconnect={
                 conn.institutionId !== 'trade-republic' &&
@@ -361,6 +370,15 @@ const Bank = () => {
             />
             <span className="text-sm text-white/80 whitespace-nowrap" title="Les transactions matchées sont marquées charge fixe (bloc FIXE du bilan mensuel)">Charge fixe</span>
           </label>
+          <label className="flex items-center gap-2 h-[46px] px-3 rounded-xl bg-white/5 border border-white/10 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={ruleRouteToPerso}
+              onChange={(e) => setRuleRouteToPerso(e.target.checked)}
+              className="w-4 h-4 accent-violet-500"
+            />
+            <span className="text-sm text-white/80 whitespace-nowrap" title="Les dépenses carte Trade Republic matchées comptent au budget Perso, pas au Commun">Perso</span>
+          </label>
           <button
             type="submit"
             className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-semibold hover:from-amber-600 hover:to-orange-700 transition-all"
@@ -380,6 +398,7 @@ const Bank = () => {
                   <th className="text-left p-4 text-white/40 font-medium text-sm">Mot-clé</th>
                   <th className="text-left p-4 text-white/40 font-medium text-sm">Catégorie</th>
                   <th className="text-left p-4 text-white/40 font-medium text-sm">Fixe</th>
+                  <th className="text-left p-4 text-white/40 font-medium text-sm">Perso</th>
                   <th className="text-right p-4 text-white/40 font-medium text-sm">Actions</th>
                 </tr>
               </thead>
@@ -416,6 +435,15 @@ const Bank = () => {
                             className="w-4 h-4 accent-blue-500"
                           />
                         </td>
+                        <td className="p-4">
+                          <input
+                            type="checkbox"
+                            checked={editRouteToPerso}
+                            onChange={(e) => setEditRouteToPerso(e.target.checked)}
+                            aria-label="Perso"
+                            className="w-4 h-4 accent-violet-500"
+                          />
+                        </td>
                         <td className="p-4 text-right space-x-2">
                           <button onClick={handleSaveEditRule} className="text-emerald-400 hover:text-emerald-300 text-sm font-medium">Enregistrer</button>
                           <button onClick={() => setEditingRule(null)} className="text-white/40 hover:text-white text-sm">Annuler</button>
@@ -429,6 +457,13 @@ const Bank = () => {
                           {rule.markAsFixed && (
                             <span className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-blue-500/15 border border-blue-500/30 text-blue-300">
                               fixe
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          {rule.routeToPerso && (
+                            <span className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-violet-500/15 border border-violet-500/30 text-violet-300">
+                              perso
                             </span>
                           )}
                         </td>
@@ -644,13 +679,14 @@ interface ConnectionCardProps {
   onDeleteConfirm: () => void;
   onDeleteCancel: () => void;
   onToggleAccount: (account: BankAccount) => void;
+  onTogglePersonal: (account: BankAccount) => void;
   onReauth?: () => void;
   onReconnect?: () => void;
 }
 
 const ConnectionCard = ({
   connection, expanded, onToggleExpand, onSync, syncing,
-  deleteConfirm, onDeleteRequest, onDeleteConfirm, onDeleteCancel, onToggleAccount, onReauth, onReconnect,
+  deleteConfirm, onDeleteRequest, onDeleteConfirm, onDeleteCancel, onToggleAccount, onTogglePersonal, onReauth, onReconnect,
 }: ConnectionCardProps) => (
   <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
     <div className="p-5 flex items-center justify-between">
@@ -737,12 +773,27 @@ const ConnectionCard = ({
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => onToggleAccount(account)}
-              className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${account.isActive ? 'bg-amber-500' : 'bg-white/20'}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform duration-200 ${account.isActive ? 'translate-x-5' : ''}`} />
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => onTogglePersonal(account)}
+                title={account.isPersonal
+                  ? 'Compte perso : toutes ses transactions comptent au budget Perso. Cliquer pour le repasser en commun.'
+                  : 'Compte commun. Cliquer pour le marquer perso : ses transactions compteront au budget Perso, pas au Commun.'}
+                aria-label={account.isPersonal ? 'Compte perso' : 'Compte commun'}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide border transition-colors ${account.isPersonal
+                  ? 'bg-violet-500/15 border-violet-500/30 text-violet-300 hover:bg-violet-500/25'
+                  : 'bg-white/5 border-white/10 text-white/40 hover:text-white/70 hover:border-white/20'}`}
+              >
+                {account.isPersonal ? 'perso' : 'commun'}
+              </button>
+              <button
+                onClick={() => onToggleAccount(account)}
+                aria-label={account.isActive ? 'Désactiver le compte' : 'Activer le compte'}
+                className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${account.isActive ? 'bg-amber-500' : 'bg-white/20'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform duration-200 ${account.isActive ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
           </div>
         ))}
       </div>

@@ -9,6 +9,8 @@ public class CategoryRuleDto
     public int CategoryId { get; set; }
     public string CategoryName { get; set; } = string.Empty;
     public bool MarkAsFixed { get; set; }
+    /// <summary>Les dépenses carte Trade Republic matchées comptent au Perso, pas au Commun. Voir PersoScopeRouter.</summary>
+    public bool RouteToPerso { get; set; }
 }
 
 public class CreateCategoryRuleDto
@@ -20,6 +22,8 @@ public class CreateCategoryRuleDto
     public int CategoryId { get; set; }
 
     public bool MarkAsFixed { get; set; }
+
+    public bool RouteToPerso { get; set; }
 }
 
 public class UpdateCategoryRuleDto
@@ -30,4 +34,6 @@ public class UpdateCategoryRuleDto
     public int? CategoryId { get; set; }
 
     public bool? MarkAsFixed { get; set; }
+
+    public bool? RouteToPerso { get; set; }
 }

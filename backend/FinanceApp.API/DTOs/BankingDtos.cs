@@ -48,12 +48,16 @@ public class BankAccountDto
     public string AccountName { get; set; } = string.Empty;
     public string Currency { get; set; } = string.Empty;
     public bool IsActive { get; set; }
+    /// <summary>Compte personnel : toutes ses transactions comptent au Perso. Voir PersoScopeRouter.</summary>
+    public bool IsPersonal { get; set; }
 }
 
+/// <summary>PATCH partiel : seuls les champs renseignés sont modifiés.</summary>
 public class UpdateBankAccountDto
 {
-    [Required]
-    public bool IsActive { get; set; }
+    public bool? IsActive { get; set; }
+
+    public bool? IsPersonal { get; set; }
 }
 
 public class TradeRepublicLoginRequest

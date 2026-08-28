@@ -349,7 +349,12 @@ public class BankingController : ControllerBase
 
         if (account == null) return NotFound();
 
-        account.IsActive = dto.IsActive;
+        if (dto.IsActive.HasValue)
+            account.IsActive = dto.IsActive.Value;
+
+        if (dto.IsPersonal.HasValue)
+            account.IsPersonal = dto.IsPersonal.Value;
+
         await _context.SaveChangesAsync();
 
         return Ok(MapAccountToDto(account));
@@ -623,6 +628,7 @@ public class BankingController : ControllerBase
         OwnerName = account.OwnerName,
         AccountName = account.AccountName,
         Currency = account.Currency,
-        IsActive = account.IsActive
+        IsActive = account.IsActive,
+        IsPersonal = account.IsPersonal
     };
 }
