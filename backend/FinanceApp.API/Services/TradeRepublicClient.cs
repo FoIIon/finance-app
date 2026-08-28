@@ -42,8 +42,6 @@ public class TradeRepublicClient : IDisposable
         "instrument",
         "ticker",
         "aggregateHistoryLight",
-        "portfolioAggregateHistoryLight",
-        "portfolioAggregateHistory",
         "availableCash",
         "cash"
     };
@@ -536,14 +534,7 @@ public class TradeRepublicClient : IDisposable
     /// (place de cotation) et son ticker. La connexion s'authentifie par les cookies
     /// (refresh + device), chaque souscription porte le session token.
     /// </summary>
-    /// <summary>
-    /// PortfolioHistory : série agrégée de la valeur du portefeuille servie par Trade Republic pour
-    /// son propre graphe. Vide si TR l'a refusée : la courbe retombe alors sur la reconstitution.
-    /// </summary>
-    public record TrPortfolioImport(
-        List<TrPortfolioSnapshot> Positions,
-        decimal? CashBalance,
-        IReadOnlyList<TradeRepublicPortfolioParser.TrPricePoint> PortfolioHistory);
+    public record TrPortfolioImport(List<TrPortfolioSnapshot> Positions, decimal? CashBalance);
 
     public async Task<TrPortfolioImport> ImportPortfolioSnapshotAsync(
         string sessionToken, string refreshToken, string deviceToken, CancellationToken ct = default)
@@ -568,11 +559,6 @@ public class TradeRepublicClient : IDisposable
         {
             _logger.LogWarning("TR solde espèces indisponible : {message}", ex.Message);
         }
-
-        // Série réelle du portefeuille. Le nom exact du topic n'a pas pu être sondé en séance
-        // (sonde réservée au mode Development), on essaie les deux noms connus du client web
-        // de Trade Republic, sur la plage la plus longue acceptée. Le journal dit ce qui a marché.
-        var portfolioHistory = await FetchPortfolioHistoryAsync(sessionToken, timeoutCts.Token);
 
         // Plage d'historique : « 1y » était codé en dur, d'où un « Max » qui ne dépassait
         // jamais un an. On retient la plus longue que Trade Republic accepte réellement,
@@ -649,45 +635,97 @@ public class TradeRepublicClient : IDisposable
             result.Add(new TrPortfolioSnapshot(position, price, marketValue, history));
         }
 
-        return new TrPortfolioImport(result, cash, portfolioHistory);
+        return new TrPortfolioImport(result, cash);
     }
 
-    private static readonly string[] PortfolioHistoryTopics = ["portfolioAggregateHistoryLight", "portfolioAggregateHistory"];
-    private static readonly string[] PortfolioHistoryRanges = ["max", "5y", "1y"];
-
-    /// <summary>Série agrégée de la valeur du portefeuille. Liste vide si aucun topic ni aucune plage n'a répondu.</summary>
-    private async Task<IReadOnlyList<TradeRepublicPortfolioParser.TrPricePoint>> FetchPortfolioHistoryAsync(
-        string sessionToken, CancellationToken ct)
+    /// <summary>
+    /// Timeline complète via REST, page après page (curseur « after »), depuis la plus récente
+    /// jusqu'au premier mouvement du compte. C'est ce qui permet de rebâtir la valeur du
+    /// portefeuille depuis le début : Trade Republic a refusé ses topics d'agrégat le 28/08/2026
+    /// (BAD_SUBSCRIPTION_TYPE sur portfolioAggregateHistory et sa variante Light).
+    /// Garde-fous : 400 pages au plus, arrêt si une page ne renvoie rien de neuf.
+    /// </summary>
+    public async Task<List<TradeRepublicPortfolioParser.TrTimelineItem>> GetTimelineAllAsync(
+        string sessionToken, CancellationToken ct = default)
     {
-        foreach (var topic in PortfolioHistoryTopics)
+        using var timeoutCts = CreateTimeoutToken(ct, TimeSpan.FromSeconds(240));
+        var all = new List<TradeRepublicPortfolioParser.TrTimelineItem>();
+        var vus = new HashSet<string>();
+        string? after = null;
+
+        for (var page = 0; page < 400; page++)
         {
-            foreach (var range in PortfolioHistoryRanges)
+            var url = after == null
+                ? "/api/v2/timeline/transactions"
+                : $"/api/v2/timeline/transactions?after={Uri.EscapeDataString(after)}";
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"tr_session={sessionToken}");
+
+            var response = await _httpClient.SendAsync(request, timeoutCts.Token);
+            var body = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+
+            if ((int)response.StatusCode == 401 || (int)response.StatusCode == 403)
+                throw new InvalidOperationException($"Session TR expirée ({(int)response.StatusCode}) — veuillez relancer la connexion.");
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"TR timeline HTTP {(int)response.StatusCode}: {body[..Math.Min(200, body.Length)]}");
+
+            var (items, next) = TradeRepublicPortfolioParser.ParseTimelinePage(body);
+            var nouveaux = 0;
+            foreach (var item in items)
+            {
+                if (!string.IsNullOrEmpty(item.Id) && !vus.Add(item.Id)) continue;
+                all.Add(item);
+                nouveaux++;
+            }
+
+            if (next == null || nouveaux == 0 || next == after)
+            {
+                _logger.LogInformation("TR timeline : {pages} page(s), {lignes} lignes, plus ancienne {date:yyyy-MM-dd}.",
+                    page + 1, all.Count, all.Count > 0 ? all.Min(i => i.Date) : DateTime.MinValue);
+                break;
+            }
+            after = next;
+        }
+
+        return all;
+    }
+
+    /// <summary>
+    /// Historique de cours d'un instrument qui n'est plus en portefeuille (position vendue) :
+    /// place de cotation via « instrument », puis « aggregateHistoryLight » sur la plage la plus
+    /// longue acceptée. Liste vide si Trade Republic ne le sert plus.
+    /// </summary>
+    public async Task<IReadOnlyList<TradeRepublicPortfolioParser.TrPricePoint>> GetPriceHistoryAsync(
+        string isin, string sessionToken, CancellationToken ct = default)
+    {
+        using var timeoutCts = CreateTimeoutToken(ct, TimeSpan.FromSeconds(60));
+        try
+        {
+            var instrumentJson = await SubscribeOnceRawAsync(
+                new { type = "instrument", id = isin, token = sessionToken }, timeoutCts.Token);
+            var exchange = TradeRepublicPortfolioParser.ParseFirstExchange(instrumentJson);
+            if (string.IsNullOrEmpty(exchange)) return [];
+
+            foreach (var plage in new[] { "max", "5y", "1y" })
             {
                 try
                 {
-                    var json = await SubscribeOnceRawAsync(
-                        new { type = topic, range, token = sessionToken }, ct);
-                    var serie = TradeRepublicPortfolioParser.ParsePriceHistory(json);
-                    if (serie.Count == 0)
-                    {
-                        _logger.LogInformation("TR portefeuille : {topic}/{range} sans agrégat exploitable : {apercu}",
-                            topic, range, json.Length > 300 ? json[..300] : json);
-                        continue;
-                    }
-
-                    _logger.LogInformation(
-                        "TR portefeuille : {topic}/{range} retenu, {points} points du {debut:yyyy-MM-dd} au {fin:yyyy-MM-dd}.",
-                        topic, range, serie.Count, serie[0].AsOf, serie[^1].AsOf);
-                    return serie;
+                    var historyJson = await SubscribeOnceRawAsync(
+                        new { type = "aggregateHistoryLight", id = $"{isin}.{exchange}", range = plage, token = sessionToken },
+                        timeoutCts.Token);
+                    var serie = TradeRepublicPortfolioParser.ParsePriceHistory(historyJson);
+                    if (serie.Count > 0) return serie;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogInformation("TR portefeuille : {topic}/{range} refusé : {message}", topic, range, ex.Message);
+                    _logger.LogInformation("TR historique {plage} refusé pour {isin} (vendu) : {message}", plage, isin, ex.Message);
                 }
             }
         }
-
-        _logger.LogWarning("TR portefeuille : aucune série agrégée obtenue, la courbe reste reconstituée.");
+        catch (Exception ex)
+        {
+            _logger.LogWarning("TR cours indisponible pour {isin} (vendu) : {message}", isin, ex.Message);
+        }
         return [];
     }
 

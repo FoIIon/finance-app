@@ -372,6 +372,10 @@ public class AppDbContext : DbContext
             .HasPrecision(18, 2);
 
         modelBuilder.Entity<PortfolioValuation>()
+            .Property(v => v.Invested)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PortfolioValuation>()
             .HasOne(v => v.Dashboard)
             .WithMany()
             .HasForeignKey(v => v.DashboardId)

@@ -21,7 +21,9 @@ public record PortfolioHistoryPoint(
     DateTime AsOf,
     decimal Value,
     decimal? Invested,
-    int LinesIncluded);
+    int LinesIncluded,
+    /// <summary>Vrai si le point vient de la série du portefeuille (quantités du jour, ventes comprises), faux s'il est reconstitué depuis les lignes actuelles.</summary>
+    bool Reconstructed = false);
 
 /// <summary>
 /// Calculs de performance des investissements. Volontairement pur : aucune dépendance
@@ -160,7 +162,7 @@ public static class InvestmentCalculator
     /// Sans série TR, la courbe reconstituée est renvoyée telle quelle.
     /// </summary>
     public static List<PortfolioHistoryPoint> MergeWithPortfolioSeries(
-        IReadOnlyList<(DateTime AsOf, decimal Value)> trSeries,
+        IReadOnlyList<(DateTime AsOf, decimal Value, decimal? Invested)> trSeries,
         IReadOnlyList<PortfolioHistoryPoint> otherLines,
         IReadOnlyList<PortfolioHistoryPoint> allLines)
     {
@@ -172,20 +174,121 @@ public static class InvestmentCalculator
 
         var result = new List<PortfolioHistoryPoint>(tr.Count + 4);
         var oi = -1;
-        foreach (var (asOf, value) in tr)
+        foreach (var (asOf, value, invested) in tr)
         {
             while (oi + 1 < others.Count && others[oi + 1].AsOf <= asOf) oi++;
             var autres = oi >= 0 ? others[oi] : null;
+            // Investi : celui de la série TR (net, ventes déduites) plus le coût des autres lignes.
+            // Inconnu côté TR → inconnu tout court, on n'additionne pas un chiffre à un trou.
+            decimal? investi = invested.HasValue ? invested.Value + (autres?.Invested ?? 0m) : null;
             result.Add(new PortfolioHistoryPoint(
                 asOf,
                 value + (autres?.Value ?? 0m),
-                null,
-                autres?.LinesIncluded ?? 0));
+                investi,
+                autres?.LinesIncluded ?? 0,
+                Reconstructed: true));
         }
 
         foreach (var p in allLines.Where(p => p.AsOf > lastTr).OrderBy(p => p.AsOf))
             result.Add(p);
 
         return result;
+    }
+
+    /// <summary>Mouvement de titres tel que la timeline Trade Republic le donne : montant signé en euros (achat négatif, vente positive), sans quantité.</summary>
+    public record TimelineMovement(string Isin, DateTime Date, decimal Amount);
+
+    /// <summary>Point de la valeur reconstruite du portefeuille.</summary>
+    public record ReconstructedPoint(DateTime AsOf, decimal Value, decimal Invested);
+
+    /// <summary>Quantité et cours retenus pour un mouvement, pour l'écrire en InvestmentMovement.</summary>
+    public record MovementFill(TimelineMovement Movement, decimal Quantity, decimal UnitPrice);
+
+    /// <summary>
+    /// Rebâtit la valeur du portefeuille jour par jour depuis le premier mouvement.
+    ///
+    /// La timeline ne donne que le montant en euros de chaque ordre. La quantité exécutée est
+    /// donc déduite du cours de clôture du jour : quantité = |montant| / cours. Une approximation
+    /// (le cours d'exécution n'est pas la clôture), acceptée parce qu'elle porte sur chaque ordre
+    /// séparément et ne dérive pas dans le temps. Valeur(t) = Σ quantité détenue(t) × dernier
+    /// cours connu(t). Investi(t) = Σ achats − Σ ventes jusqu'à t : l'écart valeur − investi est
+    /// le résultat total, pertes et gains réalisés compris, ce que la plus-value latente ne dit pas.
+    ///
+    /// Un ISIN sans aucun cours est compté dans Investi mais pas dans Valeur, et signalé dans
+    /// IsinsSansCours : mieux vaut une valeur visiblement incomplète qu'une valeur inventée.
+    /// Une quantité qui passerait sous zéro (vente approchée plus grosse que la position) est
+    /// ramenée à zéro.
+    /// </summary>
+    public static (List<ReconstructedPoint> Points, List<MovementFill> Fills, List<string> IsinsSansCours) ReconstructPortfolioHistory(
+        IReadOnlyList<TimelineMovement> movements,
+        IReadOnlyDictionary<string, IReadOnlyList<(DateTime AsOf, decimal Close)>> prices,
+        DateTime until)
+    {
+        var points = new List<ReconstructedPoint>();
+        var fills = new List<MovementFill>();
+        var sansCours = new List<string>();
+        if (movements.Count == 0) return (points, fills, sansCours);
+
+        var series = prices.ToDictionary(
+            kv => kv.Key,
+            kv => kv.Value.Where(p => p.Close > 0).OrderBy(p => p.AsOf).ToList());
+
+        var ordered = movements.OrderBy(m => m.Date).ToList();
+        var first = ordered[0].Date.Date;
+        until = until.Date;
+
+        // Dates de la courbe : chaque jour où au moins un cours existe, plus les jours de mouvement.
+        var dates = series.Values.SelectMany(l => l.Select(p => p.AsOf.Date))
+            .Concat(ordered.Select(m => m.Date.Date))
+            .Where(d => d >= first && d <= until)
+            .Distinct()
+            .OrderBy(d => d)
+            .ToList();
+
+        var qty = new Dictionary<string, decimal>();
+        var cursor = new Dictionary<string, int>();
+        var invested = 0m;
+        var mi = 0;
+
+        decimal? CloseAt(string isin, DateTime t)
+        {
+            if (!series.TryGetValue(isin, out var l) || l.Count == 0) return null;
+            var c = cursor.GetValueOrDefault(isin, -1);
+            while (c + 1 < l.Count && l[c + 1].AsOf.Date <= t) c++;
+            cursor[isin] = c;
+            return c >= 0 ? l[c].Close : null;
+        }
+
+        foreach (var t in dates)
+        {
+            while (mi < ordered.Count && ordered[mi].Date.Date <= t)
+            {
+                var m = ordered[mi++];
+                invested += -m.Amount;
+                var close = CloseAt(m.Isin, m.Date.Date);
+                if (close is null || close.Value <= 0)
+                {
+                    if (!sansCours.Contains(m.Isin)) sansCours.Add(m.Isin);
+                    continue;
+                }
+                var q = -m.Amount / close.Value;
+                var nouvelle = qty.GetValueOrDefault(m.Isin) + q;
+                if (nouvelle < 0) { q -= nouvelle; nouvelle = 0; }
+                qty[m.Isin] = nouvelle;
+                fills.Add(new MovementFill(m, q, close.Value));
+            }
+
+            var value = 0m;
+            foreach (var (isin, q) in qty)
+            {
+                if (q <= 0) continue;
+                var close = CloseAt(isin, t);
+                if (close.HasValue) value += q * close.Value;
+            }
+
+            points.Add(new ReconstructedPoint(t, Math.Round(value, 2), Math.Round(invested, 2)));
+        }
+
+        return (points, fills, sansCours);
     }
 }

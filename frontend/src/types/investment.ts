@@ -75,8 +75,10 @@ export interface InvestmentValuation {
 export interface InvestmentHistoryPoint {
   asOf: string;
   value: number;
-  /** Capital investi à cette date. Null sur les points portés par la série réelle Trade Republic. */
+  /** Capital investi à cette date. Sur un point reconstruit : investi net (achats − ventes). Null si inconnu. */
   invested: number | null;
+  /** Vrai si le point vient de la valeur du portefeuille rebâtie depuis la timeline (ventes comprises). */
+  reconstructed: boolean;
   linesIncluded: number;
   linesTotal: number;
 }
@@ -124,6 +126,9 @@ export interface TradeRepublicImportResult {
   valued: number;
   historyPoints: number;
   portfolioHistoryPoints: number;
+  movements: number;
+  soldLinesAdded: number;
+  isinsWithoutPrices: string[];
   cashBalance: number | null;
   archived: number;
 }
