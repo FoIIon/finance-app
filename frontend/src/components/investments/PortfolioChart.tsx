@@ -127,6 +127,12 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
               />
             </ComposedChart>
           </ResponsiveContainer>
+          {history.length > 0 && history[0].reconstructed && (
+            <p className="text-xs text-white/40 mt-2">
+              Historique Trade Republic disponible depuis le {fmtDate(history[0].asOf)} : ce qui était détenu
+              avant est compté comme acheté ce jour-là, à son cours du jour.
+            </p>
+          )}
           {last !== null && last.linesIncluded < last.linesTotal && (
             <p className="text-xs text-white/40 mt-2">
               Courbe partielle : {last.linesIncluded} lignes sur {last.linesTotal} valorisées

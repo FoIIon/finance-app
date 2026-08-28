@@ -196,7 +196,7 @@ public static class InvestmentCalculator
     }
 
     /// <summary>Mouvement de titres tel que la timeline Trade Republic le donne : montant signé en euros (achat négatif, vente positive), sans quantité.</summary>
-    public record TimelineMovement(string Isin, DateTime Date, decimal Amount);
+    public record TimelineMovement(string Isin, DateTime Date, decimal Amount, bool IsOpening = false);
 
     /// <summary>Point de la valeur reconstruite du portefeuille.</summary>
     public record ReconstructedPoint(DateTime AsOf, decimal Value, decimal Invested);
@@ -228,12 +228,67 @@ public static class InvestmentCalculator
         var fills = new List<MovementFill>();
         var sansCours = new List<string>();
         if (movements.Count == 0) return (points, fills, sansCours);
+        return Reconstruct(movements, prices, until);
+    }
+
+    /// <summary>
+    /// Même reconstruction, calibrée sur les quantités réellement détenues aujourd'hui.
+    ///
+    /// Pourquoi (28/08/2026) : Trade Republic borne sa timeline au 24/11/2023 (curseur « after »
+    /// nul à la page 56), et une part du portefeuille a été achetée avant : 1,3 ETH, 3 612 DOGE,
+    /// du Bitcoin. Sans ces achats, la courbe finissait à 79 600 € contre 89 800 € réels. Pour
+    /// chaque ligne détenue, l'écart entre la quantité réelle (connue de TR) et la quantité rebâtie
+    /// devient une position d'ouverture au premier jour de la série, valorisée au cours de ce jour :
+    /// achetée comme si elle l'avait été ce jour-là, sans plus-value antérieure (inconnue). L'écart
+    /// peut être négatif de quelques pour cent (approximation par le cours de clôture), il se
+    /// corrige de la même façon. Les positions vendues ne sont pas calibrables et restent telles
+    /// quelles. Les ouvertures sont marquées IsOpening dans les Fills : elles ne sont pas des
+    /// mouvements réels et ne s'écrivent pas comme tels.
+    /// </summary>
+    public static (List<ReconstructedPoint> Points, List<MovementFill> Fills, List<string> IsinsSansCours, List<TimelineMovement> Openings) ReconstructPortfolioHistoryCalibrated(
+        IReadOnlyList<TimelineMovement> movements,
+        IReadOnlyDictionary<string, IReadOnlyList<(DateTime AsOf, decimal Close)>> prices,
+        IReadOnlyDictionary<string, decimal> heldQuantities,
+        DateTime until)
+    {
+        var openings = new List<TimelineMovement>();
+        if (movements.Count == 0) return ([], [], [], openings);
+
+        var (_, fills0, _) = Reconstruct(movements, prices, until);
+        var reconFinal = fills0.GroupBy(f => f.Movement.Isin).ToDictionary(g => g.Key, g => g.Sum(f => f.Quantity));
+        var start = movements.Min(m => m.Date).Date;
+
+        foreach (var (isin, held) in heldQuantities)
+        {
+            var recon = reconFinal.GetValueOrDefault(isin, 0m);
+            var ecart = held - recon;
+            if (Math.Abs(ecart) < 0.000001m) continue;
+            if (!prices.TryGetValue(isin, out var serie)) continue;
+            var close = serie.Where(p => p.Close > 0 && p.AsOf.Date <= start).OrderBy(p => p.AsOf).LastOrDefault();
+            if (close == default) close = serie.Where(p => p.Close > 0).OrderBy(p => p.AsOf).FirstOrDefault();
+            if (close == default) continue;
+            openings.Add(new TimelineMovement(isin, start, -ecart * close.Close, IsOpening: true));
+        }
+
+        var all = openings.Concat(movements).ToList();
+        var (points, fills, sansCours) = Reconstruct(all, prices, until);
+        return (points, fills, sansCours, openings);
+    }
+
+    private static (List<ReconstructedPoint> Points, List<MovementFill> Fills, List<string> IsinsSansCours) Reconstruct(
+        IReadOnlyList<TimelineMovement> movements,
+        IReadOnlyDictionary<string, IReadOnlyList<(DateTime AsOf, decimal Close)>> prices,
+        DateTime until)
+    {
+        var points = new List<ReconstructedPoint>();
+        var fills = new List<MovementFill>();
+        var sansCours = new List<string>();
 
         var series = prices.ToDictionary(
             kv => kv.Key,
             kv => kv.Value.Where(p => p.Close > 0).OrderBy(p => p.AsOf).ToList());
 
-        var ordered = movements.OrderBy(m => m.Date).ToList();
+        var ordered = movements.OrderBy(m => m.Date).ThenBy(m => m.IsOpening ? 1 : 0).ToList();
         var first = ordered[0].Date.Date;
         until = until.Date;
 
