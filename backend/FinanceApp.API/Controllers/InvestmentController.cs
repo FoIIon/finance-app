@@ -609,6 +609,25 @@ public class InvestmentController : ControllerBase
         var timeline = await trClient.GetTimelineAllAsync(sessionToken, refreshToken, deviceToken);
         if (timeline.Count == 0) return result;
 
+        // Diagnostic (28/08/2026) : les cryptos et les ventes manquent à la reconstruction, leur
+        // eventType n'est pas reconnu. On écrit la timeline lue (sans données de carte : id, date,
+        // montant, libellé, sous-titre, type, ISIN) à côté de la base, pour l'analyser telle quelle.
+        try
+        {
+            var cs = _context.Database.GetConnectionString() ?? "";
+            var m = System.Text.RegularExpressions.Regex.Match(cs, @"Data Source=([^;]+)");
+            var dir = m.Success ? Path.GetDirectoryName(Path.GetFullPath(m.Groups[1].Value)) : null;
+            var chemin = Path.Combine(dir ?? AppContext.BaseDirectory, "tr-timeline-dump.json");
+            await System.IO.File.WriteAllTextAsync(chemin, System.Text.Json.JsonSerializer.Serialize(
+                timeline.Select(t => new { t.Id, t.Date, t.Amount, t.Title, t.Subtitle, t.EventType, t.Isin }),
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = false }));
+            _logger.LogInformation("TR timeline : {n} lignes écrites dans {chemin}.", timeline.Count, chemin);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "TR timeline : écriture du dump impossible.");
+        }
+
         var lignes = await _context.Investments
             .Where(i => i.DashboardId == dashboardId)
             .ToListAsync();
