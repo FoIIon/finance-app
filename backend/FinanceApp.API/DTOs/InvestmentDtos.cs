@@ -23,6 +23,8 @@ public class InvestmentDto
 
     /// <summary>PRU. Null pour un contrat d'assurance-vie.</summary>
     public decimal? UnitCost { get; set; }
+    /// <summary>Cours unitaire de la dernière valorisation, quand elle le porte. C'est lui, multiplié par la quantité, qui donne la valeur et donc la plus-value.</summary>
+    public decimal? UnitPrice { get; set; }
     /// <summary>Valeur de la dernière valorisation. Null si aucune n'a été saisie.</summary>
     public decimal? MarketValue { get; set; }
     public DateTime? ValuationAsOf { get; set; }
@@ -123,7 +125,8 @@ public class InvestmentHistoryPointDto
 {
     public DateTime AsOf { get; set; }
     public decimal Value { get; set; }
-    public decimal Invested { get; set; }
+    /// <summary>Capital investi à cette date. Null sur les points portés par la série réelle Trade Republic, où il n'est pas connu.</summary>
+    public decimal? Invested { get; set; }
     /// <summary>Nombre de lignes réellement présentes dans ce point.</summary>
     public int LinesIncluded { get; set; }
     /// <summary>Nombre de lignes non archivées du dashboard, pour signaler une courbe partielle.</summary>
@@ -140,6 +143,8 @@ public class TradeRepublicImportResultDto
     public int Valued { get; set; }
     /// <summary>Points de cours passés ajoutés, hors courbe du patrimoine.</summary>
     public int HistoryPoints { get; set; }
+    /// <summary>Points de la série réelle du portefeuille (valeur agrégée Trade Republic) écrits ou mis à jour.</summary>
+    public int PortfolioHistoryPoints { get; set; }
     /// <summary>Solde espèces relevé, hors valeur du portefeuille.</summary>
     public decimal? CashBalance { get; set; }
     /// <summary>Lignes disparues du portefeuille, donc vendues, archivées automatiquement.</summary>

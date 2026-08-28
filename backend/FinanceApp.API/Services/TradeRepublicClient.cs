@@ -42,6 +42,8 @@ public class TradeRepublicClient : IDisposable
         "instrument",
         "ticker",
         "aggregateHistoryLight",
+        "portfolioAggregateHistoryLight",
+        "portfolioAggregateHistory",
         "availableCash",
         "cash"
     };
@@ -534,7 +536,14 @@ public class TradeRepublicClient : IDisposable
     /// (place de cotation) et son ticker. La connexion s'authentifie par les cookies
     /// (refresh + device), chaque souscription porte le session token.
     /// </summary>
-    public record TrPortfolioImport(List<TrPortfolioSnapshot> Positions, decimal? CashBalance);
+    /// <summary>
+    /// PortfolioHistory : série agrégée de la valeur du portefeuille servie par Trade Republic pour
+    /// son propre graphe. Vide si TR l'a refusée : la courbe retombe alors sur la reconstitution.
+    /// </summary>
+    public record TrPortfolioImport(
+        List<TrPortfolioSnapshot> Positions,
+        decimal? CashBalance,
+        IReadOnlyList<TradeRepublicPortfolioParser.TrPricePoint> PortfolioHistory);
 
     public async Task<TrPortfolioImport> ImportPortfolioSnapshotAsync(
         string sessionToken, string refreshToken, string deviceToken, CancellationToken ct = default)
@@ -559,6 +568,11 @@ public class TradeRepublicClient : IDisposable
         {
             _logger.LogWarning("TR solde espèces indisponible : {message}", ex.Message);
         }
+
+        // Série réelle du portefeuille. Le nom exact du topic n'a pas pu être sondé en séance
+        // (sonde réservée au mode Development), on essaie les deux noms connus du client web
+        // de Trade Republic, sur la plage la plus longue acceptée. Le journal dit ce qui a marché.
+        var portfolioHistory = await FetchPortfolioHistoryAsync(sessionToken, timeoutCts.Token);
 
         // Plage d'historique : « 1y » était codé en dur, d'où un « Max » qui ne dépassait
         // jamais un an. On retient la plus longue que Trade Republic accepte réellement,
@@ -635,7 +649,46 @@ public class TradeRepublicClient : IDisposable
             result.Add(new TrPortfolioSnapshot(position, price, marketValue, history));
         }
 
-        return new TrPortfolioImport(result, cash);
+        return new TrPortfolioImport(result, cash, portfolioHistory);
+    }
+
+    private static readonly string[] PortfolioHistoryTopics = ["portfolioAggregateHistoryLight", "portfolioAggregateHistory"];
+    private static readonly string[] PortfolioHistoryRanges = ["max", "5y", "1y"];
+
+    /// <summary>Série agrégée de la valeur du portefeuille. Liste vide si aucun topic ni aucune plage n'a répondu.</summary>
+    private async Task<IReadOnlyList<TradeRepublicPortfolioParser.TrPricePoint>> FetchPortfolioHistoryAsync(
+        string sessionToken, CancellationToken ct)
+    {
+        foreach (var topic in PortfolioHistoryTopics)
+        {
+            foreach (var range in PortfolioHistoryRanges)
+            {
+                try
+                {
+                    var json = await SubscribeOnceRawAsync(
+                        new { type = topic, range, token = sessionToken }, ct);
+                    var serie = TradeRepublicPortfolioParser.ParsePriceHistory(json);
+                    if (serie.Count == 0)
+                    {
+                        _logger.LogInformation("TR portefeuille : {topic}/{range} sans agrégat exploitable : {apercu}",
+                            topic, range, json.Length > 300 ? json[..300] : json);
+                        continue;
+                    }
+
+                    _logger.LogInformation(
+                        "TR portefeuille : {topic}/{range} retenu, {points} points du {debut:yyyy-MM-dd} au {fin:yyyy-MM-dd}.",
+                        topic, range, serie.Count, serie[0].AsOf, serie[^1].AsOf);
+                    return serie;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogInformation("TR portefeuille : {topic}/{range} refusé : {message}", topic, range, ex.Message);
+                }
+            }
+        }
+
+        _logger.LogWarning("TR portefeuille : aucune série agrégée obtenue, la courbe reste reconstituée.");
+        return [];
     }
 
     /// <summary>Souscrit un topic, lit la première réponse, se désabonne, et renvoie le JSON brut.</summary>

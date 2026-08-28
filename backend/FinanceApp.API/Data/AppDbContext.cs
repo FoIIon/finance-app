@@ -26,6 +26,7 @@ public class AppDbContext : DbContext
     public DbSet<Investment> Investments => Set<Investment>();
     public DbSet<InvestmentValuation> InvestmentValuations => Set<InvestmentValuation>();
     public DbSet<InvestmentMovement> InvestmentMovements => Set<InvestmentMovement>();
+    public DbSet<PortfolioValuation> PortfolioValuations => Set<PortfolioValuation>();
     public DbSet<Loan> Loans => Set<Loan>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -363,6 +364,22 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<Loan>()
             .HasIndex(l => l.DashboardId);
+
+        // PortfolioValuation : une valeur par dashboard et par jour. Un ré-import remplace la
+        // valeur du jour, Trade Republic fait foi.
+        modelBuilder.Entity<PortfolioValuation>()
+            .Property(v => v.MarketValue)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PortfolioValuation>()
+            .HasOne(v => v.Dashboard)
+            .WithMany()
+            .HasForeignKey(v => v.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PortfolioValuation>()
+            .HasIndex(v => new { v.DashboardId, v.AsOf })
+            .IsUnique();
 
         // InvestmentValuation
         modelBuilder.Entity<InvestmentValuation>()

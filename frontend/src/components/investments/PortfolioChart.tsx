@@ -59,15 +59,21 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
                 content={({ active, payload }) => {
                   if (!active || !payload || payload.length === 0) return null;
                   const p = payload[0].payload as InvestmentHistoryPoint;
-                  const gap = p.value - p.invested;
+                  // Investi inconnu sur les points portés par la série réelle Trade Republic :
+                  // on n'affiche pas un écart calculé sur un chiffre qu'on n'a pas.
+                  const gap = p.invested != null ? p.value - p.invested : null;
                   return (
                     <div className="bg-[#1a1a3e] border border-white/10 rounded-xl px-3 py-2 text-xs text-white">
                       <p className="text-white/50 mb-1">{fmtDate(p.asOf)}</p>
                       <p>Valeur : {formatCurrency(p.value)}</p>
-                      <p className="text-white/70">Investi : {formatCurrency(p.invested)}</p>
-                      <p style={{ color: gap >= 0 ? '#34d399' : '#f87171' }}>
-                        Écart : {gap >= 0 ? '+' : ''}{formatCurrency(gap)}
-                      </p>
+                      {p.invested != null && gap != null && (
+                        <>
+                          <p className="text-white/70">Investi : {formatCurrency(p.invested)}</p>
+                          <p style={{ color: gap >= 0 ? '#34d399' : '#f87171' }}>
+                            Écart : {gap >= 0 ? '+' : ''}{formatCurrency(gap)}
+                          </p>
+                        </>
+                      )}
                     </div>
                   );
                 }}

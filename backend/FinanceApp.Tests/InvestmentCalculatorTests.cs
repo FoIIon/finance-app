@@ -260,4 +260,77 @@ public class InvestmentCalculatorTests
         var point = Assert.Single(history);
         Assert.Equal(new PortfolioHistoryPoint(Feb, 1650m, 1500m, 2), point);
     }
+
+    // ---------------------------------------------------------------- série réelle Trade Republic
+
+    private static PortfolioHistoryPoint Pt(string date, decimal value, decimal? invested = null, int lines = 1) =>
+        new(DateTime.Parse(date), value, invested, lines);
+
+    [Fact]
+    public void MergeWithPortfolioSeries_SansSerieTr_RenvoieLaReconstitution()
+    {
+        var all = new List<PortfolioHistoryPoint> { Pt("2026-08-20", 1000m, 900m), Pt("2026-08-21", 1010m, 900m) };
+        var result = InvestmentCalculator.MergeWithPortfolioSeries([], [], all);
+        Assert.Equal(all, result);
+    }
+
+    [Fact]
+    public void MergeWithPortfolioSeries_LaSerieTrPorteLaCourbe_InvestiInconnu()
+    {
+        // Trois ans de série TR, aucune autre ligne : la courbe est la série TR telle quelle,
+        // et Investi est null, on ne l'invente pas.
+        var tr = new List<(DateTime, decimal)>
+        {
+            (DateTime.Parse("2023-01-02"), 500m),
+            (DateTime.Parse("2024-01-02"), 800m),
+            (DateTime.Parse("2025-01-02"), 700m),
+        };
+        var all = new List<PortfolioHistoryPoint> { Pt("2025-01-02", 950m, 900m) };
+
+        var result = InvestmentCalculator.MergeWithPortfolioSeries(tr, [], all);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal(500m, result[0].Value);
+        Assert.Equal(700m, result[2].Value);
+        Assert.All(result, p => Assert.Null(p.Invested));
+    }
+
+    [Fact]
+    public void MergeWithPortfolioSeries_AjouteLaDerniereValeurDesAutresLignes()
+    {
+        // L'or (ligne manuelle) valorisé le 15 : les points TR du 10 n'en ont rien, ceux du 20
+        // l'ajoutent, à sa dernière valeur connue.
+        var tr = new List<(DateTime, decimal)>
+        {
+            (DateTime.Parse("2026-08-10"), 1000m),
+            (DateTime.Parse("2026-08-20"), 1100m),
+        };
+        var autres = new List<PortfolioHistoryPoint> { Pt("2026-08-15", 200m, 180m) };
+        var all = new List<PortfolioHistoryPoint> { Pt("2026-08-15", 200m, 180m), Pt("2026-08-20", 1300m, 1080m, 3) };
+
+        var result = InvestmentCalculator.MergeWithPortfolioSeries(tr, autres, all);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(1000m, result[0].Value);
+        Assert.Equal(0, result[0].LinesIncluded);
+        Assert.Equal(1300m, result[1].Value);
+        Assert.Equal(1, result[1].LinesIncluded);
+    }
+
+    [Fact]
+    public void MergeWithPortfolioSeries_ApresLeDernierPointTr_LaReconstitutionPrendLeRelais()
+    {
+        // Série TR arrêtée hier, snapshot du jour pris ce matin : le point du jour vient de la
+        // reconstitution, avec son Investi.
+        var tr = new List<(DateTime, decimal)> { (DateTime.Parse("2026-08-27"), 1000m) };
+        var all = new List<PortfolioHistoryPoint> { Pt("2026-08-27", 1005m, 900m), Pt("2026-08-28", 1020m, 900m) };
+
+        var result = InvestmentCalculator.MergeWithPortfolioSeries(tr, [], all);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(1000m, result[0].Value);
+        Assert.Equal(DateTime.Parse("2026-08-28"), result[1].AsOf);
+        Assert.Equal(1020m, result[1].Value);
+        Assert.Equal(900m, result[1].Invested);
+    }
 }

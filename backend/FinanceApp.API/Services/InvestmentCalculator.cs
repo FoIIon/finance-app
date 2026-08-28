@@ -20,7 +20,7 @@ public record PortfolioLine(
 public record PortfolioHistoryPoint(
     DateTime AsOf,
     decimal Value,
-    decimal Invested,
+    decimal? Invested,
     int LinesIncluded);
 
 /// <summary>
@@ -143,6 +143,48 @@ public static class InvestmentCalculator
 
             result.Add(new PortfolioHistoryPoint(t, value, invested, included));
         }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Fusionne la série réelle du portefeuille Trade Republic (valeur agrégée servie par TR, qui
+    /// tient compte des quantités détenues chaque jour et des positions vendues) avec la courbe
+    /// reconstituée des autres lignes (métaux, contrats, saisies manuelles).
+    ///
+    /// Jusqu'au dernier point TR : valeur = TR du jour + dernière valorisation connue des autres
+    /// lignes. Au-delà (snapshot du jour pris après la clôture, par exemple) : la courbe
+    /// reconstituée complète prend le relais. Invested est null sur les points portés par la
+    /// série TR : on ne connaît pas le capital investi à ces dates, et un chiffre inventé
+    /// (le coût de revient actuel) se lirait comme un écart de performance qu'il n'est pas.
+    /// Sans série TR, la courbe reconstituée est renvoyée telle quelle.
+    /// </summary>
+    public static List<PortfolioHistoryPoint> MergeWithPortfolioSeries(
+        IReadOnlyList<(DateTime AsOf, decimal Value)> trSeries,
+        IReadOnlyList<PortfolioHistoryPoint> otherLines,
+        IReadOnlyList<PortfolioHistoryPoint> allLines)
+    {
+        if (trSeries.Count == 0) return allLines.ToList();
+
+        var tr = trSeries.OrderBy(p => p.AsOf).ToList();
+        var lastTr = tr[^1].AsOf;
+        var others = otherLines.OrderBy(p => p.AsOf).ToList();
+
+        var result = new List<PortfolioHistoryPoint>(tr.Count + 4);
+        var oi = -1;
+        foreach (var (asOf, value) in tr)
+        {
+            while (oi + 1 < others.Count && others[oi + 1].AsOf <= asOf) oi++;
+            var autres = oi >= 0 ? others[oi] : null;
+            result.Add(new PortfolioHistoryPoint(
+                asOf,
+                value + (autres?.Value ?? 0m),
+                null,
+                autres?.LinesIncluded ?? 0));
+        }
+
+        foreach (var p in allLines.Where(p => p.AsOf > lastTr).OrderBy(p => p.AsOf))
+            result.Add(p);
 
         return result;
     }
