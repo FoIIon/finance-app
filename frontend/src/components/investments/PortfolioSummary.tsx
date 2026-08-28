@@ -31,7 +31,7 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
 
   // Règle d'honnêteté : sans point d'historique daté au plus tard au début de la
   // période, il n'existe aucune baseline légitime, donc aucune variation affichable.
-  const { baseline, points } = splitHistory(history, period);
+  const { baseline } = splitHistory(history, period);
   const lastPoint = history.length > 0 ? history[history.length - 1] : null;
 
   // Sur une série rebâtie depuis la timeline, la valeur bouge surtout par les apports : comparer
@@ -44,29 +44,13 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
   const variation = surResultat
     ? (lastPoint!.value - lastPoint!.invested!) - (baseline!.value - baseline!.invested!)
     : baseline !== null ? totalValue - baseline.value : null;
-  // Pourcentage : Modified Dietz. Rapporter le gain à l'investi de départ donnait +217 % en Max,
-  // parce que le capital du 24/11/2023 était petit et que tout le reste est arrivé par apports.
-  // Dénominateur = capital de départ + chaque apport (variation d'investi net entre deux points)
-  // pondéré par la fraction de période qu'il a passée investi. C'est le rendement du capital
-  // réellement exposé, la mesure standard d'un portefeuille avec flux.
-  const dietz = ((): number | null => {
-    if (!surResultat || variation == null) return null;
-    const serie = [baseline!, ...points.filter((p) => p.reconstructed && p.invested != null)];
-    if (serie.length < 2) return null;
-    const t0 = new Date(serie[0].asOf).getTime();
-    const t1 = new Date(serie[serie.length - 1].asOf).getTime();
-    if (t1 <= t0) return null;
-    let denominateur = serie[0].value;
-    for (let i = 1; i < serie.length; i++) {
-      const flux = serie[i].invested! - serie[i - 1].invested!;
-      if (flux === 0) continue;
-      const poids = (t1 - new Date(serie[i].asOf).getTime()) / (t1 - t0);
-      denominateur += flux * poids;
-    }
-    return denominateur > 0 ? (variation / denominateur) * 100 : null;
-  })();
+  // Pourcentage : gain de la période rapporté à l'investi net en FIN de période. Deux essais
+  // avant (28/08/2026) : l'investi de départ donnait +217 % (capital du 24/11/2023 minuscule),
+  // le Modified Dietz +46 % (capital moyen exposé ~39 k€ pour 71 k€ engagés au final). Juste
+  // en finance, illisible à l'écran : Sébastien lit 18 k€ de gain sur 71 k€ investis, donc +25 %.
+  // Même dénominateur que la tuile « Résultat total », les deux chiffres se comparent.
   const variationPct = surResultat
-    ? dietz
+    ? (variation != null && lastPoint!.invested! > 0 ? (variation / lastPoint!.invested!) * 100 : null)
     : baseline !== null && baseline.value > 0 ? ((totalValue - baseline.value) / baseline.value) * 100 : null;
 
   // Des lignes entrées dans la courbe depuis la baseline gonflent la variation :
@@ -105,7 +89,7 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
             {surResultat && (
               <span
                 className="text-xs font-normal text-white/40 ml-2"
-                title="Gain de la période (valeur moins investi net, apports et retraits neutralisés). Le pourcentage rapporte ce gain au capital moyen exposé sur la période, chaque apport pondéré par le temps qu'il a passé investi (Modified Dietz)"
+                title="Gain de la période (valeur moins investi net, apports et retraits neutralisés), rapporté à l'investi net en fin de période"
               >
                 hors apports
               </span>
