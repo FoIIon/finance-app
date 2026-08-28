@@ -42,6 +42,16 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
   const includesContributions =
     baseline !== null && lastPoint !== null && lastPoint.linesIncluded > baseline.linesIncluded;
 
+  // Résultat total, ventes comprises : dernier point rebâti depuis la timeline TR. Valeur moins
+  // investi net (achats − ventes). C'est le chiffre que la plus-value latente ne donne pas :
+  // une position vendue à perte y pèse, alors qu'elle disparaît de la latente.
+  const reconstructed = [...history].reverse().find((p) => p.reconstructed && p.invested != null) ?? null;
+  const totalResult = reconstructed && reconstructed.invested != null ? reconstructed.value - reconstructed.invested : null;
+  const totalResultPct =
+    reconstructed && reconstructed.invested != null && reconstructed.invested > 0 && totalResult != null
+      ? (totalResult / reconstructed.invested) * 100
+      : null;
+
   return (
     <div className="bg-[#1a1a3e] rounded-2xl border border-white/10 p-5">
       <p className="text-sm text-white/50">Valeur du portefeuille</p>
@@ -76,7 +86,26 @@ export const PortfolioSummary = ({ investments, history, period }: Props) => {
         )}
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3 text-sm">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+        <div>
+          <p className="text-white/50">Résultat total, ventes comprises</p>
+          {totalResult !== null ? (
+            <p
+              className="font-semibold"
+              style={{ color: totalResult >= 0 ? '#34d399' : '#f87171' }}
+              title={`Valeur ${formatCurrency(reconstructed!.value)} moins investi net ${formatCurrency(reconstructed!.invested!)} (achats − ventes depuis le premier ordre), au ${new Date(reconstructed!.asOf).toLocaleDateString('fr-BE')}`}
+            >
+              {signed(totalResult)}
+              {totalResultPct !== null && (
+                <span className="opacity-80 font-medium ml-1">
+                  ({totalResultPct >= 0 ? '+' : ''}{formatPercent(totalResultPct)} %)
+                </span>
+              )}
+            </p>
+          ) : (
+            <p className="text-white/30" title="Disponible après un import Trade Republic">—</p>
+          )}
+        </div>
         <div>
           <p className="text-white/50">Plus-value latente</p>
           {valued.length > 0 ? (

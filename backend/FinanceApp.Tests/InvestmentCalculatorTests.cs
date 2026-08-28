@@ -279,11 +279,11 @@ public class InvestmentCalculatorTests
     {
         // Trois ans de série TR, aucune autre ligne : la courbe est la série TR telle quelle,
         // et Investi est null, on ne l'invente pas.
-        var tr = new List<(DateTime, decimal)>
+        var tr = new List<(DateTime, decimal, decimal?)>
         {
-            (DateTime.Parse("2023-01-02"), 500m),
-            (DateTime.Parse("2024-01-02"), 800m),
-            (DateTime.Parse("2025-01-02"), 700m),
+            (DateTime.Parse("2023-01-02"), 500m, null),
+            (DateTime.Parse("2024-01-02"), 800m, null),
+            (DateTime.Parse("2025-01-02"), 700m, null),
         };
         var all = new List<PortfolioHistoryPoint> { Pt("2025-01-02", 950m, 900m) };
 
@@ -300,10 +300,10 @@ public class InvestmentCalculatorTests
     {
         // L'or (ligne manuelle) valorisé le 15 : les points TR du 10 n'en ont rien, ceux du 20
         // l'ajoutent, à sa dernière valeur connue.
-        var tr = new List<(DateTime, decimal)>
+        var tr = new List<(DateTime, decimal, decimal?)>
         {
-            (DateTime.Parse("2026-08-10"), 1000m),
-            (DateTime.Parse("2026-08-20"), 1100m),
+            (DateTime.Parse("2026-08-10"), 1000m, null),
+            (DateTime.Parse("2026-08-20"), 1100m, null),
         };
         var autres = new List<PortfolioHistoryPoint> { Pt("2026-08-15", 200m, 180m) };
         var all = new List<PortfolioHistoryPoint> { Pt("2026-08-15", 200m, 180m), Pt("2026-08-20", 1300m, 1080m, 3) };
@@ -322,7 +322,7 @@ public class InvestmentCalculatorTests
     {
         // Série TR arrêtée hier, snapshot du jour pris ce matin : le point du jour vient de la
         // reconstitution, avec son Investi.
-        var tr = new List<(DateTime, decimal)> { (DateTime.Parse("2026-08-27"), 1000m) };
+        var tr = new List<(DateTime, decimal, decimal?)> { (DateTime.Parse("2026-08-27"), 1000m, null) };
         var all = new List<PortfolioHistoryPoint> { Pt("2026-08-27", 1005m, 900m), Pt("2026-08-28", 1020m, 900m) };
 
         var result = InvestmentCalculator.MergeWithPortfolioSeries(tr, [], all);
@@ -332,5 +332,97 @@ public class InvestmentCalculatorTests
         Assert.Equal(DateTime.Parse("2026-08-28"), result[1].AsOf);
         Assert.Equal(1020m, result[1].Value);
         Assert.Equal(900m, result[1].Invested);
+    }
+
+    // ---------------------------------------------------------------- reconstruction depuis la timeline
+
+    private static InvestmentCalculator.TimelineMovement Mv(string isin, string date, decimal amount) =>
+        new(isin, DateTime.Parse(date), amount);
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<(DateTime AsOf, decimal Close)>> Prices(
+        params (string Isin, (string Date, decimal Close)[] Serie)[] series) =>
+        series.ToDictionary(
+            s => s.Isin,
+            s => (IReadOnlyList<(DateTime, decimal)>)s.Serie.Select(p => (DateTime.Parse(p.Date), p.Close)).ToList());
+
+    [Fact]
+    public void Reconstruct_AchatPuisHausse_ValeurSuitLeCours_InvestiFixe()
+    {
+        // 100 € d'ETF à 10 € le 1er : 10 parts. Le cours passe à 12 le 3 : valeur 120, investi 100.
+        var prices = Prices(("ETF", new[] { ("2026-01-01", 10m), ("2026-01-02", 11m), ("2026-01-03", 12m) }));
+        var (points, fills, sansCours) = InvestmentCalculator.ReconstructPortfolioHistory(
+            [Mv("ETF", "2026-01-01", -100m)], prices, DateTime.Parse("2026-01-03"));
+
+        Assert.Empty(sansCours);
+        Assert.Single(fills);
+        Assert.Equal(10m, fills[0].Quantity);
+        Assert.Equal(3, points.Count);
+        Assert.Equal((100m, 100m), (points[0].Value, points[0].Invested));
+        Assert.Equal((120m, 100m), (points[2].Value, points[2].Invested));
+    }
+
+    [Fact]
+    public void Reconstruct_VenteAPerte_PeseSurLeResultatTotal()
+    {
+        // 100 € achetés à 10, tout vendu à 8 (80 € encaissés) : plus rien en portefeuille,
+        // investi net 20 €, valeur 0. L'écart −20 € est la perte réalisée, que la plus-value
+        // latente des lignes ouvertes ne montrerait jamais.
+        var prices = Prices(("ETF", new[] { ("2026-01-01", 10m), ("2026-01-05", 8m), ("2026-01-06", 9m) }));
+        var (points, _, _) = InvestmentCalculator.ReconstructPortfolioHistory(
+            [Mv("ETF", "2026-01-01", -100m), Mv("ETF", "2026-01-05", 80m)], prices, DateTime.Parse("2026-01-06"));
+
+        var dernier = points[^1];
+        Assert.Equal(0m, dernier.Value);
+        Assert.Equal(20m, dernier.Invested);
+    }
+
+    [Fact]
+    public void Reconstruct_PositionVendueNeComptePlusApres_MaisComptaitAvant()
+    {
+        var prices = Prices(
+            ("A", new[] { ("2026-01-01", 10m), ("2026-01-10", 10m) }),
+            ("B", new[] { ("2026-01-01", 5m), ("2026-01-10", 5m) }));
+        var (points, _, _) = InvestmentCalculator.ReconstructPortfolioHistory(
+            [Mv("A", "2026-01-01", -100m), Mv("B", "2026-01-01", -50m), Mv("B", "2026-01-10", 50m)],
+            prices, DateTime.Parse("2026-01-10"));
+
+        Assert.Equal(150m, points[0].Value);
+        Assert.Equal(100m, points[^1].Value);
+        Assert.Equal(100m, points[^1].Invested);
+    }
+
+    [Fact]
+    public void Reconstruct_IsinSansCours_CompteDansInvestiPasDansValeur_EtSignale()
+    {
+        var prices = Prices(("A", new[] { ("2026-01-01", 10m) }));
+        var (points, _, sansCours) = InvestmentCalculator.ReconstructPortfolioHistory(
+            [Mv("A", "2026-01-01", -100m), Mv("ZZ", "2026-01-01", -40m)], prices, DateTime.Parse("2026-01-01"));
+
+        Assert.Equal(["ZZ"], sansCours);
+        Assert.Equal(100m, points[0].Value);
+        Assert.Equal(140m, points[0].Invested);
+    }
+
+    [Fact]
+    public void Reconstruct_SansMouvement_RienARebatir()
+    {
+        var (points, fills, sansCours) = InvestmentCalculator.ReconstructPortfolioHistory(
+            [], Prices(), DateTime.Parse("2026-01-01"));
+        Assert.Empty(points);
+        Assert.Empty(fills);
+        Assert.Empty(sansCours);
+    }
+
+    [Fact]
+    public void MergeWithPortfolioSeries_InvestiDeLaSerie_AdditionneCeluiDesAutresLignes()
+    {
+        var tr = new List<(DateTime, decimal, decimal?)> { (DateTime.Parse("2026-08-20"), 1000m, 900m) };
+        var autres = new List<PortfolioHistoryPoint> { Pt("2026-08-15", 200m, 180m) };
+        var result = InvestmentCalculator.MergeWithPortfolioSeries(tr, autres, autres);
+
+        Assert.Single(result);
+        Assert.Equal(1200m, result[0].Value);
+        Assert.Equal(1080m, result[0].Invested);
+        Assert.True(result[0].Reconstructed);
     }
 }

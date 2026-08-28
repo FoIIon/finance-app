@@ -306,9 +306,9 @@ public class InvestmentController : ControllerBase
         var trSeries = (await _context.PortfolioValuations
             .Where(v => v.DashboardId == dashboardId)
             .OrderBy(v => v.AsOf)
-            .Select(v => new { v.AsOf, v.MarketValue })
+            .Select(v => new { v.AsOf, v.MarketValue, v.Invested })
             .ToListAsync())
-            .Select(v => (v.AsOf, v.MarketValue))
+            .Select(v => (v.AsOf, v.MarketValue, v.Invested))
             .ToList();
 
         if (trSeries.Count > 0)
@@ -330,6 +330,7 @@ public class InvestmentController : ControllerBase
                 AsOf = p.AsOf,
                 Value = p.Value,
                 Invested = p.Invested,
+                Reconstructed = p.Reconstructed,
                 LinesIncluded = p.LinesIncluded,
                 LinesTotal = linesTotal,
             })
@@ -428,40 +429,7 @@ public class InvestmentController : ControllerBase
 
         var defaultHolder = configuration["TradeRepublic:DefaultHolder"] ?? "Trade Republic";
         var today = DateTime.UtcNow.Date;
-        int created = 0, updated = 0, valued = 0, historyPoints = 0, portfolioPoints = 0;
-
-        // Série réelle du portefeuille : Trade Republic fait foi, un ré-import remplace la
-        // valeur déjà connue du jour (la séance en cours bouge jusqu'à la clôture).
-        if (import.PortfolioHistory.Count > 0)
-        {
-            var existantes = await _context.PortfolioValuations
-                .Where(v => v.DashboardId == dashboardId)
-                .ToDictionaryAsync(v => v.AsOf);
-
-            foreach (var point in import.PortfolioHistory)
-            {
-                if (existantes.TryGetValue(point.AsOf, out var pv))
-                {
-                    if (pv.MarketValue == point.Close) continue;
-                    pv.MarketValue = point.Close;
-                }
-                else
-                {
-                    var nouvelle = new PortfolioValuation
-                    {
-                        DashboardId = dashboardId,
-                        AsOf = point.AsOf,
-                        MarketValue = point.Close,
-                        Source = ValuationSource.TradeRepublic,
-                    };
-                    _context.PortfolioValuations.Add(nouvelle);
-                    existantes[point.AsOf] = nouvelle;
-                }
-                portfolioPoints++;
-            }
-
-            await _context.SaveChangesAsync();
-        }
+        int created = 0, updated = 0, valued = 0, historyPoints = 0;
 
         foreach (var snap in snapshots)
         {
@@ -589,6 +557,18 @@ public class InvestmentController : ControllerBase
         }
         if (aArchiver.Count > 0) await _context.SaveChangesAsync();
 
+        // Valeur du portefeuille depuis le début, rebâtie depuis la timeline complète. Un échec
+        // ici ne remet pas en cause l'import des positions, déjà enregistré.
+        var reconstruction = new ReconstructionResult();
+        try
+        {
+            reconstruction = await ReconstructFromTimelineAsync(dashboardId, sessionToken, trClient, defaultHolder);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Import Trade Republic : reconstruction de l'historique du portefeuille échouée.");
+        }
+
         return Ok(new TradeRepublicImportResultDto
         {
             Total = snapshots.Count,
@@ -596,10 +576,186 @@ public class InvestmentController : ControllerBase
             Updated = updated,
             Valued = valued,
             HistoryPoints = historyPoints,
-            PortfolioHistoryPoints = portfolioPoints,
+            PortfolioHistoryPoints = reconstruction.Points,
+            Movements = reconstruction.Movements,
+            SoldLinesAdded = reconstruction.SoldLinesAdded,
+            IsinsWithoutPrices = reconstruction.IsinsWithoutPrices,
             CashBalance = import.CashBalance,
             Archived = aArchiver.Count,
         });
+    }
+
+    private sealed class ReconstructionResult
+    {
+        public int Points { get; set; }
+        public int Movements { get; set; }
+        public int SoldLinesAdded { get; set; }
+        public List<string> IsinsWithoutPrices { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Lit la timeline Trade Republic complète, enregistre les mouvements de titres dans
+    /// InvestmentMovements (dédupliqués par ExternalId « tr-… »), crée en lignes archivées les
+    /// positions vendues qui n'existent plus, récupère leurs cours, puis rebâtit la valeur du
+    /// portefeuille jour par jour dans PortfolioValuations (source Reconstructed).
+    /// Voir InvestmentCalculator.ReconstructPortfolioHistory pour la méthode et ses limites.
+    /// </summary>
+    private async Task<ReconstructionResult> ReconstructFromTimelineAsync(
+        int dashboardId, string sessionToken, TradeRepublicClient trClient, string defaultHolder)
+    {
+        var result = new ReconstructionResult();
+        var timeline = await trClient.GetTimelineAllAsync(sessionToken);
+        if (timeline.Count == 0) return result;
+
+        var lignes = await _context.Investments
+            .Where(i => i.DashboardId == dashboardId)
+            .ToListAsync();
+        var parIsin = lignes.Where(i => i.Isin != null).ToDictionary(i => i.Isin!, i => i);
+        var parNom = lignes.GroupBy(i => i.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() == 1)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        // Mouvements de titres : eventType d'abord, libellé exact d'un instrument connu à défaut.
+        var instrumentNames = lignes.Select(i => i.Name).ToList();
+        var mouvements = new List<(TradeRepublicPortfolioParser.TrTimelineItem Item, string Isin)>();
+        var sansIsin = 0;
+        foreach (var item in timeline)
+        {
+            var kind = TradeRepublicTimelineClassifier.Classify(item.Title, item.EventType, [], instrumentNames);
+            if (kind != TrLineKind.Investment) continue;
+
+            var isin = item.Isin;
+            if (isin == null && parNom.TryGetValue(item.Title.Trim(), out var ligne)) isin = ligne.Isin;
+            if (isin == null) { sansIsin++; continue; }
+            mouvements.Add((item, isin));
+        }
+        if (sansIsin > 0)
+            _logger.LogInformation("TR timeline : {n} mouvement(s) de titres sans ISIN identifiable, ignorés pour la reconstruction.", sansIsin);
+        if (mouvements.Count == 0) return result;
+
+        // Positions vendues : une ligne archivée par ISIN inconnu, avec son historique de cours.
+        foreach (var isin in mouvements.Select(m => m.Isin).Distinct().Where(i => !parIsin.ContainsKey(i)).ToList())
+        {
+            var titre = mouvements.Where(m => m.Isin == isin).OrderByDescending(m => m.Item.Date).First().Item.Title;
+            var vendue = new Investment
+            {
+                DashboardId = dashboardId,
+                Name = string.IsNullOrWhiteSpace(titre) ? isin : titre,
+                Holder = defaultHolder,
+                Kind = InvestmentKindClassifier.FromTradeRepublic(isin, ""),
+                Isin = isin,
+                Quantity = 0,
+                Unit = InvestmentUnit.Share,
+                CostBasis = 0,
+                Source = InvestmentSource.TradeRepublic,
+                ExternalId = isin,
+                IsArchived = true,
+                FirstPurchaseDate = mouvements.Where(m => m.Isin == isin).Min(m => m.Item.Date).Date,
+            };
+            _context.Investments.Add(vendue);
+            await _context.SaveChangesAsync();
+            parIsin[isin] = vendue;
+            result.SoldLinesAdded++;
+
+            var cours = await trClient.GetPriceHistoryAsync(isin, sessionToken);
+            foreach (var point in cours)
+            {
+                _context.InvestmentValuations.Add(new InvestmentValuation
+                {
+                    InvestmentId = vendue.Id,
+                    AsOf = point.AsOf,
+                    UnitPrice = point.Close,
+                    MarketValue = 0,
+                    Source = ValuationSource.TradeRepublicHistory,
+                });
+            }
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("TR timeline : position vendue {isin} ({nom}) ajoutée en ligne archivée, {points} cours.", isin, vendue.Name, cours.Count);
+        }
+
+        // Cours par ISIN : toutes les valorisations qui portent un cours unitaire, quelle que soit la source.
+        var ids = parIsin.Values.Select(i => i.Id).ToList();
+        var coursParLigne = (await _context.InvestmentValuations
+            .Where(v => ids.Contains(v.InvestmentId) && v.UnitPrice != null)
+            .Select(v => new { v.InvestmentId, v.AsOf, v.UnitPrice })
+            .ToListAsync())
+            .GroupBy(v => v.InvestmentId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<(DateTime, decimal)>)g.Select(v => (v.AsOf, v.UnitPrice!.Value)).ToList());
+        var prices = parIsin
+            .Where(kv => coursParLigne.ContainsKey(kv.Value.Id))
+            .ToDictionary(kv => kv.Key, kv => coursParLigne[kv.Value.Id]);
+
+        var timelineMovements = mouvements
+            .Select(m => new InvestmentCalculator.TimelineMovement(m.Isin, m.Item.Date, m.Item.Amount))
+            .ToList();
+        var (points, fills, isinsSansCours) = InvestmentCalculator.ReconstructPortfolioHistory(
+            timelineMovements, prices, DateTime.UtcNow.Date);
+        result.IsinsWithoutPrices = isinsSansCours;
+
+        // Mouvements : dédupliqués par ExternalId, quantité et cours tels que retenus par la reconstruction.
+        var fillParCle = fills.ToDictionary(f => (f.Movement.Isin, f.Movement.Date, f.Movement.Amount));
+        var externalIds = mouvements.Select(m => $"{PersoScopeRouter.TradeRepublicExternalIdPrefix}{m.Item.Id}").ToList();
+        var dejaLa = (await _context.InvestmentMovements
+            .Where(mv => mv.ExternalId != null && externalIds.Contains(mv.ExternalId))
+            .Select(mv => mv.ExternalId!)
+            .ToListAsync()).ToHashSet();
+        foreach (var (item, isin) in mouvements)
+        {
+            var externalId = $"{PersoScopeRouter.TradeRepublicExternalIdPrefix}{item.Id}";
+            if (string.IsNullOrEmpty(item.Id) || !dejaLa.Add(externalId)) continue;
+            fillParCle.TryGetValue((isin, item.Date, item.Amount), out var fill);
+            _context.InvestmentMovements.Add(new InvestmentMovement
+            {
+                InvestmentId = parIsin[isin].Id,
+                Type = item.Amount < 0 ? MovementType.Buy : MovementType.Sell,
+                Date = item.Date,
+                Quantity = fill?.Quantity ?? 0,
+                UnitPrice = fill?.UnitPrice ?? 0,
+                Amount = item.Amount,
+                ExternalId = externalId,
+                Source = InvestmentSource.TradeRepublic,
+            });
+            result.Movements++;
+        }
+        await _context.SaveChangesAsync();
+
+        // Série du portefeuille : remplace la reconstruction précédente point par point.
+        var existantes = await _context.PortfolioValuations
+            .Where(v => v.DashboardId == dashboardId)
+            .ToDictionaryAsync(v => v.AsOf);
+        foreach (var point in points)
+        {
+            if (existantes.TryGetValue(point.AsOf, out var pv))
+            {
+                if (pv.MarketValue == point.Value && pv.Invested == point.Invested) continue;
+                pv.MarketValue = point.Value;
+                pv.Invested = point.Invested;
+                pv.Source = ValuationSource.Reconstructed;
+            }
+            else
+            {
+                var nouvelle = new PortfolioValuation
+                {
+                    DashboardId = dashboardId,
+                    AsOf = point.AsOf,
+                    MarketValue = point.Value,
+                    Invested = point.Invested,
+                    Source = ValuationSource.Reconstructed,
+                };
+                _context.PortfolioValuations.Add(nouvelle);
+                existantes[point.AsOf] = nouvelle;
+            }
+            result.Points++;
+        }
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "TR reconstruction : {mouvements} mouvement(s), {points} point(s) du {debut:yyyy-MM-dd} au {fin:yyyy-MM-dd}, {vendues} vendue(s), sans cours : {sansCours}.",
+            result.Movements, points.Count,
+            points.Count > 0 ? points[0].AsOf : DateTime.MinValue,
+            points.Count > 0 ? points[^1].AsOf : DateTime.MinValue,
+            result.SoldLinesAdded, string.Join(", ", isinsSansCours));
+        return result;
     }
 
     /// <summary>Historique des valorisations d'une ligne, de la plus récente à la plus ancienne.</summary>

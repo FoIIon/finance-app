@@ -68,9 +68,11 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
                       <p>Valeur : {formatCurrency(p.value)}</p>
                       {p.invested != null && gap != null && (
                         <>
-                          <p className="text-white/70">Investi : {formatCurrency(p.invested)}</p>
+                          <p className="text-white/70">
+                            {p.reconstructed ? 'Investi net' : 'Investi'} : {formatCurrency(p.invested)}
+                          </p>
                           <p style={{ color: gap >= 0 ? '#34d399' : '#f87171' }}>
-                            Écart : {gap >= 0 ? '+' : ''}{formatCurrency(gap)}
+                            {p.reconstructed ? 'Résultat total' : 'Écart'} : {gap >= 0 ? '+' : ''}{formatCurrency(gap)}
                           </p>
                         </>
                       )}

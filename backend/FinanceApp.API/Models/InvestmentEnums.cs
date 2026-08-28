@@ -43,6 +43,14 @@ public enum ValuationSource
     /// jour-là. Exclue à ce titre du calcul de la courbe du patrimoine.
     /// </summary>
     TradeRepublicHistory = 3,
+    /// <summary>
+    /// Valeur du portefeuille reconstruite depuis la timeline Trade Republic (achats, ventes,
+    /// plans d'épargne depuis le premier ordre) et les cours de clôture : quantité détenue
+    /// chaque jour × cours du jour. Tient compte des positions vendues et des pertes réalisées.
+    /// La quantité de chaque mouvement est déduite du montant et du cours de clôture du jour,
+    /// donc approchée : la timeline ne donne pas la quantité exécutée.
+    /// </summary>
+    Reconstructed = 4,
 }
 
 public enum MovementType

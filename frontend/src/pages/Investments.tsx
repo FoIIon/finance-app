@@ -300,7 +300,10 @@ const Investments = () => {
       showToast(
         `Trade Republic : ${data.total} lignes, ${data.created} ajoutées, ${data.valued} valorisées`
           + (data.historyPoints > 0 ? `, ${data.historyPoints} points d'historique` : '')
-          + (data.portfolioHistoryPoints > 0 ? `, ${data.portfolioHistoryPoints} points de portefeuille réel` : '')
+          + (data.movements > 0 ? `, ${data.movements} mouvements` : '')
+          + (data.soldLinesAdded > 0 ? `, ${data.soldLinesAdded} position(s) vendue(s) retrouvée(s)` : '')
+          + (data.portfolioHistoryPoints > 0 ? `, courbe rebâtie sur ${data.portfolioHistoryPoints} jours` : '')
+          + (data.isinsWithoutPrices.length > 0 ? ` (sans cours : ${data.isinsWithoutPrices.join(', ')})` : '')
           + (data.archived > 0 ? `, ${data.archived} vendue(s) archivée(s)` : ''),
         'success',
       );

@@ -125,8 +125,10 @@ public class InvestmentHistoryPointDto
 {
     public DateTime AsOf { get; set; }
     public decimal Value { get; set; }
-    /// <summary>Capital investi à cette date. Null sur les points portés par la série réelle Trade Republic, où il n'est pas connu.</summary>
+    /// <summary>Capital investi à cette date. Sur un point reconstruit : investi net (achats − ventes), donc valeur − investi = résultat total ventes comprises. Null si inconnu.</summary>
     public decimal? Invested { get; set; }
+    /// <summary>Vrai si le point vient de la série du portefeuille rebâtie depuis la timeline (quantités du jour, ventes comprises).</summary>
+    public bool Reconstructed { get; set; }
     /// <summary>Nombre de lignes réellement présentes dans ce point.</summary>
     public int LinesIncluded { get; set; }
     /// <summary>Nombre de lignes non archivées du dashboard, pour signaler une courbe partielle.</summary>
@@ -143,8 +145,14 @@ public class TradeRepublicImportResultDto
     public int Valued { get; set; }
     /// <summary>Points de cours passés ajoutés, hors courbe du patrimoine.</summary>
     public int HistoryPoints { get; set; }
-    /// <summary>Points de la série réelle du portefeuille (valeur agrégée Trade Republic) écrits ou mis à jour.</summary>
+    /// <summary>Points de la valeur du portefeuille rebâtie depuis la timeline, écrits ou mis à jour.</summary>
     public int PortfolioHistoryPoints { get; set; }
+    /// <summary>Mouvements de titres (achats, ventes, plans) lus dans la timeline et enregistrés.</summary>
+    public int Movements { get; set; }
+    /// <summary>Positions vendues retrouvées dans la timeline et ajoutées en lignes archivées.</summary>
+    public int SoldLinesAdded { get; set; }
+    /// <summary>ISIN dont aucun cours n'a pu être obtenu : comptés dans l'investi, absents de la valeur.</summary>
+    public List<string> IsinsWithoutPrices { get; set; } = new();
     /// <summary>Solde espèces relevé, hors valeur du portefeuille.</summary>
     public decimal? CashBalance { get; set; }
     /// <summary>Lignes disparues du portefeuille, donc vendues, archivées automatiquement.</summary>

@@ -128,4 +128,44 @@ public class TradeRepublicPortfolioParserTests
         Assert.Null(TradeRepublicPortfolioParser.ParseCashBalance("[]"));
         Assert.Null(TradeRepublicPortfolioParser.ParseCashBalance("[{\"currencyId\":\"USD\",\"amount\":42}]"));
     }
+
+    // ---------------------------------------------------------------- timeline REST v2
+
+    [Fact]
+    public void ParseTimelinePage_LitMontantIsinEtCurseur_IgnoreLesSeparateurs()
+    {
+        // Forme supposée du client web TR (non documentée) : montant en objet, ISIN dans l'icône,
+        // curseur « after » pour la page suivante.
+        const string json = """
+        {
+          "items": [
+            { "id": "a1", "timestamp": "2026-08-17T14:03:08.599+0000", "title": "MSCI World ESG USD (Acc)",
+              "subtitle": "Plan d'épargne exécuté", "icon": "logos/IE00BFNM3J75/v2",
+              "amount": { "currency": "EUR", "value": -30.0, "fractionDigits": 2 }, "eventType": "SAVINGS_PLAN_EXECUTED" },
+            { "id": "sep", "title": "Août 2026" },
+            { "id": "a2", "timestamp": 1755432000000, "title": "Bitcoin", "icon": "logos/XF000BTC0017/v2",
+              "amount": { "value": "-200.00" }, "eventType": "TRADE_INVOICE" }
+          ],
+          "cursors": { "before": "b", "after": "next-page" }
+        }
+        """;
+
+        var (items, after) = TradeRepublicPortfolioParser.ParseTimelinePage(json);
+
+        Assert.Equal("next-page", after);
+        Assert.Equal(2, items.Count);
+        Assert.Equal("IE00BFNM3J75", items[0].Isin);
+        Assert.Equal(-30m, items[0].Amount);
+        Assert.Equal(new DateTime(2026, 8, 17), items[0].Date.Date);
+        Assert.Equal("XF000BTC0017", items[1].Isin);
+        Assert.Equal(-200m, items[1].Amount);
+    }
+
+    [Fact]
+    public void ParseTimelinePage_SansCurseur_AfterNull()
+    {
+        var (items, after) = TradeRepublicPortfolioParser.ParseTimelinePage("""{ "items": [], "cursors": { "after": "" } }""");
+        Assert.Empty(items);
+        Assert.Null(after);
+    }
 }

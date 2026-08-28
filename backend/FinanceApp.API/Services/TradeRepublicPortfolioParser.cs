@@ -158,6 +158,85 @@ public static class TradeRepublicPortfolioParser
         return points;
     }
 
+    /// <summary>Une ligne de la timeline REST (/api/v2/timeline/transactions).</summary>
+    public record TrTimelineItem(
+        string Id,
+        DateTime Date,
+        decimal Amount,
+        string Title,
+        string? Subtitle,
+        string? EventType,
+        /// <summary>ISIN lu dans le champ icon (« logos/DE000A0F5UF5/v2 »), null si l'icône n'en porte pas.</summary>
+        string? Isin);
+
+    private static readonly System.Text.RegularExpressions.Regex IsinInIcon =
+        new(@"logos/([A-Z]{2}[A-Z0-9]{9}[0-9])(?:/|$)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Page de timeline : lignes à montant non nul, et curseur « after » pour la page suivante
+    /// (null quand il n'y en a plus). Les séparateurs de mois et en-têtes n'ont pas de montant et
+    /// sont ignorés. Forme supposée d'après le client web TR, jamais documentée : tout champ absent
+    /// est toléré.
+    /// </summary>
+    public static (List<TrTimelineItem> Items, string? After) ParseTimelinePage(string json)
+    {
+        var items = new List<TrTimelineItem>();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in arr.EnumerateArray())
+            {
+                decimal amount = 0m;
+                if (item.TryGetProperty("amount", out var amt) && amt.ValueKind == JsonValueKind.Object
+                    && amt.TryGetProperty("value", out var val))
+                {
+                    var raw = val.ValueKind == JsonValueKind.String ? val.GetString() : val.GetRawText();
+                    decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out amount);
+                }
+                if (amount == 0m) continue;
+
+                DateTime date = DateTime.UtcNow;
+                if (item.TryGetProperty("timestamp", out var ts))
+                {
+                    if (ts.ValueKind == JsonValueKind.Number && ts.TryGetInt64(out var ms))
+                        date = DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
+                    else if (ts.ValueKind == JsonValueKind.String
+                        && DateTimeOffset.TryParse(ts.GetString(), null, DateTimeStyles.RoundtripKind, out var dto))
+                        date = dto.UtcDateTime;
+                }
+
+                string? Str(string name) =>
+                    item.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+
+                var icon = Str("icon");
+                string? isin = null;
+                if (icon != null)
+                {
+                    var m = IsinInIcon.Match(icon);
+                    if (m.Success) isin = m.Groups[1].Value;
+                }
+
+                items.Add(new TrTimelineItem(
+                    Str("id") ?? "",
+                    date,
+                    amount,
+                    Str("title") ?? "",
+                    Str("subtitle"),
+                    Str("eventType"),
+                    isin));
+            }
+        }
+
+        string? after = null;
+        if (root.TryGetProperty("cursors", out var cursors) && cursors.ValueKind == JsonValueKind.Object
+            && cursors.TryGetProperty("after", out var a) && a.ValueKind == JsonValueKind.String)
+            after = string.IsNullOrWhiteSpace(a.GetString()) ? null : a.GetString();
+
+        return (items, after);
+    }
+
     /// <summary>Solde espèces en euros du compte Trade Republic.</summary>
     public static decimal? ParseCashBalance(string json)
     {
