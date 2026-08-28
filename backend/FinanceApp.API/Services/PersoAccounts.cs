@@ -6,8 +6,10 @@ namespace FinanceApp.API.Services;
 
 /// <summary>
 /// Le compte logique « Perso » vers lequel PersoScopeRouter envoie les transactions personnelles de
-/// Sébastien. Résolu par son nom, comme les catégories système (SystemCategories) : coder un Id en
-/// dur ferait diverger la base de dev (un seul compte au seed) et la prod.
+/// Sébastien. Identifié par Account.IsPersonalScope, jamais par son nom : le nom est libre dans
+/// l'écran des comptes, et le résoudre par « Perso » faisait naître un second compte au premier
+/// renommage (revue du 28/08/2026). Un index unique par utilisateur garantit qu'il n'y en a qu'un,
+/// y compris quand une sync manuelle chevauche la boucle de six heures.
 ///
 /// Le reporting est déjà scopé par dashboard (TransactionController.GetMonthlyReport et consorts filtrent
 /// sur t.AccountId ∈ comptes du dashboard). Rattacher ce compte au dashboard Personnel suffit donc à
@@ -15,25 +17,38 @@ namespace FinanceApp.API.Services;
 /// </summary>
 public static class PersoAccounts
 {
-    public const string Name = "Perso";
+    /// <summary>Nom donné au compte à sa création. Purement cosmétique, modifiable ensuite.</summary>
+    public const string DefaultName = "Perso";
 
     /// <summary>
-    /// Trouve le compte logique Perso de l'utilisateur, ou le crée et le rattache à son dashboard
-    /// Personnel. Le dashboard Personnel est le plus ancien de l'utilisateur (celui créé par défaut à
-    /// l'inscription, CreateDefaultDashboardForUser), le dashboard Commun étant créé après. S'il n'a
-    /// pas de dashboard, le compte est tout de même créé, le rattachement se fera au premier dashboard.
+    /// Trouve le compte logique Perso de l'utilisateur, ou le crée. Dans les deux cas, s'assure qu'il
+    /// est rattaché au dashboard Personnel, le plus ancien de l'utilisateur (celui créé à l'inscription
+    /// par CreateDefaultDashboardForUser, le Commun venant après). Un compte trouvé sans rattachement
+    /// (créé par un seed, ou avant que l'utilisateur ait un dashboard) est réparé au passage.
     /// </summary>
     public static async Task<int> GetOrCreatePersoAccountIdAsync(AppDbContext context, int userId)
     {
-        var existing = await context.Accounts
-            .FirstOrDefaultAsync(a => a.UserId == userId && a.Name == Name);
-        if (existing != null) return existing.Id;
+        var account = await context.Accounts
+            .FirstOrDefaultAsync(a => a.UserId == userId && a.IsPersonalScope);
 
-        var account = new Account { Name = Name, UserId = userId };
-        context.Accounts.Add(account);
-        await context.SaveChangesAsync();
+        if (account == null)
+        {
+            account = new Account { Name = DefaultName, UserId = userId, IsPersonalScope = true };
+            context.Accounts.Add(account);
+            try
+            {
+                await context.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // Un autre passage de sync a gagné la course : l'index unique a refusé notre ligne.
+                // On oublie la nôtre et on reprend la sienne.
+                context.Entry(account).State = EntityState.Detached;
+                account = await context.Accounts
+                    .FirstAsync(a => a.UserId == userId && a.IsPersonalScope);
+            }
+        }
 
-        // Rattacher au dashboard Personnel (le plus ancien), s'il n'y est pas déjà.
         var personalDashboard = await context.Dashboards
             .Where(d => d.CreatorId == userId)
             .OrderBy(d => d.CreatedAt)

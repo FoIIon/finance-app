@@ -76,6 +76,20 @@ public class AppDbContext : DbContext
             .HasForeignKey(a => a.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Un seul compte logique Perso par utilisateur (PersoAccounts). L'index tranche la course
+        // entre une sync manuelle et la boucle de fond, qui passaient toutes deux le check-then-insert.
+        // L'index de la FK, déclaré explicitement : sans ça EF le juge couvert par l'index filtré
+        // ci-dessous et le supprime, alors qu'un index filtré ne sert pas les lignes ordinaires.
+        modelBuilder.Entity<Account>()
+            .HasIndex(a => a.UserId)
+            .HasDatabaseName("IX_Accounts_UserId");
+
+        modelBuilder.Entity<Account>()
+            .HasIndex(a => new { a.UserId, a.IsPersonalScope })
+            .IsUnique()
+            .HasFilter("[IsPersonalScope] = 1")
+            .HasDatabaseName("IX_Accounts_UserId_PersonalScope");
+
         // Dashboard
         modelBuilder.Entity<Dashboard>()
             .HasOne(d => d.Creator)

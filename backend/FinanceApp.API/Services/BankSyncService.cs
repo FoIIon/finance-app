@@ -162,7 +162,7 @@ public class BankSyncService : BackgroundService
 
         // Compte par défaut de l'utilisateur pour les transactions importées
         var defaultAccount = await context.Accounts
-            .Where(a => a.UserId == connection.UserId)
+            .Where(a => a.UserId == connection.UserId && !a.IsPersonalScope)
             .OrderBy(a => a.CreatedAt)
             .FirstOrDefaultAsync();
 
@@ -172,14 +172,17 @@ public class BankSyncService : BackgroundService
             return;
         }
 
-        // Routage perso/commun : compte logique Perso et mots-clés des règles perso, chargés une fois.
-        // Une transaction d'un compte bancaire perso part sur ce compte au lieu du commun (PersoScopeRouter).
-        var persoAccountId = await PersoAccounts.GetOrCreatePersoAccountIdAsync(context, connection.UserId);
-        var persoKeywords = rules.Where(r => r.RouteToPerso).Select(r => r.Keyword).ToList();
+        // Routage perso/commun : une transaction d'un compte bancaire perso part sur le compte logique
+        // Perso au lieu du commun (PersoScopeRouter). Ce compte n'est résolu, et créé au besoin, qu'à la
+        // première ligne perso : un utilisateur sans compte ni règle perso n'en hérite pas d'un vide.
+        int? persoAccountId = null;
+        async Task<int> PersoAccountIdAsync() =>
+            persoAccountId ??= await PersoAccounts.GetOrCreatePersoAccountIdAsync(context, connection.UserId);
 
-        // Remonter à 90 jours s'il reste des transactions sans counterparty
+        // Remonter à 90 jours s'il reste des transactions sans counterparty, sur tous les comptes
+        // logiques de l'utilisateur : une ligne routée Perso doit déclencher la relecture comme les autres.
         var hasMissingCounterparty = await context.Transactions
-            .AnyAsync(t => t.AccountId == defaultAccount.Id && t.IsImported && t.CounterpartyName == null);
+            .AnyAsync(t => t.Account.UserId == connection.UserId && t.IsImported && t.CounterpartyName == null);
         // Fenêtre glissante de 14 jours minimum : GoCardless filtre par bookingDate, une transaction
         // bookée tardivement avec une date antérieure à LastSyncAt tomberait hors fenêtre pour toujours.
         // L'index unique sur ExternalId absorbe les doublons re-fetchés.
@@ -273,23 +276,14 @@ public class BankSyncService : BackgroundService
                             ? deb.GetString()
                             : null;
 
-                    // Appliquer les règles : description en priorité, puis counterparty
-                    var categoryId = defaultCategoryId;
-                    var isFixed = false;
-                    foreach (var rule in rules)
-                    {
-                        if (description.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase) ||
-                            (counterparty != null && counterparty.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            categoryId = rule.CategoryId;
-                            isFixed = rule.MarkAsFixed;
-                            break;
-                        }
-                    }
+                    // Appliquer les règles : la première qui matche (mot-clé le plus long d'abord) fixe la
+                    // catégorie, le flag fixe et, pour une ligne TR, le périmètre perso/commun.
+                    var matchedRule = CategoryRuleMatcher.FirstMatch(rules, description, counterparty);
+                    var categoryId = matchedRule?.CategoryId ?? defaultCategoryId;
+                    var isFixed = matchedRule?.MarkAsFixed ?? false;
 
                     var type = parsedAmount >= 0 ? TransactionType.Income : TransactionType.Expense;
-                    var scope = PersoScopeRouter.Decide(
-                        account.IsPersonal, externalId, type, description, counterparty, persoKeywords);
+                    var scope = PersoScopeRouter.Decide(account.IsPersonal, externalId, type, matchedRule);
 
                     var transaction = new Transaction
                     {
@@ -298,7 +292,7 @@ public class BankSyncService : BackgroundService
                         Date = bookingDate,
                         Type = type,
                         CategoryId = categoryId,
-                        AccountId = scope == TransactionScope.Perso ? persoAccountId : defaultAccount.Id,
+                        AccountId = scope == TransactionScope.Perso ? await PersoAccountIdAsync() : defaultAccount.Id,
                         ExternalId = externalId,
                         IsImported = true,
                         CounterpartyName = counterparty,
@@ -416,10 +410,13 @@ public class BankSyncService : BackgroundService
 
             // Routage perso/commun. La carte TR sert au commun (remboursé) comme au perso (abos de
             // Sébastien) : une dépense TR est commune par défaut, seules celles qui matchent une règle
-            // perso partent côté Perso. Voir PersoScopeRouter.
-            var persoAccountId = await PersoAccounts.GetOrCreatePersoAccountIdAsync(context, connection.UserId);
-            var persoKeywords = rules.Where(r => r.RouteToPerso).Select(r => r.Keyword).ToList();
+            // perso partent côté Perso. Voir PersoScopeRouter. Le compte logique Perso n'est résolu,
+            // et créé au besoin, qu'à la première ligne perso.
+            int? persoAccountId = null;
+            async Task<int> PersoAccountIdAsync() =>
+                persoAccountId ??= await PersoAccounts.GetOrCreatePersoAccountIdAsync(context, connection.UserId);
             var trBankAccount = connection.BankAccounts.FirstOrDefault(ba => ba.IsActive);
+            var trBankAccountIsPersonal = trBankAccount?.IsPersonal ?? false;
 
             // Noms des titulaires de tous les comptes suivis : c'est ce qui permet de reconnaître
             // qu'un libellé TR désigne un mouvement interne et non un commerçant.
@@ -445,11 +442,13 @@ public class BankSyncService : BackgroundService
                     .ToListAsync());
 
             // Candidats au rapprochement : les transactions rattachées à un vrai compte bancaire sur
-            // la fenêtre couverte par la timeline TR, élargie de la tolérance de date.
+            // la fenêtre couverte par la timeline TR, élargie de la tolérance de date. Tous les comptes
+            // logiques de l'utilisateur : une alimentation de la carte depuis l'Argenta perso a sa
+            // jambe bancaire côté Perso, elle doit être rapprochée comme les autres.
             var windowStart = cardTransactions.Min(t => t.Date).Date.AddDays(-InternalTransferReconciler.MaxDayGap);
             var windowEnd = cardTransactions.Max(t => t.Date).Date.AddDays(InternalTransferReconciler.MaxDayGap + 1);
             var bankLegEntities = await context.Transactions
-                .Where(t => t.AccountId == defaultAccount.Id
+                .Where(t => t.Account.UserId == connection.UserId
                          && t.BankAccountId != null
                          && t.Date >= windowStart && t.Date < windowEnd)
                 .ToListAsync();
@@ -475,7 +474,7 @@ public class BankSyncService : BackgroundService
                     && !TradeRepublicTimelineClassifier.IsKnownEventType(tx.EventType))
                     unknownEventTypes.Add(tx.EventType!);
 
-                var externalId = $"tr-{tx.Id}";
+                var externalId = $"{PersoScopeRouter.TradeRepublicExternalIdPrefix}{tx.Id}";
 
                 // Ligne déjà connue : ni ré-import, ni nouveau rapprochement. Le rapprochement n'a
                 // lieu qu'une fois, au premier import du mouvement, ce qui le rend idempotent et
@@ -521,6 +520,7 @@ public class BankSyncService : BackgroundService
 
                 int categoryId;
                 var isFixed = false;
+                CategoryRule? matchedRule = null;
                 switch (kind)
                 {
                     case TrLineKind.InternalTransfer:
@@ -530,22 +530,14 @@ public class BankSyncService : BackgroundService
                         categoryId = investissementId;
                         break;
                     default:
-                        categoryId = defaultCategoryId;
-                        foreach (var rule in rules)
-                        {
-                            if (tx.Title.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase))
-                            {
-                                categoryId = rule.CategoryId;
-                                isFixed = rule.MarkAsFixed;
-                                break;
-                            }
-                        }
+                        matchedRule = CategoryRuleMatcher.FirstMatch(rules, tx.Title, tx.Title);
+                        categoryId = matchedRule?.CategoryId ?? defaultCategoryId;
+                        isFixed = matchedRule?.MarkAsFixed ?? false;
                         break;
                 }
 
                 var type = tx.Amount >= 0 ? TransactionType.Income : TransactionType.Expense;
-                var scope = PersoScopeRouter.Decide(
-                    trBankAccount?.IsPersonal ?? false, externalId, type, tx.Title, tx.Title, persoKeywords);
+                var scope = PersoScopeRouter.Decide(trBankAccountIsPersonal, externalId, type, matchedRule);
 
                 var transaction = new Transaction
                 {
@@ -554,7 +546,7 @@ public class BankSyncService : BackgroundService
                     Date = tx.Date,
                     Type = type,
                     CategoryId = categoryId,
-                    AccountId = scope == TransactionScope.Perso ? persoAccountId : defaultAccount.Id,
+                    AccountId = scope == TransactionScope.Perso ? await PersoAccountIdAsync() : defaultAccount.Id,
                     ExternalId = externalId,
                     IsImported = true,
                     CounterpartyName = tx.Title,
