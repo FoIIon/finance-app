@@ -35,6 +35,24 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
   const data = period === 'MAX' ? points : baseline !== null ? [baseline, ...points] : points;
   const last = data.length > 0 ? data[data.length - 1] : null;
 
+  // Axe Y borné sur ce qui est affiché. Parti de zéro, un portefeuille à 80 k€ faisait une ligne
+  // plate sur une semaine : les variations de quelques centaines d'euros n'étaient plus lisibles.
+  // Bornes = min et max des séries visibles (valeur et investi), marge de 5 %, arrondies à un
+  // pas « propre » pour des graduations lisibles.
+  const yDomain = ((): [number, number] | undefined => {
+    const valeurs = data.flatMap((p) => (p.invested != null ? [p.value, p.invested] : [p.value]));
+    if (valeurs.length < 2) return undefined;
+    const min = Math.min(...valeurs);
+    const max = Math.max(...valeurs);
+    const amplitude = Math.max(max - min, max * 0.02, 1);
+    const marge = amplitude * 0.05;
+    const pas = Math.pow(10, Math.floor(Math.log10(amplitude))) / 2;
+    const lo = Math.max(0, Math.floor((min - marge) / pas) * pas);
+    const hi = Math.ceil((max + marge) / pas) * pas;
+    return [lo, hi];
+  })();
+  const fmtAxe = (v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toLocaleString('fr-BE', { maximumFractionDigits: 1 })} k€` : `${Math.round(v)} €`);
+
   return (
     <div className="bg-[#1a1a3e] rounded-2xl border border-white/10 p-5">
       <h3 className="text-base md:text-lg font-semibold text-white mb-4">Évolution du patrimoine</h3>
@@ -54,7 +72,14 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="asOf" tickFormatter={fmtDate} stroke="rgba(255,255,255,0.3)" fontSize={11} />
-              <YAxis stroke="rgba(255,255,255,0.3)" fontSize={11} />
+              <YAxis
+                stroke="rgba(255,255,255,0.3)"
+                fontSize={11}
+                domain={yDomain ?? [0, 'auto']}
+                tickFormatter={fmtAxe}
+                width={64}
+                allowDataOverflow={false}
+              />
               <Tooltip
                 content={({ active, payload }) => {
                   if (!active || !payload || payload.length === 0) return null;
