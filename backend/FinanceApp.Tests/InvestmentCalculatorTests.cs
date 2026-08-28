@@ -425,4 +425,49 @@ public class InvestmentCalculatorTests
         Assert.Equal(1080m, result[0].Invested);
         Assert.True(result[0].Reconstructed);
     }
+
+    [Fact]
+    public void ReconstructCalibrated_PositionAnterieure_EntreEnOuvertureAuPremierJour()
+    {
+        // Timeline : un seul achat de 100 € à 10 le 01/01 (10 parts). Mais TR dit qu'on en détient 30 :
+        // 20 parts achetées avant la timeline. Elles entrent le 01/01 à 10 €, soit 200 €, sans plus-value.
+        var prices = Prices(("ETF", new[] { ("2025-12-20", 9m), ("2026-01-01", 10m), ("2026-01-05", 12m) }));
+        var held = new Dictionary<string, decimal> { ["ETF"] = 30m };
+        var (points, fills, _, openings) = InvestmentCalculator.ReconstructPortfolioHistoryCalibrated(
+            [Mv("ETF", "2026-01-01", -100m)], prices, held, DateTime.Parse("2026-01-05"));
+
+        Assert.Single(openings);
+        Assert.True(openings[0].IsOpening);
+        Assert.Equal(-200m, openings[0].Amount);
+        Assert.Equal(DateTime.Parse("2026-01-01"), openings[0].Date);
+        Assert.Equal((300m, 300m), (points[0].Value, points[0].Invested));
+        Assert.Equal((360m, 300m), (points[^1].Value, points[^1].Invested));
+        Assert.Equal(30m, fills.Sum(f => f.Quantity));
+    }
+
+    [Fact]
+    public void ReconstructCalibrated_EcartNegatif_CorrigeVersLaQuantiteReelle()
+    {
+        // Approximation par le cours : 10,5 parts rebâties pour 10 détenues. L'ouverture est une
+        // correction négative, la valeur finale colle à la quantité réelle.
+        var prices = Prices(("ETF", new[] { ("2026-01-01", 10m), ("2026-01-05", 20m) }));
+        var held = new Dictionary<string, decimal> { ["ETF"] = 10m };
+        var (points, fills, _, openings) = InvestmentCalculator.ReconstructPortfolioHistoryCalibrated(
+            [Mv("ETF", "2026-01-01", -105m)], prices, held, DateTime.Parse("2026-01-05"));
+
+        Assert.Single(openings);
+        Assert.Equal(5m, openings[0].Amount);
+        Assert.Equal(10m, fills.Sum(f => f.Quantity));
+        Assert.Equal(200m, points[^1].Value);
+    }
+
+    [Fact]
+    public void ReconstructCalibrated_QuantiteDejaJuste_AucuneOuverture()
+    {
+        var prices = Prices(("ETF", new[] { ("2026-01-01", 10m) }));
+        var held = new Dictionary<string, decimal> { ["ETF"] = 10m };
+        var (_, _, _, openings) = InvestmentCalculator.ReconstructPortfolioHistoryCalibrated(
+            [Mv("ETF", "2026-01-01", -100m)], prices, held, DateTime.Parse("2026-01-01"));
+        Assert.Empty(openings);
+    }
 }

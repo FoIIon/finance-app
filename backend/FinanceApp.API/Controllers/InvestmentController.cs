@@ -709,9 +709,18 @@ public class InvestmentController : ControllerBase
         var timelineMovements = mouvements
             .Select(m => new InvestmentCalculator.TimelineMovement(m.Isin, m.Item.Date, m.Item.Amount))
             .ToList();
-        var (points, fills, isinsSansCours) = InvestmentCalculator.ReconstructPortfolioHistory(
-            timelineMovements, prices, DateTime.UtcNow.Date);
+        // Calibrage sur les quantités détenues (voir ReconstructPortfolioHistoryCalibrated) : la
+        // timeline TR commence au 24/11/2023, ce qui a été acheté avant entre en position d'ouverture.
+        var detenues = parIsin.Values
+            .Where(i => !i.IsArchived && i.Isin != null && i.Quantity > 0)
+            .ToDictionary(i => i.Isin!, i => i.Quantity);
+        var (points, fills, isinsSansCours, openings) = InvestmentCalculator.ReconstructPortfolioHistoryCalibrated(
+            timelineMovements, prices, detenues, DateTime.UtcNow.Date);
         result.IsinsWithoutPrices = isinsSansCours;
+        if (openings.Count > 0)
+            _logger.LogInformation("TR reconstruction : {n} position(s) d'ouverture au {date:yyyy-MM-dd} : {detail}",
+                openings.Count, openings[0].Date,
+                string.Join(", ", openings.Select(o => $"{o.Isin} {(-o.Amount):0.00} EUR")));
 
         // Garde-fou (28/08/2026) : une timeline tronquée (pagination refusée) a produit une
         // « valeur du portefeuille » de 238 € à partir de quatre achats d'août, qui a remplacé la
@@ -742,7 +751,7 @@ public class InvestmentController : ControllerBase
         }
 
         // Mouvements : dédupliqués par ExternalId, quantité et cours tels que retenus par la reconstruction.
-        var fillParCle = fills.ToDictionary(f => (f.Movement.Isin, f.Movement.Date, f.Movement.Amount));
+        var fillParCle = fills.Where(f => !f.Movement.IsOpening).ToDictionary(f => (f.Movement.Isin, f.Movement.Date, f.Movement.Amount));
         var externalIds = mouvements.Select(m => $"{PersoScopeRouter.TradeRepublicExternalIdPrefix}{m.Item.Id}").ToList();
         var dejaLa = (await _context.InvestmentMovements
             .Where(mv => mv.ExternalId != null && externalIds.Contains(mv.ExternalId))
