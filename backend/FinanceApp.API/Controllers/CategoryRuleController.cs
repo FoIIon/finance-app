@@ -41,7 +41,8 @@ public class CategoryRuleController : ControllerBase
                 Keyword = cr.Keyword,
                 CategoryId = cr.CategoryId,
                 CategoryName = cr.Category.Name,
-                MarkAsFixed = cr.MarkAsFixed
+                MarkAsFixed = cr.MarkAsFixed,
+                RouteToPerso = cr.RouteToPerso
             })
             .ToListAsync();
 
@@ -64,7 +65,8 @@ public class CategoryRuleController : ControllerBase
             UserId = userId,
             Keyword = dto.Keyword,
             CategoryId = dto.CategoryId,
-            MarkAsFixed = dto.MarkAsFixed
+            MarkAsFixed = dto.MarkAsFixed,
+            RouteToPerso = dto.RouteToPerso
         };
 
         _context.CategoryRules.Add(rule);
@@ -76,7 +78,8 @@ public class CategoryRuleController : ControllerBase
             Keyword = rule.Keyword,
             CategoryId = rule.CategoryId,
             CategoryName = category.Name,
-            MarkAsFixed = rule.MarkAsFixed
+            MarkAsFixed = rule.MarkAsFixed,
+            RouteToPerso = rule.RouteToPerso
         });
     }
 
@@ -105,6 +108,9 @@ public class CategoryRuleController : ControllerBase
         if (dto.MarkAsFixed.HasValue)
             rule.MarkAsFixed = dto.MarkAsFixed.Value;
 
+        if (dto.RouteToPerso.HasValue)
+            rule.RouteToPerso = dto.RouteToPerso.Value;
+
         await _context.SaveChangesAsync();
 
         // Recharger la catégorie pour le DTO
@@ -116,7 +122,8 @@ public class CategoryRuleController : ControllerBase
             Keyword = rule.Keyword,
             CategoryId = rule.CategoryId,
             CategoryName = rule.Category.Name,
-            MarkAsFixed = rule.MarkAsFixed
+            MarkAsFixed = rule.MarkAsFixed,
+            RouteToPerso = rule.RouteToPerso
         });
     }
 

@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Institution, BankConnection, BankAccount, CategoryRule, CreateCategoryRule, UpdateCategoryRule, TradeRepublicLoginRequest, TradeRepublicLoginResponse, TradeRepublicVerifyRequest } from '../types/banking';
+import type { Institution, BankConnection, BankAccount, UpdateBankAccount, CategoryRule, CreateCategoryRule, UpdateCategoryRule, TradeRepublicLoginRequest, TradeRepublicLoginResponse, TradeRepublicVerifyRequest } from '../types/banking';
 
 export const bankingApi = {
   getInstitutions: (country: string) =>
@@ -26,7 +26,7 @@ export const bankingApi = {
   getAccounts: () =>
     apiClient.get<BankAccount[]>('/banking/accounts'),
 
-  updateAccount: (id: number, data: { isActive: boolean }) =>
+  updateAccount: (id: number, data: UpdateBankAccount) =>
     apiClient.patch(`/banking/accounts/${id}`, data),
 
   tradeRepublicLogin: (data: TradeRepublicLoginRequest) =>

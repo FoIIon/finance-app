@@ -23,6 +23,13 @@ export interface BankAccount {
   accountName: string | null;
   currency: string;
   isActive: boolean;
+  /** Compte personnel : toutes ses transactions comptent au Perso, pas au Commun. */
+  isPersonal: boolean;
+}
+
+export interface UpdateBankAccount {
+  isActive?: boolean;
+  isPersonal?: boolean;
 }
 
 export interface BankConnection {
@@ -43,18 +50,22 @@ export interface CategoryRule {
   categoryName: string;
   /** Les transactions matchées sont marquées charge fixe. */
   markAsFixed: boolean;
+  /** Les dépenses carte Trade Republic matchées comptent au Perso, pas au Commun. */
+  routeToPerso: boolean;
 }
 
 export interface CreateCategoryRule {
   keyword: string;
   categoryId: number;
   markAsFixed: boolean;
+  routeToPerso: boolean;
 }
 
 export interface UpdateCategoryRule {
   keyword?: string;
   categoryId?: number;
   markAsFixed?: boolean;
+  routeToPerso?: boolean;
 }
 
 export interface TradeRepublicLoginRequest {

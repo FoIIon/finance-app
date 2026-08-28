@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { bankingApi, categoryRulesApi } from '../api/banking';
-import type { BankConnection, Institution, CategoryRule, CreateCategoryRule, UpdateCategoryRule, TradeRepublicLoginRequest, TradeRepublicVerifyRequest } from '../types/banking';
+import type { BankConnection, Institution, CategoryRule, CreateCategoryRule, UpdateCategoryRule, UpdateBankAccount, TradeRepublicLoginRequest, TradeRepublicVerifyRequest } from '../types/banking';
 
 export const useBanking = () => {
   const [connections, setConnections] = useState<BankConnection[]>([]);
@@ -74,8 +74,8 @@ export const useBanking = () => {
     return response.data.authorizationUrl;
   };
 
-  const updateAccount = async (id: number, isActive: boolean) => {
-    await bankingApi.updateAccount(id, { isActive });
+  const updateAccount = async (id: number, data: UpdateBankAccount) => {
+    await bankingApi.updateAccount(id, data);
     await fetchConnections();
   };
 
