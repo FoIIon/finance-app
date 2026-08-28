@@ -300,6 +300,7 @@ const Investments = () => {
       showToast(
         `Trade Republic : ${data.total} lignes, ${data.created} ajoutées, ${data.valued} valorisées`
           + (data.historyPoints > 0 ? `, ${data.historyPoints} points d'historique` : '')
+          + (data.portfolioHistoryPoints > 0 ? `, ${data.portfolioHistoryPoints} points de portefeuille réel` : '')
           + (data.archived > 0 ? `, ${data.archived} vendue(s) archivée(s)` : ''),
         'success',
       );
@@ -380,6 +381,9 @@ const Investments = () => {
         {i.kind === InvestmentKind.InsuranceContract ? '—' : formatQuantity(i.quantity, unitLabels[i.unit])}
       </td>
       <td className="p-3 text-right">{i.unitCost != null ? formatCurrency(i.unitCost) : '—'}</td>
+      <td className={`p-3 text-right ${i.isStale ? 'text-white/40' : ''}`}>
+        {i.unitPrice != null ? formatCurrency(i.unitPrice) : '—'}
+      </td>
       <td className="p-3 text-right">{formatCurrency(i.costBasis)}</td>
       <td className={`p-3 text-right ${i.isStale ? 'text-white/40' : ''}`}>
         {i.marketValue != null ? formatCurrency(i.marketValue) : '—'}
@@ -441,7 +445,7 @@ const Investments = () => {
     const st = groupSubtotals(rows);
     return (
       <tr key={`group-${name}`} className="border-b border-white/10 bg-white/5 text-white/80">
-        <td className="p-3 font-semibold" colSpan={6}>
+        <td className="p-3 font-semibold" colSpan={7}>
           {name} <span className="text-white/40 font-normal">({rows.length})</span>
         </td>
         <td className="p-3 text-right font-medium">{formatCurrency(st.invested)}</td>
@@ -642,6 +646,7 @@ const Investments = () => {
               <th className="text-right p-3">Jour</th>
               <th className="text-right p-3">Quantité</th>
               <th className="text-right p-3">PRU</th>
+              <th className="text-right p-3">Cours</th>
               <th className="text-right p-3">Investi</th>
               <th className="text-right p-3">
                 Valeur
@@ -666,7 +671,7 @@ const Investments = () => {
           {lines.length > 0 && (
             <tfoot className="border-t border-white/10 text-white/80">
               <tr>
-                <td className="p-3 font-semibold" colSpan={6}>
+                <td className="p-3 font-semibold" colSpan={7}>
                   Total{' '}
                   <span className="text-white/40 font-normal">
                     ({lines.filter((i) => !i.isArchived).length} lignes)

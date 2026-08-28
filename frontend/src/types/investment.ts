@@ -47,6 +47,8 @@ export interface Investment {
   createdAt: string;
   /** PRU. null pour un contrat d'assurance-vie. */
   unitCost: number | null;
+  /** Cours unitaire actuel (dernière valorisation). */
+  unitPrice: number | null;
   marketValue: number | null;
   valuationAsOf: string | null;
   isStale: boolean;
@@ -73,7 +75,8 @@ export interface InvestmentValuation {
 export interface InvestmentHistoryPoint {
   asOf: string;
   value: number;
-  invested: number;
+  /** Capital investi à cette date. Null sur les points portés par la série réelle Trade Republic. */
+  invested: number | null;
   linesIncluded: number;
   linesTotal: number;
 }
@@ -120,6 +123,7 @@ export interface TradeRepublicImportResult {
   updated: number;
   valued: number;
   historyPoints: number;
+  portfolioHistoryPoints: number;
   cashBalance: number | null;
   archived: number;
 }

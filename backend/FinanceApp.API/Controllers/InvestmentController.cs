@@ -53,6 +53,7 @@ public class InvestmentController : ControllerBase
             CreatedAt = i.CreatedAt,
             UnitCost = InvestmentCalculator.ComputeUnitCost(i.Kind, i.CostBasis, i.Quantity),
             MarketValue = marketValue,
+            UnitPrice = latest?.UnitPrice,
             ValuationAsOf = latest?.AsOf,
             IsStale = latest != null && InvestmentCalculator.IsStale(latest.Source, latest.AsOf, now),
             GainAmount = gainAmount,
@@ -299,6 +300,30 @@ public class InvestmentController : ControllerBase
         var history = InvestmentCalculator.ComputePortfolioHistory(lines);
         var linesTotal = investments.Count(i => !i.IsArchived);
 
+        // Série réelle Trade Republic quand elle existe : elle remplace la reconstitution pour
+        // les lignes TR (quantités du jour, positions vendues comprises), les autres lignes
+        // s'y ajoutent. Voir InvestmentCalculator.MergeWithPortfolioSeries.
+        var trSeries = (await _context.PortfolioValuations
+            .Where(v => v.DashboardId == dashboardId)
+            .OrderBy(v => v.AsOf)
+            .Select(v => new { v.AsOf, v.MarketValue })
+            .ToListAsync())
+            .Select(v => (v.AsOf, v.MarketValue))
+            .ToList();
+
+        if (trSeries.Count > 0)
+        {
+            var otherLines = investments
+                .Where(i => i.Source != InvestmentSource.TradeRepublic)
+                .Select(i => new PortfolioLine(
+                    i.CostBasis,
+                    i.IsArchived,
+                    valuationsByInvestment.GetValueOrDefault(i.Id) ?? Array.Empty<(DateTime, decimal)>()))
+                .ToList();
+            var othersHistory = InvestmentCalculator.ComputePortfolioHistory(otherLines);
+            history = InvestmentCalculator.MergeWithPortfolioSeries(trSeries, othersHistory, history);
+        }
+
         var result = history
             .Select(p => new InvestmentHistoryPointDto
             {
@@ -403,7 +428,40 @@ public class InvestmentController : ControllerBase
 
         var defaultHolder = configuration["TradeRepublic:DefaultHolder"] ?? "Trade Republic";
         var today = DateTime.UtcNow.Date;
-        int created = 0, updated = 0, valued = 0, historyPoints = 0;
+        int created = 0, updated = 0, valued = 0, historyPoints = 0, portfolioPoints = 0;
+
+        // Série réelle du portefeuille : Trade Republic fait foi, un ré-import remplace la
+        // valeur déjà connue du jour (la séance en cours bouge jusqu'à la clôture).
+        if (import.PortfolioHistory.Count > 0)
+        {
+            var existantes = await _context.PortfolioValuations
+                .Where(v => v.DashboardId == dashboardId)
+                .ToDictionaryAsync(v => v.AsOf);
+
+            foreach (var point in import.PortfolioHistory)
+            {
+                if (existantes.TryGetValue(point.AsOf, out var pv))
+                {
+                    if (pv.MarketValue == point.Close) continue;
+                    pv.MarketValue = point.Close;
+                }
+                else
+                {
+                    var nouvelle = new PortfolioValuation
+                    {
+                        DashboardId = dashboardId,
+                        AsOf = point.AsOf,
+                        MarketValue = point.Close,
+                        Source = ValuationSource.TradeRepublic,
+                    };
+                    _context.PortfolioValuations.Add(nouvelle);
+                    existantes[point.AsOf] = nouvelle;
+                }
+                portfolioPoints++;
+            }
+
+            await _context.SaveChangesAsync();
+        }
 
         foreach (var snap in snapshots)
         {
@@ -538,6 +596,7 @@ public class InvestmentController : ControllerBase
             Updated = updated,
             Valued = valued,
             HistoryPoints = historyPoints,
+            PortfolioHistoryPoints = portfolioPoints,
             CashBalance = import.CashBalance,
             Archived = aArchiver.Count,
         });
