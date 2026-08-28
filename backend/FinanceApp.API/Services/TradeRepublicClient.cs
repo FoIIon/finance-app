@@ -688,7 +688,16 @@ public class TradeRepublicClient : IDisposable
                 _logger.LogInformation("TR timeline WS page {page} : {lignes} lignes, {nouveaux} nouvelles, curseur « {next} », structure : {structure}",
                     page, items.Count, nouveaux, next ?? "(aucun)", TradeRepublicPortfolioParser.DescribeTimelineEnvelope(json));
 
-            if (next == null || nouveaux == 0 || next == after) break;
+            if (next == null || nouveaux == 0 || next == after)
+            {
+                // Arrêt au 24/11/2023 le 28/08/2026 alors que des achats plus anciens existent :
+                // on journalise la raison exacte pour distinguer une fin de série TR d'un curseur cassé.
+                _logger.LogInformation("TR timeline : arrêt page {page}, raison : {raison}, dernier curseur « {cursor} », structure : {structure}",
+                    page,
+                    next == null ? "curseur absent" : nouveaux == 0 ? "page sans nouvelle ligne" : "curseur identique",
+                    after ?? "(aucun)", TradeRepublicPortfolioParser.DescribeTimelineEnvelope(json));
+                break;
+            }
             after = next;
         }
 
