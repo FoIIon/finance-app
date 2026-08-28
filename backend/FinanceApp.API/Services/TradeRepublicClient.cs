@@ -38,6 +38,7 @@ public class TradeRepublicClient : IDisposable
     private static readonly HashSet<string> AllowedMessageTypes = new()
     {
         "timeline",
+        "timelineTransactions",
         "compactPortfolioByType",
         "instrument",
         "ticker",
@@ -639,39 +640,27 @@ public class TradeRepublicClient : IDisposable
     }
 
     /// <summary>
-    /// Timeline complète via REST, page après page, depuis la plus récente jusqu'au premier
-    /// mouvement du compte. C'est ce qui permet de rebâtir la valeur du portefeuille depuis le
-    /// début : Trade Republic a refusé ses topics d'agrégat le 28/08/2026 (BAD_SUBSCRIPTION_TYPE
-    /// sur portfolioAggregateHistory et sa variante Light). Garde-fous : 400 pages au plus,
-    /// arrêt si une page ne renvoie rien de neuf.
+    /// Timeline complète, page après page, depuis la plus récente jusqu'au premier mouvement du
+    /// compte. C'est ce qui permet de rebâtir la valeur du portefeuille depuis le début : Trade
+    /// Republic a refusé ses topics d'agrégat le 28/08/2026 (BAD_SUBSCRIPTION_TYPE sur
+    /// portfolioAggregateHistory et sa variante Light).
+    ///
+    /// Canal : WebSocket « timelineTransactions » avec le curseur « after ». Le REST
+    /// /api/v2/timeline/transactions renvoie bien un curseur (keyset + pageDirection NEXT) mais
+    /// ignore tout paramètre de requête : cursor, after, pageCursor, startingTransactionId, from
+    /// essayés le 28/08/2026, tous renvoient la première page. Le même curseur passé en WebSocket
+    /// est la pagination qu'utilisent les clients de la communauté.
+    /// Garde-fous : 400 pages au plus, arrêt si une page ne renvoie rien de neuf.
     /// </summary>
-    /// <summary>
-    /// Noms de paramètre essayés pour passer le curseur. Le 28/08/2026, « after » renvoyait la même
-    /// première page (30 lignes, curseur identique) : ce n'est pas le nom attendu par le REST v2.
-    /// On essaie chacun sur la deuxième page et on garde le premier qui change réellement le contenu.
-    /// </summary>
-    private static readonly string[] TimelineCursorParams = ["cursor", "after", "pageCursor", "startingTransactionId", "from"];
-
     public async Task<List<TradeRepublicPortfolioParser.TrTimelineItem>> GetTimelineAllAsync(
-        string sessionToken, CancellationToken ct = default)
+        string sessionToken, string? refreshToken, string? deviceToken, CancellationToken ct = default)
     {
         using var timeoutCts = CreateTimeoutToken(ct, TimeSpan.FromSeconds(240));
         var all = new List<TradeRepublicPortfolioParser.TrTimelineItem>();
         var vus = new HashSet<string>();
 
-        async Task<(List<TradeRepublicPortfolioParser.TrTimelineItem> Items, string? After, string Body)> FetchAsync(string url)
-        {
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"tr_session={sessionToken}");
-            var response = await _httpClient.SendAsync(request, timeoutCts.Token);
-            var body = await response.Content.ReadAsStringAsync(timeoutCts.Token);
-            if ((int)response.StatusCode == 401 || (int)response.StatusCode == 403)
-                throw new InvalidOperationException($"Session TR expirée ({(int)response.StatusCode}) — veuillez relancer la connexion.");
-            if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException($"TR timeline HTTP {(int)response.StatusCode}: {body[..Math.Min(200, body.Length)]}");
-            var (items, after) = TradeRepublicPortfolioParser.ParseTimelinePage(body);
-            return (items, after, body);
-        }
+        if (_ws == null || _ws.State != WebSocketState.Open)
+            await ConnectAsync(refreshToken, deviceToken, timeoutCts.Token);
 
         int Absorber(List<TradeRepublicPortfolioParser.TrTimelineItem> items)
         {
@@ -685,46 +674,26 @@ public class TradeRepublicClient : IDisposable
             return nouveaux;
         }
 
-        const string Base = "/api/v2/timeline/transactions";
-        var (items, after, body) = await FetchAsync(Base);
-        _logger.LogInformation("TR timeline page 1 : {lignes} lignes, curseur « {next} », structure : {structure}",
-            items.Count, after ?? "(aucun)", TradeRepublicPortfolioParser.DescribeTimelineEnvelope(body));
-        Absorber(items);
-        if (after == null) return all;
-
-        // Deuxième page : on cherche le nom de paramètre que TR accepte. Une page qui renvoie
-        // les mêmes lignes ou le même curseur n'a pas tourné.
-        string? param = null;
-        foreach (var candidat in TimelineCursorParams)
+        string? after = null;
+        for (var page = 1; page <= 400; page++)
         {
-            var (items2, after2, _) = await FetchAsync($"{Base}?{candidat}={Uri.EscapeDataString(after)}");
-            var nouveaux = Absorber(items2);
-            _logger.LogInformation("TR timeline pagination : paramètre « {param} » → {lignes} lignes, {nouveaux} nouvelles, curseur {meme}.",
-                candidat, items2.Count, nouveaux, after2 == after ? "identique" : "différent");
-            if (nouveaux > 0 && after2 != after)
-            {
-                param = candidat;
-                after = after2;
-                break;
-            }
+            object payload = after == null
+                ? new { type = "timelineTransactions", token = sessionToken }
+                : new { type = "timelineTransactions", after, token = sessionToken };
+            var json = await SubscribeOnceRawAsync(payload, timeoutCts.Token);
+            var (items, next) = TradeRepublicPortfolioParser.ParseTimelinePage(json);
+            var nouveaux = Absorber(items);
+
+            if (page <= 2)
+                _logger.LogInformation("TR timeline WS page {page} : {lignes} lignes, {nouveaux} nouvelles, curseur « {next} », structure : {structure}",
+                    page, items.Count, nouveaux, next ?? "(aucun)", TradeRepublicPortfolioParser.DescribeTimelineEnvelope(json));
+
+            if (next == null || nouveaux == 0 || next == after) break;
+            after = next;
         }
 
-        if (param == null)
-        {
-            _logger.LogWarning("TR timeline : aucun paramètre de pagination accepté, timeline limitée à la première page ({lignes} lignes).", all.Count);
-            return all;
-        }
-
-        for (var page = 3; page <= 400 && after != null; page++)
-        {
-            var (itemsN, afterN, _) = await FetchAsync($"{Base}?{param}={Uri.EscapeDataString(after)}");
-            var nouveaux = Absorber(itemsN);
-            if (nouveaux == 0 || afterN == null || afterN == after) break;
-            after = afterN;
-        }
-
-        _logger.LogInformation("TR timeline : {lignes} lignes au total via « {param} », plus ancienne {date:yyyy-MM-dd}.",
-            all.Count, param, all.Count > 0 ? all.Min(i => i.Date) : DateTime.MinValue);
+        _logger.LogInformation("TR timeline : {lignes} lignes au total, plus ancienne {date:yyyy-MM-dd}.",
+            all.Count, all.Count > 0 ? all.Min(i => i.Date) : DateTime.MinValue);
         return all;
     }
 

@@ -562,7 +562,7 @@ public class InvestmentController : ControllerBase
         var reconstruction = new ReconstructionResult();
         try
         {
-            reconstruction = await ReconstructFromTimelineAsync(dashboardId, sessionToken, trClient, defaultHolder);
+            reconstruction = await ReconstructFromTimelineAsync(dashboardId, sessionToken, refreshToken, deviceToken, trClient, defaultHolder);
         }
         catch (Exception ex)
         {
@@ -603,10 +603,10 @@ public class InvestmentController : ControllerBase
     /// Voir InvestmentCalculator.ReconstructPortfolioHistory pour la méthode et ses limites.
     /// </summary>
     private async Task<ReconstructionResult> ReconstructFromTimelineAsync(
-        int dashboardId, string sessionToken, TradeRepublicClient trClient, string defaultHolder)
+        int dashboardId, string sessionToken, string refreshToken, string deviceToken, TradeRepublicClient trClient, string defaultHolder)
     {
         var result = new ReconstructionResult();
-        var timeline = await trClient.GetTimelineAllAsync(sessionToken);
+        var timeline = await trClient.GetTimelineAllAsync(sessionToken, refreshToken, deviceToken);
         if (timeline.Count == 0) return result;
 
         var lignes = await _context.Investments
