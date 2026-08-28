@@ -39,8 +39,10 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
   // plate sur une semaine : les variations de quelques centaines d'euros n'étaient plus lisibles.
   // Bornes = min et max des séries visibles (valeur et investi), marge de 5 %, arrondies à un
   // pas « propre » pour des graduations lisibles.
+  // Sur la VALEUR seule : bornée aussi sur l'investi (63 k€ contre 89 k€), l'amplitude restait celle
+  // de l'écart entre les deux courbes, et une semaine de variations restait écrasée.
   const yDomain = ((): [number, number] | undefined => {
-    const valeurs = data.flatMap((p) => (p.invested != null ? [p.value, p.invested] : [p.value]));
+    const valeurs = data.map((p) => p.value);
     if (valeurs.length < 2) return undefined;
     const min = Math.min(...valeurs);
     const max = Math.max(...valeurs);
@@ -51,6 +53,13 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
     const hi = Math.ceil((max + marge) / pas) * pas;
     return [lo, hi];
   })();
+  // La ligne Investi ne s'affiche que si elle tient dans la plage de l'axe (période longue, où
+  // l'écart valeur / investi fait partie de ce qu'on lit). Sinon elle forcerait l'axe à s'écraser,
+  // et le tooltip la porte déjà.
+  const investiVisible =
+    yDomain !== undefined
+    && data.some((p) => p.invested != null)
+    && data.every((p) => p.invested == null || (p.invested >= yDomain[0] && p.invested <= yDomain[1]));
   const fmtAxe = (v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toLocaleString('fr-BE', { maximumFractionDigits: 1 })} k€` : `${Math.round(v)} €`);
 
   return (
@@ -116,6 +125,7 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
                 dot={false}
                 activeDot={{ r: 4, strokeWidth: 0 }}
               />
+              {investiVisible && (
               <Line
                 type="monotone"
                 dataKey="invested"
@@ -125,6 +135,7 @@ export const PortfolioChart = ({ history, period, isLoading }: Props) => {
                 strokeDasharray="5 5"
                 dot={false}
               />
+              )}
             </ComposedChart>
           </ResponsiveContainer>
           {history.length > 0 && history[0].reconstructed && (
