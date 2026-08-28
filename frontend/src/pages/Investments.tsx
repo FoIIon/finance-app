@@ -304,6 +304,7 @@ const Investments = () => {
           + (data.soldLinesAdded > 0 ? `, ${data.soldLinesAdded} position(s) vendue(s) retrouvée(s)` : '')
           + (data.portfolioHistoryPoints > 0 ? `, courbe rebâtie sur ${data.portfolioHistoryPoints} jours` : '')
           + (data.isinsWithoutPrices.length > 0 ? ` (sans cours : ${data.isinsWithoutPrices.join(', ')})` : '')
+          + (data.historyIncomplete ? '. Historique complet indisponible : la timeline lue ne couvre pas tout le portefeuille' : '')
           + (data.archived > 0 ? `, ${data.archived} vendue(s) archivée(s)` : ''),
         'success',
       );

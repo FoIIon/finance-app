@@ -153,6 +153,8 @@ public class TradeRepublicImportResultDto
     public int SoldLinesAdded { get; set; }
     /// <summary>ISIN dont aucun cours n'a pu être obtenu : comptés dans l'investi, absents de la valeur.</summary>
     public List<string> IsinsWithoutPrices { get; set; } = new();
+    /// <summary>Vrai si la reconstruction a été rejetée : la timeline lue ne recolle pas à la valeur réelle du portefeuille (pagination tronquée). La courbe reste reconstituée.</summary>
+    public bool HistoryIncomplete { get; set; }
     /// <summary>Solde espèces relevé, hors valeur du portefeuille.</summary>
     public decimal? CashBalance { get; set; }
     /// <summary>Lignes disparues du portefeuille, donc vendues, archivées automatiquement.</summary>

@@ -580,6 +580,7 @@ public class InvestmentController : ControllerBase
             Movements = reconstruction.Movements,
             SoldLinesAdded = reconstruction.SoldLinesAdded,
             IsinsWithoutPrices = reconstruction.IsinsWithoutPrices,
+            HistoryIncomplete = reconstruction.Incomplete,
             CashBalance = import.CashBalance,
             Archived = aArchiver.Count,
         });
@@ -591,6 +592,7 @@ public class InvestmentController : ControllerBase
         public int Movements { get; set; }
         public int SoldLinesAdded { get; set; }
         public List<string> IsinsWithoutPrices { get; set; } = new();
+        public bool Incomplete { get; set; }
     }
 
     /// <summary>
@@ -691,6 +693,34 @@ public class InvestmentController : ControllerBase
         var (points, fills, isinsSansCours) = InvestmentCalculator.ReconstructPortfolioHistory(
             timelineMovements, prices, DateTime.UtcNow.Date);
         result.IsinsWithoutPrices = isinsSansCours;
+
+        // Garde-fou (28/08/2026) : une timeline tronquée (pagination refusée) a produit une
+        // « valeur du portefeuille » de 238 € à partir de quatre achats d'août, qui a remplacé la
+        // vraie courbe à l'écran. La reconstruction n'est retenue que si son dernier point recolle
+        // à la valeur réelle des lignes TR détenues aujourd'hui. Sinon on n'écrit rien, on efface
+        // ce qu'une reconstruction précédente aurait laissé, et on le dit.
+        var valeurReelle = await _context.InvestmentValuations
+            .Where(v => ids.Contains(v.InvestmentId) && !v.Investment.IsArchived
+                        && v.Source != ValuationSource.TradeRepublicHistory)
+            .GroupBy(v => v.InvestmentId)
+            .Select(g => g.OrderByDescending(v => v.AsOf).First().MarketValue)
+            .ToListAsync();
+        var totalReel = valeurReelle.Sum();
+        var dernier = points.Count > 0 ? points[^1].Value : 0m;
+        var coherent = totalReel <= 0m || (dernier >= totalReel * 0.8m && dernier <= totalReel * 1.2m);
+        if (!coherent)
+        {
+            var anciennes = await _context.PortfolioValuations
+                .Where(v => v.DashboardId == dashboardId && v.Source == ValuationSource.Reconstructed)
+                .ToListAsync();
+            _context.PortfolioValuations.RemoveRange(anciennes);
+            await _context.SaveChangesAsync();
+            result.Incomplete = true;
+            _logger.LogWarning(
+                "TR reconstruction rejetée : dernier point {dernier} EUR contre {reel} EUR de lignes détenues ({mouvements} mouvements lus depuis {debut:yyyy-MM-dd}). Timeline probablement tronquée. {supprimes} point(s) précédent(s) effacé(s).",
+                dernier, totalReel, timelineMovements.Count, timelineMovements.Min(m => m.Date), anciennes.Count);
+            return result;
+        }
 
         // Mouvements : dédupliqués par ExternalId, quantité et cours tels que retenus par la reconstruction.
         var fillParCle = fills.ToDictionary(f => (f.Movement.Isin, f.Movement.Date, f.Movement.Amount));
