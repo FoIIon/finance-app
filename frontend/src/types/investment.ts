@@ -129,6 +129,7 @@ export interface TradeRepublicImportResult {
   movements: number;
   soldLinesAdded: number;
   isinsWithoutPrices: string[];
+  historyIncomplete: boolean;
   cashBalance: number | null;
   archived: number;
 }

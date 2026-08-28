@@ -639,41 +639,42 @@ public class TradeRepublicClient : IDisposable
     }
 
     /// <summary>
-    /// Timeline complète via REST, page après page (curseur « after »), depuis la plus récente
-    /// jusqu'au premier mouvement du compte. C'est ce qui permet de rebâtir la valeur du
-    /// portefeuille depuis le début : Trade Republic a refusé ses topics d'agrégat le 28/08/2026
-    /// (BAD_SUBSCRIPTION_TYPE sur portfolioAggregateHistory et sa variante Light).
-    /// Garde-fous : 400 pages au plus, arrêt si une page ne renvoie rien de neuf.
+    /// Timeline complète via REST, page après page, depuis la plus récente jusqu'au premier
+    /// mouvement du compte. C'est ce qui permet de rebâtir la valeur du portefeuille depuis le
+    /// début : Trade Republic a refusé ses topics d'agrégat le 28/08/2026 (BAD_SUBSCRIPTION_TYPE
+    /// sur portfolioAggregateHistory et sa variante Light). Garde-fous : 400 pages au plus,
+    /// arrêt si une page ne renvoie rien de neuf.
     /// </summary>
+    /// <summary>
+    /// Noms de paramètre essayés pour passer le curseur. Le 28/08/2026, « after » renvoyait la même
+    /// première page (30 lignes, curseur identique) : ce n'est pas le nom attendu par le REST v2.
+    /// On essaie chacun sur la deuxième page et on garde le premier qui change réellement le contenu.
+    /// </summary>
+    private static readonly string[] TimelineCursorParams = ["cursor", "after", "pageCursor", "startingTransactionId", "from"];
+
     public async Task<List<TradeRepublicPortfolioParser.TrTimelineItem>> GetTimelineAllAsync(
         string sessionToken, CancellationToken ct = default)
     {
         using var timeoutCts = CreateTimeoutToken(ct, TimeSpan.FromSeconds(240));
         var all = new List<TradeRepublicPortfolioParser.TrTimelineItem>();
         var vus = new HashSet<string>();
-        string? after = null;
 
-        for (var page = 0; page < 400; page++)
+        async Task<(List<TradeRepublicPortfolioParser.TrTimelineItem> Items, string? After, string Body)> FetchAsync(string url)
         {
-            var url = after == null
-                ? "/api/v2/timeline/transactions"
-                : $"/api/v2/timeline/transactions?after={Uri.EscapeDataString(after)}";
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"tr_session={sessionToken}");
-
             var response = await _httpClient.SendAsync(request, timeoutCts.Token);
             var body = await response.Content.ReadAsStringAsync(timeoutCts.Token);
-
             if ((int)response.StatusCode == 401 || (int)response.StatusCode == 403)
                 throw new InvalidOperationException($"Session TR expirée ({(int)response.StatusCode}) — veuillez relancer la connexion.");
             if (!response.IsSuccessStatusCode)
                 throw new InvalidOperationException($"TR timeline HTTP {(int)response.StatusCode}: {body[..Math.Min(200, body.Length)]}");
+            var (items, after) = TradeRepublicPortfolioParser.ParseTimelinePage(body);
+            return (items, after, body);
+        }
 
-            var (items, next) = TradeRepublicPortfolioParser.ParseTimelinePage(body);
-            // Diagnostic de pagination (28/08/2026 : deux pages puis arrêt, plus ancienne 13/08).
-            // On journalise la structure de la page sans ses lignes, pour voir le vrai nom du curseur.
-            _logger.LogInformation("TR timeline page {page} ({url}) : {lignes} lignes, curseur lu « {next} », structure : {structure}",
-                page + 1, url, items.Count, next ?? "(aucun)", TradeRepublicPortfolioParser.DescribeTimelineEnvelope(body));
+        int Absorber(List<TradeRepublicPortfolioParser.TrTimelineItem> items)
+        {
             var nouveaux = 0;
             foreach (var item in items)
             {
@@ -681,16 +682,49 @@ public class TradeRepublicClient : IDisposable
                 all.Add(item);
                 nouveaux++;
             }
-
-            if (next == null || nouveaux == 0 || next == after)
-            {
-                _logger.LogInformation("TR timeline : {pages} page(s), {lignes} lignes, plus ancienne {date:yyyy-MM-dd}.",
-                    page + 1, all.Count, all.Count > 0 ? all.Min(i => i.Date) : DateTime.MinValue);
-                break;
-            }
-            after = next;
+            return nouveaux;
         }
 
+        const string Base = "/api/v2/timeline/transactions";
+        var (items, after, body) = await FetchAsync(Base);
+        _logger.LogInformation("TR timeline page 1 : {lignes} lignes, curseur « {next} », structure : {structure}",
+            items.Count, after ?? "(aucun)", TradeRepublicPortfolioParser.DescribeTimelineEnvelope(body));
+        Absorber(items);
+        if (after == null) return all;
+
+        // Deuxième page : on cherche le nom de paramètre que TR accepte. Une page qui renvoie
+        // les mêmes lignes ou le même curseur n'a pas tourné.
+        string? param = null;
+        foreach (var candidat in TimelineCursorParams)
+        {
+            var (items2, after2, _) = await FetchAsync($"{Base}?{candidat}={Uri.EscapeDataString(after)}");
+            var nouveaux = Absorber(items2);
+            _logger.LogInformation("TR timeline pagination : paramètre « {param} » → {lignes} lignes, {nouveaux} nouvelles, curseur {meme}.",
+                candidat, items2.Count, nouveaux, after2 == after ? "identique" : "différent");
+            if (nouveaux > 0 && after2 != after)
+            {
+                param = candidat;
+                after = after2;
+                break;
+            }
+        }
+
+        if (param == null)
+        {
+            _logger.LogWarning("TR timeline : aucun paramètre de pagination accepté, timeline limitée à la première page ({lignes} lignes).", all.Count);
+            return all;
+        }
+
+        for (var page = 3; page <= 400 && after != null; page++)
+        {
+            var (itemsN, afterN, _) = await FetchAsync($"{Base}?{param}={Uri.EscapeDataString(after)}");
+            var nouveaux = Absorber(itemsN);
+            if (nouveaux == 0 || afterN == null || afterN == after) break;
+            after = afterN;
+        }
+
+        _logger.LogInformation("TR timeline : {lignes} lignes au total via « {param} », plus ancienne {date:yyyy-MM-dd}.",
+            all.Count, param, all.Count > 0 ? all.Min(i => i.Date) : DateTime.MinValue);
         return all;
     }
 
