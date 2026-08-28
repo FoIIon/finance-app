@@ -26,6 +26,10 @@ public enum TransactionScope
 ///   1. Tout mouvement d'un compte bancaire marqué perso (BankAccount.IsPersonal) est perso.
 ///   2. Une dépense carte Trade Republic dont la règle de catégorisation gagnante porte
 ///      CategoryRule.RouteToPerso est perso.
+///   3. Un achat ou une vente de titres Trade Republic est perso. Le portefeuille TR appartient à
+///      Sébastien, jamais au ménage (posé le 28/08/2026). Sans cette règle, quatre achats d'août
+///      (Bitcoin, MSCI World, FTSE All-World) gonflaient les mises de côté du Commun, et aucune règle
+///      ne pouvait les rattraper : la catégorie Investissement est forcée à l'import, sans matcher.
 ///
 /// La règle 2 s'appuie sur la règle **gagnante** de la catégorisation, pas sur une seconde recherche
 /// de mots-clés. Revue du 28/08/2026 : une boucle séparée sur les seuls mots-clés perso laissait une
@@ -50,11 +54,13 @@ public static class PersoScopeRouter
     /// <param name="externalId">ExternalId de la transaction. Les lignes Trade Republic portent « tr-… ».</param>
     /// <param name="type">Dépense ou revenu.</param>
     /// <param name="matchedRule">La règle de catégorisation gagnante, ou null si aucune n'a matché.</param>
+    /// <param name="isInvestment">La ligne est un mouvement de titres (achat, vente, plan d'épargne).</param>
     public static TransactionScope Decide(
         bool bankAccountIsPersonal,
         string? externalId,
         TransactionType type,
-        CategoryRule? matchedRule)
+        CategoryRule? matchedRule,
+        bool isInvestment = false)
     {
         // 1. Un compte bancaire perso ne porte que du perso, quel que soit le sens du mouvement.
         //    C'est ce qui envoie la jambe entrante des 830 € (dotation épargne perso) côté Perso, donc
@@ -65,6 +71,11 @@ public static class PersoScopeRouter
         //    dépenses (un revenu TR, dividende ou intérêts, reste commun) et aux lignes TR, seules
         //    concernées par l'usage mixte de la carte. Une règle perso qui matche ailleurs ne route pas.
         if (type == TransactionType.Expense && IsTradeRepublicLine(externalId) && matchedRule?.RouteToPerso == true)
+            return TransactionScope.Perso;
+
+        // 3. Un mouvement de titres Trade Republic. Le portefeuille est celui de Sébastien, dans les
+        //    deux sens (un achat sort du Commun, une vente n'y rentre pas).
+        if (isInvestment && IsTradeRepublicLine(externalId))
             return TransactionScope.Perso;
 
         // 3. Tout le reste est commun. Un perso non prévu par une règle reste donc visible au Commun,
