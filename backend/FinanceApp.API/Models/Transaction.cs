@@ -27,6 +27,15 @@ public class Transaction
     /// Voir <see cref="Services.Refunds"/>.</summary>
     public bool IsRefund { get; set; }
 
+    /// <summary>Date de la dernière correction manuelle de catégorie. Null si la catégorie vient d'une
+    /// règle ou de l'import. Chaque correction signale une règle qui manque ou se trompe, le tri suivant
+    /// commence par les relire (voir <see cref="Services.ManualCategoryTrace"/>).</summary>
+    public DateTime? CategorySetManuallyAt { get; set; }
+
+    /// <summary>Première catégorie que la ligne portait avant toute correction manuelle : celle qu'une
+    /// règle avait posée, donc celle qui s'est trompée.</summary>
+    public int? CategoryBeforeManualId { get; set; }
+
     /// <summary>Charge fixe récurrente (prêt, prélèvement, abonnement…). Posé par les règles
     /// (CategoryRule.MarkAsFixed) à l'import, modifiable à la main. Sur un revenu = régularisation
     /// (remboursement énergie…) déduite du bloc FIXE du bilan au lieu de gonfler les entrées.</summary>
@@ -47,6 +56,9 @@ public class Transaction
     public int? ProjectEnvelopeId { get; set; }
 
     public Category Category { get; set; } = null!;
+
+    /// <summary>Catégorie d'origine, avant correction manuelle. Sert au tri suivant.</summary>
+    public Category? CategoryBeforeManual { get; set; }
     public Account Account { get; set; } = null!;
     public BankAccount? BankAccount { get; set; }
     public ProjectEnvelope? ProjectEnvelope { get; set; }

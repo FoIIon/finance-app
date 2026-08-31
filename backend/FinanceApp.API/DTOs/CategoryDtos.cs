@@ -9,6 +9,10 @@ public class CategoryDto
     public string Icon { get; set; } = string.Empty;
     public string Color { get; set; } = string.Empty;
     public bool IsDefault { get; set; }
+    /// <summary>Catégorie de transfert : l'argent change de compte sans être consommé (épargne, titres).</summary>
+    public bool IsTransfer { get; set; }
+    /// <summary>Sortie du bilan mensuel : balayage du compte joint, virements entre comptes suivis.</summary>
+    public bool ExcludeFromMonthlyReport { get; set; }
 }
 
 public class CreateCategoryDto

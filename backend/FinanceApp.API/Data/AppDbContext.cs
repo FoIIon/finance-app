@@ -58,6 +58,15 @@ public class AppDbContext : DbContext
             .HasForeignKey(t => t.CategoryId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Trace de la catégorie d'origine avant correction manuelle. Sans collection en face (elle
+        // n'intéresse personne) et détachée à la suppression d'une catégorie : perdre l'origine est
+        // sans conséquence, bloquer la suppression d'une catégorie pour ça n'aurait aucun sens.
+        modelBuilder.Entity<Transaction>()
+            .HasOne(t => t.CategoryBeforeManual)
+            .WithMany()
+            .HasForeignKey(t => t.CategoryBeforeManualId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         modelBuilder.Entity<Transaction>()
             .HasIndex(t => t.ExternalId)
             .IsUnique()

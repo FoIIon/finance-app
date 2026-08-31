@@ -40,7 +40,9 @@ public class CategoryController : ControllerBase
                 Name = c.Name,
                 Icon = c.Icon,
                 Color = c.Color,
-                IsDefault = c.IsDefault
+                IsDefault = c.IsDefault,
+                IsTransfer = c.IsTransfer,
+                ExcludeFromMonthlyReport = c.ExcludeFromMonthlyReport
             })
             .ToListAsync();
 
@@ -69,7 +71,9 @@ public class CategoryController : ControllerBase
             Name = category.Name,
             Icon = category.Icon,
             Color = category.Color,
-            IsDefault = category.IsDefault
+            IsDefault = category.IsDefault,
+            IsTransfer = category.IsTransfer,
+            ExcludeFromMonthlyReport = category.ExcludeFromMonthlyReport
         });
     }
 
@@ -94,7 +98,9 @@ public class CategoryController : ControllerBase
             Name = category.Name,
             Icon = category.Icon,
             Color = category.Color,
-            IsDefault = category.IsDefault
+            IsDefault = category.IsDefault,
+            IsTransfer = category.IsTransfer,
+            ExcludeFromMonthlyReport = category.ExcludeFromMonthlyReport
         });
     }
 

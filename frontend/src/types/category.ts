@@ -4,6 +4,10 @@ export interface Category {
   icon: string;
   color: string;
   isDefault: boolean;
+  /** Catégorie de transfert : l'argent change de compte sans être consommé (épargne, titres). */
+  isTransfer: boolean;
+  /** Sortie du bilan mensuel : balayage du compte joint, virements entre comptes suivis. */
+  excludeFromMonthlyReport: boolean;
 }
 
 export interface CreateCategory {

@@ -22,6 +22,10 @@ public class TransactionDto
     public string? CounterpartyIban { get; set; }
     public bool IsExceptional { get; set; }
     public bool IsRefund { get; set; }
+    /// <summary>Renseigné quand la catégorie a été corrigée à la main.</summary>
+    public DateTime? CategorySetManuallyAt { get; set; }
+    /// <summary>Catégorie posée par la règle avant la première correction manuelle.</summary>
+    public string? CategoryBeforeManualName { get; set; }
     public bool IsFixed { get; set; }
     public bool IsProvisional { get; set; }
     public string? BankAccountName { get; set; }
@@ -43,6 +47,24 @@ public class SetFixedDto
 public class SetRefundDto
 {
     public bool IsRefund { get; set; }
+}
+
+public class SetCategoryDto
+{
+    public int CategoryId { get; set; }
+}
+
+/// <summary>Une correction manuelle de catégorie, pour le tri suivant.</summary>
+public class ManualRecategorizationDto
+{
+    public int TransactionId { get; set; }
+    public DateTime Date { get; set; }
+    public string Description { get; set; } = string.Empty;
+    public string? CounterpartyName { get; set; }
+    public decimal Amount { get; set; }
+    public string? FromCategory { get; set; }
+    public string ToCategory { get; set; } = string.Empty;
+    public DateTime CorrectedAt { get; set; }
 }
 
 public class SetEnvelopeDto

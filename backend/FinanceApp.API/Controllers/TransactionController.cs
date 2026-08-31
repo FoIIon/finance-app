@@ -75,6 +75,8 @@ public class TransactionController : ControllerBase
             CounterpartyIban = t.CounterpartyIban,
             IsExceptional = t.IsExceptional,
             IsRefund = t.IsRefund,
+            CategorySetManuallyAt = t.CategorySetManuallyAt,
+            CategoryBeforeManualName = t.CategoryBeforeManual?.Name,
             IsFixed = t.IsFixed,
             IsProvisional = t.IsProvisional,
             BankAccountName = t.BankAccount?.AccountName,
@@ -232,7 +234,8 @@ public class TransactionController : ControllerBase
         transaction.Description = dto.Description;
         transaction.Date = dto.Date;
         transaction.Type = dto.Type;
-        transaction.CategoryId = dto.CategoryId;
+        // Une catégorie choisie ici l'est à la main : on garde la trace pour le tri suivant.
+        ManualCategoryTrace.Apply(transaction, dto.CategoryId, DateTime.UtcNow);
         transaction.AccountId = dto.AccountId;
 
         await _context.SaveChangesAsync();
@@ -254,6 +257,8 @@ public class TransactionController : ControllerBase
             IsImported = transaction.IsImported,
             CounterpartyName = transaction.CounterpartyName,
             IsExceptional = transaction.IsExceptional,
+            IsRefund = transaction.IsRefund,
+            CategorySetManuallyAt = transaction.CategorySetManuallyAt,
             IsFixed = transaction.IsFixed,
             IsProvisional = transaction.IsProvisional,
             BankAccountName = transaction.BankAccount?.AccountName,
@@ -323,6 +328,70 @@ public class TransactionController : ControllerBase
         await _context.SaveChangesAsync();
 
         return Ok(MapToDto(transaction));
+    }
+
+    /// <summary>
+    /// Change la seule catégorie d'une transaction, et garde la trace que le choix est humain.
+    /// Utilisé par le détail d'une catégorie, où l'on reclasse une ligne sans rien toucher d'autre.
+    /// </summary>
+    [HttpPut("{id}/category")]
+    public async Task<ActionResult<TransactionDto>> SetCategory(int id, SetCategoryDto dto)
+    {
+        var userId = GetUserId();
+        var transaction = await _context.Transactions
+            .Include(t => t.Category)
+            .Include(t => t.CategoryBeforeManual)
+            .Include(t => t.Account)
+            .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
+            .FirstOrDefaultAsync(t => t.Id == id && t.Account.UserId == userId);
+
+        if (transaction == null) return NotFound();
+
+        var category = await _context.Categories.FirstOrDefaultAsync(
+            c => c.Id == dto.CategoryId && (c.IsDefault || c.UserId == userId));
+        if (category == null) return BadRequest("Catégorie invalide.");
+
+        if (ManualCategoryTrace.Apply(transaction, dto.CategoryId, DateTime.UtcNow))
+        {
+            await _context.SaveChangesAsync();
+            await _context.Entry(transaction).Reference(t => t.Category).LoadAsync();
+            await _context.Entry(transaction).Reference(t => t.CategoryBeforeManual).LoadAsync();
+        }
+
+        return Ok(MapToDto(transaction));
+    }
+
+    /// <summary>
+    /// Les catégories corrigées à la main, de la plus récente à la plus ancienne. À lire avant chaque
+    /// séance de tri : chaque ligne dit qu'une règle manque ou se trompe (ManualCategoryTrace).
+    /// </summary>
+    [HttpGet("manual-recategorizations")]
+    public async Task<ActionResult<List<ManualRecategorizationDto>>> GetManualRecategorizations(
+        [FromQuery] int? dashboardId,
+        [FromQuery] int limit = 100)
+    {
+        var accountIds = await GetAccountIds(dashboardId);
+        if (!accountIds.Any()) return Ok(new List<ManualRecategorizationDto>());
+
+        var lignes = await _context.Transactions
+            .Where(t => accountIds.Contains(t.AccountId) && t.CategorySetManuallyAt != null)
+            .OrderByDescending(t => t.CategorySetManuallyAt)
+            .Take(Math.Clamp(limit, 1, 500))
+            .Select(t => new ManualRecategorizationDto
+            {
+                TransactionId = t.Id,
+                Date = t.Date,
+                Description = t.Description,
+                CounterpartyName = t.CounterpartyName,
+                Amount = t.Amount,
+                FromCategory = t.CategoryBeforeManual != null ? t.CategoryBeforeManual.Name : null,
+                ToCategory = t.Category.Name,
+                CorrectedAt = t.CategorySetManuallyAt!.Value,
+            })
+            .ToListAsync();
+
+        return Ok(lignes);
     }
 
     /// <summary>Rattache (ou détache si null) une transaction à une enveloppe projet.</summary>
