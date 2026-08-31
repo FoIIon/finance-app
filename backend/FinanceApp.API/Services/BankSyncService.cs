@@ -187,6 +187,12 @@ public class BankSyncService : BackgroundService
         // logiques de l'utilisateur : une ligne routée Perso doit déclencher la relecture comme les autres.
         var hasMissingCounterparty = await context.Transactions
             .AnyAsync(t => t.Account.UserId == connection.UserId && t.IsImported && t.CounterpartyName == null);
+        // Rattrapage automatique de l'IBAN du bénéficiaire (ajouté le 31/08/2026) : tant qu'aucune ligne
+        // n'en porte, la fenêtre s'ouvre à 90 jours pour relire tout ce que le consentement autorise, et
+        // se refermera d'elle-même dès le premier IBAN servi. Le service synchronise au démarrage, donc
+        // le rattrapage part tout seul au déploiement, sans appel authentifié à déclencher à la main.
+        var hasNoIbanYet = !await context.Transactions
+            .AnyAsync(t => t.Account.UserId == connection.UserId && t.CounterpartyIban != null);
         // Fenêtre glissante de 14 jours minimum : GoCardless filtre par bookingDate, une transaction
         // bookée tardivement avec une date antérieure à LastSyncAt tomberait hors fenêtre pour toujours.
         // L'index unique sur ExternalId absorbe les doublons re-fetchés.
@@ -194,7 +200,7 @@ public class BankSyncService : BackgroundService
         var lastSync = connection.LastSyncAt ?? DateTime.UtcNow.AddDays(-90);
         var dateFrom = daysBack.HasValue
             ? DateTime.UtcNow.AddDays(-Math.Clamp(daysBack.Value, 1, 730))
-            : hasMissingCounterparty
+            : hasMissingCounterparty || hasNoIbanYet
                 ? DateTime.UtcNow.AddDays(-90)
                 : (lastSync < slidingWindowStart ? lastSync : slidingWindowStart);
 
