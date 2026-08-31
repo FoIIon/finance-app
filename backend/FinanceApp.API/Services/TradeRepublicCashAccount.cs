@@ -25,6 +25,15 @@ public static class TradeRepublicCashAccount
     public static string ExternalIdFor(int connectionId) => $"tr-cash-{connectionId}";
 
     /// <summary>
+    /// Ce compte porte un solde, jamais des transactions. Les lignes de la timeline TR restent sans
+    /// compte bancaire : les accrocher ici les ferait toutes basculer côté Perso (le compte est marqué
+    /// perso) et une dépense carte TR doit rester commune par défaut. Piège vécu le 31/08/2026, 1 628
+    /// lignes routées au Perso d'un coup.
+    /// </summary>
+    public static bool IsCashAccount(BankAccount account) =>
+        account.ExternalAccountId.StartsWith("tr-cash-", StringComparison.Ordinal);
+
+    /// <summary>
     /// Crée ou met à jour le compte espèces d'une connexion Trade Republic à partir de son
     /// CashBalance. Sans solde espèces connu, ne crée rien.
     /// </summary>
