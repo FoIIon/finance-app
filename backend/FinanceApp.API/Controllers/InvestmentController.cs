@@ -296,6 +296,22 @@ public class InvestmentController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Où lire la série de valorisations du portefeuille. Un dashboard normal lit la sienne. Un
+    /// dashboard perso, qui ne porte aucune série (l'import écrit au nom du dashboard depuis lequel il
+    /// tourne), lit celles de tous les dashboards de l'utilisateur : ce sont les mêmes lignes TR.
+    /// </summary>
+    private async Task<List<int>> PortfolioSeriesDashboardIdsAsync(int dashboardId, int userId)
+    {
+        var propre = await _context.PortfolioValuations.AnyAsync(v => v.DashboardId == dashboardId);
+        if (propre) return new List<int> { dashboardId };
+
+        return await _context.DashboardMembers
+            .Where(m => m.UserId == userId)
+            .Select(m => m.DashboardId)
+            .ToListAsync();
+    }
+
     [HttpGet("history")]
     public async Task<ActionResult<List<InvestmentHistoryPointDto>>> GetHistory([FromQuery] int dashboardId)
     {
@@ -333,11 +349,19 @@ public class InvestmentController : ControllerBase
         // Série réelle Trade Republic quand elle existe : elle remplace la reconstitution pour
         // les lignes TR (quantités du jour, positions vendues comprises), les autres lignes
         // s'y ajoutent. Voir InvestmentCalculator.MergeWithPortfolioSeries.
+        // La série réelle est écrite au nom du dashboard depuis lequel l'import Trade Republic a été
+        // lancé, c'est-à-dire le commun. Le dashboard perso montre les mêmes lignes TR : il lit donc la
+        // série de n'importe quel dashboard de l'utilisateur, sinon sa courbe se réduirait à la
+        // reconstitution ligne à ligne alors que l'historique réel existe (demande du 31/08/2026).
+        var seriesDashboardIds = await PortfolioSeriesDashboardIdsAsync(dashboardId, userId);
         var trSeries = (await _context.PortfolioValuations
-            .Where(v => v.DashboardId == dashboardId)
+            .Where(v => seriesDashboardIds.Contains(v.DashboardId))
             .OrderBy(v => v.AsOf)
             .Select(v => new { v.AsOf, v.MarketValue, v.Invested })
             .ToListAsync())
+            .GroupBy(v => v.AsOf)
+            .Select(g => g.OrderByDescending(v => v.MarketValue).First())
+            .OrderBy(v => v.AsOf)
             .Select(v => (v.AsOf, v.MarketValue, v.Invested))
             .ToList();
 
@@ -459,6 +483,10 @@ public class InvestmentController : ControllerBase
             connection.CashBalance = import.CashBalance.Value;
             connection.CashBalanceUpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            // Et exposé comme un compte bancaire, pour entrer dans les soldes par compte, le KPI
+            // Solde global et la courbe du solde total (demande du 31/08/2026).
+            await TradeRepublicCashAccount.UpsertAsync(_context, connection);
         }
 
         var defaultHolder = configuration["TradeRepublic:DefaultHolder"] ?? "Trade Republic";
@@ -490,6 +518,10 @@ public class InvestmentController : ControllerBase
                     CostBasis = pos.CostBasis,
                     Source = InvestmentSource.TradeRepublic,
                     ExternalId = pos.Isin,
+                    // Le compte Trade Republic est celui de Sébastien, alimenté depuis son Argenta
+                    // perso : une ligne qui en vient est perso, donc visible sur son dashboard en plus
+                    // du portefeuille commun. Une ligne déjà en base garde le drapeau qu'elle porte.
+                    IsPersonal = true,
                 };
                 _context.Investments.Add(inv);
                 created++;
