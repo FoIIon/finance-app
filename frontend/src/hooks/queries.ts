@@ -137,6 +137,18 @@ export const useCashQuery = () =>
     },
   });
 
+/** Depuis quand l'historique du dashboard est un bilan (première transaction bancaire). */
+export const useCoverageQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['coverage', dashboardId],
+    queryFn: async () => {
+      const res = await transactionsApi.getCoverage(dashboardId);
+      return res.data;
+    },
+    enabled: !!dashboardId,
+    staleTime: 5 * 60 * 1000,
+  });
+
 export const useCategoriesQuery = () =>
   useQuery({
     queryKey: ['categories'],

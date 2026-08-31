@@ -363,6 +363,36 @@ public class TransactionController : ControllerBase
     }
 
     /// <summary>
+    /// Depuis quand l'historique du dashboard est un bilan, et depuis quand il n'est qu'un relevé.
+    ///
+    /// Pourquoi (31/08/2026) : la timeline Trade Republic remonte à novembre 2023 alors que les comptes
+    /// bancaires ont été connectés en 2026. Sur « Tout », l'app additionnait donc deux ans de dépenses
+    /// carte sans un seul revenu en face, et affichait un net de −26 000 €. La première transaction
+    /// bancaire borne la période où les deux côtés existent.
+    /// </summary>
+    [HttpGet("coverage")]
+    public async Task<ActionResult<CoverageDto>> GetCoverage([FromQuery] int? dashboardId)
+    {
+        var accountIds = await GetAccountIds(dashboardId);
+        if (!accountIds.Any()) return Ok(new CoverageDto());
+
+        var portee = _context.Transactions.Where(t => accountIds.Contains(t.AccountId));
+
+        return Ok(new CoverageDto
+        {
+            FirstBankTransactionDate = await portee
+                .Where(t => t.BankAccountId != null)
+                .OrderBy(t => t.Date)
+                .Select(t => (DateTime?)t.Date)
+                .FirstOrDefaultAsync(),
+            FirstTransactionDate = await portee
+                .OrderBy(t => t.Date)
+                .Select(t => (DateTime?)t.Date)
+                .FirstOrDefaultAsync(),
+        });
+    }
+
+    /// <summary>
     /// Les catégories corrigées à la main, de la plus récente à la plus ancienne. À lire avant chaque
     /// séance de tri : chaque ligne dit qu'une règle manque ou se trompe (ManualCategoryTrace).
     /// </summary>

@@ -54,6 +54,35 @@ export const PERIODS: Period[] = [
   },
 ];
 
+const MOIS_COURTS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+/**
+ * La période « Tout », bornée à la première transaction bancaire du dashboard.
+ *
+ * Sans borne, elle additionnait la timeline Trade Republic depuis novembre 2023 — deux ans de dépenses
+ * carte — avec des revenus qui ne commencent qu'à la connexion des comptes bancaires, en 2026. Le net
+ * affiché était de −26 000 € sans qu'une seule transaction ne manque : les banques ne servent que la
+ * fenêtre de leur consentement, ces revenus ne reviendront jamais.
+ *
+ * Le libellé dit la borne, pour qu'on n'ait pas à la deviner.
+ */
+export const allPeriodSince = (debut?: string | null): Period => {
+  if (!debut) return PERIODS[PERIODS.length - 1];
+
+  const d = new Date(debut);
+  return {
+    key: 'all',
+    label: `Tout (depuis ${MOIS_COURTS[d.getMonth()]} ${d.getFullYear()})`,
+    range: () => ({ from: d.toISOString(), to: '' }),
+  };
+};
+
+/** La liste des périodes, avec « Tout » borné à la couverture réelle du dashboard. */
+export const periodsWithCoverage = (debut?: string | null): Period[] => [
+  ...PERIODS.slice(0, -1),
+  allPeriodSince(debut),
+];
+
 export const periodToRange = (period: Period): { from?: string; to?: string } => {
   const { from, to } = period.range();
   return { from: from || undefined, to: to || undefined };

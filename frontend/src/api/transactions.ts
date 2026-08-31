@@ -29,6 +29,12 @@ export const transactionsApi = {
   setCategory: (id: number, categoryId: number) =>
     apiClient.put<Transaction>(`/transaction/${id}/category`, { categoryId }),
 
+  getCoverage: (dashboardId?: number) =>
+    apiClient.get<{ firstBankTransactionDate: string | null; firstTransactionDate: string | null }>(
+      '/transaction/coverage',
+      { params: { dashboardId } }
+    ),
+
   setEnvelope: (id: number, projectEnvelopeId: number | null) =>
     apiClient.put<Transaction>(`/transaction/${id}/envelope`, { projectEnvelopeId }),
 
