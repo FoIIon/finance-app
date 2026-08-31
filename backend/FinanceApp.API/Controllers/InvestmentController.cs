@@ -50,6 +50,7 @@ public class InvestmentController : ControllerBase
             FirstPurchaseDate = i.FirstPurchaseDate,
             Source = i.Source,
             IsArchived = i.IsArchived,
+            IsPersonal = i.IsPersonal,
             CreatedAt = i.CreatedAt,
             UnitCost = InvestmentCalculator.ComputeUnitCost(i.Kind, i.CostBasis, i.Quantity),
             MarketValue = marketValue,
@@ -64,14 +65,43 @@ public class InvestmentController : ControllerBase
         };
     }
 
+    /// <summary>
+    /// Les investissements que le dashboard demandé doit montrer.
+    ///
+    /// Un dashboard perso (tous ses comptes logiques marqués IsPersonalScope) voit les lignes marquées
+    /// perso, où qu'elles soient rangées. Elles restent dans le portefeuille commun, qui accueillera
+    /// aussi celles d'Audrey, donc les deux patrimoines se recouvrent de ces lignes : c'est voulu
+    /// (demande du 31/08/2026). Sans ça le dashboard perso montrait les dépenses du compte Argenta
+    /// perso et aucun rendement de l'épargne que ce compte alimente.
+    ///
+    /// Tout autre dashboard garde le périmètre historique : les lignes qui lui sont rattachées.
+    /// </summary>
+    private async Task<IQueryable<Investment>> InvestmentsInScopeAsync(int dashboardId, int userId)
+    {
+        var scopes = await _context.DashboardAccounts
+            .Where(da => da.DashboardId == dashboardId)
+            .Select(da => da.Account.IsPersonalScope)
+            .Distinct()
+            .ToListAsync();
+
+        var isPersoDashboard = scopes.Contains(true) && !scopes.Contains(false);
+        if (!isPersoDashboard)
+            return _context.Investments.Where(i => i.DashboardId == dashboardId);
+
+        var accessibles = _context.DashboardMembers
+            .Where(m => m.UserId == userId)
+            .Select(m => m.DashboardId);
+
+        return _context.Investments.Where(i => i.IsPersonal && accessibles.Contains(i.DashboardId));
+    }
+
     [HttpGet]
     public async Task<ActionResult<List<InvestmentDto>>> GetAll([FromQuery] int dashboardId)
     {
         var userId = GetUserId();
         if (!await UserCanAccessDashboard(dashboardId, userId)) return Forbid();
 
-        var investments = await _context.Investments
-            .Where(i => i.DashboardId == dashboardId)
+        var investments = await (await InvestmentsInScopeAsync(dashboardId, userId))
             .OrderBy(i => i.IsArchived)
             .ThenBy(i => i.Holder)
             .ThenBy(i => i.Name)
@@ -145,6 +175,7 @@ public class InvestmentController : ControllerBase
         if (dto.CostBasis.HasValue) investment.CostBasis = dto.CostBasis.Value;
         if (dto.FirstPurchaseDate.HasValue) investment.FirstPurchaseDate = dto.FirstPurchaseDate.Value;
         if (dto.IsArchived.HasValue) investment.IsArchived = dto.IsArchived.Value;
+        if (dto.IsPersonal.HasValue) investment.IsPersonal = dto.IsPersonal.Value;
 
         await _context.SaveChangesAsync();
 
@@ -271,8 +302,7 @@ public class InvestmentController : ControllerBase
         var userId = GetUserId();
         if (!await UserCanAccessDashboard(dashboardId, userId)) return Forbid();
 
-        var investments = await _context.Investments
-            .Where(i => i.DashboardId == dashboardId)
+        var investments = await (await InvestmentsInScopeAsync(dashboardId, userId))
             .ToListAsync();
 
         var ids = investments.Select(i => i.Id).ToList();
@@ -349,8 +379,12 @@ public class InvestmentController : ControllerBase
         var userId = GetUserId();
         if (!await UserCanAccessDashboard(dashboardId, userId)) return Forbid();
 
+        var scopedIds = await (await InvestmentsInScopeAsync(dashboardId, userId))
+            .Select(i => i.Id)
+            .ToListAsync();
+
         var valuations = await _context.InvestmentValuations
-            .Where(v => v.Investment.DashboardId == dashboardId && !v.Investment.IsArchived)
+            .Where(v => scopedIds.Contains(v.InvestmentId) && !v.Investment.IsArchived)
             .OrderBy(v => v.AsOf)
             .ThenBy(v => v.InvestmentId)
             .Select(v => new InvestmentValuationDto

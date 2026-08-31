@@ -67,6 +67,7 @@ const unitLabels: Record<number, string> = {
 
 interface EditForm {
   archivee: boolean;
+  perso: boolean;
   kind: number;
   name: string;
   holder: string;
@@ -79,6 +80,7 @@ interface EditForm {
 
 const emptyEditForm: EditForm = {
   archivee: false,
+  perso: false,
   kind: InvestmentKind.Security,
   name: '',
   holder: '',
@@ -250,6 +252,7 @@ const Investments = () => {
     setEditingFor(i);
     setEditForm({
       archivee: i.isArchived,
+      perso: i.isPersonal,
       kind: i.kind,
       name: i.name,
       holder: i.holder,
@@ -272,6 +275,7 @@ const Investments = () => {
     const payload: UpdateInvestment = {
       kind: editForm.kind as InvestmentKind,
       isArchived: editForm.archivee,
+      isPersonal: editForm.perso,
       name: editForm.name,
       holder: editForm.holder,
       isin: porteUnIsin ? editForm.isin || null : null,
@@ -816,6 +820,14 @@ const Investments = () => {
               onChange={(e) => setEditForm({ ...editForm, archivee: e.target.checked })}
             />
             Archivée
+          </label>
+          <label className="flex items-center gap-2 text-sm text-white/60" title="La ligne reste dans le portefeuille commun et apparaît en plus sur le dashboard perso">
+            <input
+              type="checkbox"
+              checked={editForm.perso}
+              onChange={(e) => setEditForm({ ...editForm, perso: e.target.checked })}
+            />
+            Perso
           </label>
           <button type="submit" className="bg-indigo-500 hover:bg-indigo-400 rounded-lg px-4 py-2 text-white">
             Enregistrer
