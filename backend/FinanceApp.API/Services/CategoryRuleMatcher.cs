@@ -25,20 +25,27 @@ public static class CategoryRuleMatcher
     }
 
     /// <summary>
-    /// L'IBAN ne se compare qu'à un mot-clé qui ressemble à un IBAN : deux lettres, deux chiffres, six
-    /// caractères au moins. Sans ce garde-fou, une règle de trois lettres comme « DVV » ou « CNS »
-    /// matcherait le code banque d'un IBAN étranger et raflerait des transactions qui ne lui vont pas.
+    /// La saisie a-t-elle la forme d'un IBAN : deux lettres, deux chiffres, six caractères au moins.
+    ///
+    /// Sans ce garde-fou, un mot-clé de trois lettres comme « DVV » ou « CNS » matcherait le code banque
+    /// d'un IBAN étranger, et dans la recherche de transactions, taper « a » sortait tous les IBAN
+    /// contenant un A (NL91ABNA…). Partagé entre les règles et la recherche pour cette raison.
     /// </summary>
+    public static bool LooksLikeIban(string valeur)
+    {
+        var candidate = GoCardlessTransactionFields.Normalize(valeur);
+        if (candidate.Length < 6) return false;
+
+        return char.IsLetter(candidate[0]) && char.IsLetter(candidate[1])
+            && char.IsDigit(candidate[2]) && char.IsDigit(candidate[3]);
+    }
+
+    /// <summary>L'IBAN ne se compare qu'à un mot-clé qui ressemble à un IBAN (LooksLikeIban).</summary>
     private static bool MatchesIban(string? counterpartyIban, string keyword)
     {
-        if (counterpartyIban == null) return false;
+        if (counterpartyIban == null || !LooksLikeIban(keyword)) return false;
 
-        var candidate = GoCardlessTransactionFields.Normalize(keyword);
-        if (candidate.Length < 6) return false;
-        if (!char.IsLetter(candidate[0]) || !char.IsLetter(candidate[1])) return false;
-        if (!char.IsDigit(candidate[2]) || !char.IsDigit(candidate[3])) return false;
-
-        return counterpartyIban.Contains(candidate, StringComparison.OrdinalIgnoreCase);
+        return counterpartyIban.Contains(GoCardlessTransactionFields.Normalize(keyword), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

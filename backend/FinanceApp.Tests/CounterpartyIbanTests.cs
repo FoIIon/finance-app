@@ -86,6 +86,27 @@ public class CounterpartyIbanTests
         Assert.False(CategoryRuleMatcher.Matches("Loyer", "Courses Delhaize", "DELHAIZE", "BE38091000554030"));
     }
 
+    // ---------------------------------------------------------------- forme d'un IBAN
+
+    [Fact]
+    public void FormeIban_AcceptePaysDeuxChiffresEtSixCaracteres()
+    {
+        Assert.True(CategoryRuleMatcher.LooksLikeIban("BE38091000554030"));
+        Assert.True(CategoryRuleMatcher.LooksLikeIban("be38 0910"));
+        Assert.True(CategoryRuleMatcher.LooksLikeIban("DE20100123450832115901"));
+    }
+
+    [Fact]
+    public void FormeIban_RefuseCeQuiNEnEstPas()
+    {
+        // Le garde-fou de la recherche : taper « a » sortait tous les IBAN contenant un A.
+        Assert.False(CategoryRuleMatcher.LooksLikeIban("a"));
+        Assert.False(CategoryRuleMatcher.LooksLikeIban("colruyt"));
+        Assert.False(CategoryRuleMatcher.LooksLikeIban("BE38"));
+        Assert.False(CategoryRuleMatcher.LooksLikeIban("091000554030"));
+        Assert.False(CategoryRuleMatcher.LooksLikeIban("BEXX091000"));
+    }
+
     [Fact]
     public void MotCleVide_NeMatcheRien()
     {
