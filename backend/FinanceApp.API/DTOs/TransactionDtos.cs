@@ -49,6 +49,17 @@ public class SetRefundDto
     public bool IsRefund { get; set; }
 }
 
+/// <summary>Jusqu'où l'historique du dashboard est exploitable comme un bilan.</summary>
+public class CoverageDto
+{
+    /// <summary>Date de la première transaction rattachée à un compte bancaire. Avant elle, aucun revenu
+    /// n'a été importé : les banques ne servent que la fenêtre de leur consentement.</summary>
+    public DateTime? FirstBankTransactionDate { get; set; }
+
+    /// <summary>Date de la toute première transaction, courtier compris. Peut remonter bien plus loin.</summary>
+    public DateTime? FirstTransactionDate { get; set; }
+}
+
 public class SetCategoryDto
 {
     public int CategoryId { get; set; }
