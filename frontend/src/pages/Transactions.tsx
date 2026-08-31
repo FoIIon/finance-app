@@ -11,7 +11,7 @@ import { formatCurrency } from '../utils/format';
 import { useToast } from '../hooks/useToast';
 
 const Transactions = () => {
-  const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setFixed, setEnvelope } = useTransactions();
+  const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setFixed, setRefund, setEnvelope } = useTransactions();
   const { currentDashboard } = useDashboards();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -185,6 +185,23 @@ const Transactions = () => {
       queryClient.invalidateQueries({ queryKey: ['monthly-report'] });
       queryClient.invalidateQueries({ queryKey: ['burndown'] });
       showToast(updated.isFixed ? 'Marquée comme charge fixe' : 'Retirée des charges fixes', 'success');
+    } catch {
+      showToast('Impossible de modifier la transaction', 'error');
+    }
+  };
+
+  const handleToggleRefund = async (t: Transaction) => {
+    try {
+      const updated = await setRefund(t.id, !t.isRefund);
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
+      queryClient.invalidateQueries({ queryKey: ['monthly-report'] });
+      queryClient.invalidateQueries({ queryKey: ['category-detail'] });
+      showToast(
+        updated.isRefund
+          ? 'Marquée comme remboursement — déduite de sa catégorie au lieu de compter en entrées'
+          : 'Recomptée comme une rentrée',
+        'success'
+      );
     } catch {
       showToast('Impossible de modifier la transaction', 'error');
     }
@@ -381,6 +398,14 @@ const Transactions = () => {
                           onClick={() => handleToggleExceptional(t)}
                           className={`transition-colors ${t.isExceptional ? 'text-amber-400' : 'text-white/40 hover:text-amber-400'}`}
                         >⚡</button>
+                        {t.type === TransactionType.Income && (
+                          <button
+                            aria-label="Remboursement"
+                            title={t.isRefund ? 'Remboursement — cliquer pour recompter en rentrée' : 'Marquer comme remboursement (déduit de sa catégorie au lieu de compter en entrées)'}
+                            onClick={() => handleToggleRefund(t)}
+                            className={`transition-colors ${t.isRefund ? 'text-teal-400' : 'text-white/40 hover:text-teal-400'}`}
+                          >↩️</button>
+                        )}
                         <button aria-label="Édition rapide" onClick={() => startInlineEdit(t)} className="text-white/40 hover:text-amber-400 transition-colors">✏️</button>
                         {deleteConfirm === t.id ? (
                           <>
@@ -464,6 +489,14 @@ const Transactions = () => {
                         onClick={() => handleToggleExceptional(t)}
                         className={`transition-colors ${t.isExceptional ? 'text-amber-400' : 'text-white/40 hover:text-amber-400'}`}
                       >⚡</button>
+                      {t.type === TransactionType.Income && (
+                        <button
+                          aria-label="Remboursement"
+                          title={t.isRefund ? 'Remboursement — cliquer pour recompter en rentrée' : 'Marquer comme remboursement'}
+                          onClick={() => handleToggleRefund(t)}
+                          className={`transition-colors ${t.isRefund ? 'text-teal-400' : 'text-white/40 hover:text-teal-400'}`}
+                        >↩️</button>
+                      )}
                       <button aria-label="Supprimer" onClick={() => setDeleteConfirm(t.id)} className="text-white/40 hover:text-red-400 transition-colors">🗑️</button>
                     </>
                   )}

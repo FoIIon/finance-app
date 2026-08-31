@@ -11,6 +11,7 @@ const tabs = [
   { to: 'bilan', label: 'Bilan', icon: '🧾' },
   { to: 'income', label: 'Rentrées', icon: '💰' },
   { to: 'categories', label: 'Dépenses', icon: '📂' },
+  { to: 'flux', label: 'Entrées/Sorties', icon: '🔀' },
   { to: 'projects', label: 'Projets', icon: '🏖️' },
   { to: 'triage', label: 'À traiter', icon: '✅' },
 ];

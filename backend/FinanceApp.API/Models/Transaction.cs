@@ -21,6 +21,12 @@ public class Transaction
 
     public bool IsExceptional { get; set; }
 
+    /// <summary>Remboursement d'une dépense (avance rendue, mutuelle, régularisation). Sur un revenu,
+    /// la ligne sort du bloc ENTRÉES du bilan et s'impute en négatif sur le bloc de sa catégorie.
+    /// Posé à la main, jamais deviné : les allocations familiales sont un revenu, pas un remboursement.
+    /// Voir <see cref="Services.Refunds"/>.</summary>
+    public bool IsRefund { get; set; }
+
     /// <summary>Charge fixe récurrente (prêt, prélèvement, abonnement…). Posé par les règles
     /// (CategoryRule.MarkAsFixed) à l'import, modifiable à la main. Sur un revenu = régularisation
     /// (remboursement énergie…) déduite du bloc FIXE du bilan au lieu de gonfler les entrées.</summary>

@@ -23,6 +23,8 @@ export interface Transaction {
   /** IBAN du bénéficiaire quand la banque le sert. Absent sur les paiements par carte. */
   counterpartyIban?: string;
   isExceptional: boolean;
+  /** Remboursement d'une dépense : sur un revenu, la ligne est déduite du bloc de sa catégorie au lieu de compter en entrées. */
+  isRefund: boolean;
   /** Charge fixe récurrente (prêt, prélèvement, abonnement…). Posé par les règles, modifiable à la main. */
   isFixed: boolean;
   /** Transaction provisionnelle (salaire attendu, etc.) — supprimée quand le réel arrive. */

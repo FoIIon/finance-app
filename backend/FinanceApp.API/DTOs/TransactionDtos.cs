@@ -21,6 +21,7 @@ public class TransactionDto
     public string? CounterpartyName { get; set; }
     public string? CounterpartyIban { get; set; }
     public bool IsExceptional { get; set; }
+    public bool IsRefund { get; set; }
     public bool IsFixed { get; set; }
     public bool IsProvisional { get; set; }
     public string? BankAccountName { get; set; }
@@ -37,6 +38,11 @@ public class SetExceptionalDto
 public class SetFixedDto
 {
     public bool IsFixed { get; set; }
+}
+
+public class SetRefundDto
+{
+    public bool IsRefund { get; set; }
 }
 
 public class SetEnvelopeDto

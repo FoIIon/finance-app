@@ -74,6 +74,7 @@ public class TransactionController : ControllerBase
             CounterpartyName = t.CounterpartyName,
             CounterpartyIban = t.CounterpartyIban,
             IsExceptional = t.IsExceptional,
+            IsRefund = t.IsRefund,
             IsFixed = t.IsFixed,
             IsProvisional = t.IsProvisional,
             BankAccountName = t.BankAccount?.AccountName,
@@ -301,6 +302,29 @@ public class TransactionController : ControllerBase
         return Ok(MapToDto(transaction));
     }
 
+    /// <summary>
+    /// Marque (ou démarque) un revenu comme remboursement d'une dépense. La ligne sort alors du bloc
+    /// ENTRÉES du bilan et s'impute en négatif sur le bloc de sa catégorie (voir Refunds).
+    /// </summary>
+    [HttpPut("{id}/refund")]
+    public async Task<ActionResult<TransactionDto>> SetRefund(int id, SetRefundDto dto)
+    {
+        var userId = GetUserId();
+        var transaction = await _context.Transactions
+            .Include(t => t.Category)
+            .Include(t => t.Account)
+            .Include(t => t.BankAccount).ThenInclude(ba => ba!.BankConnection)
+            .Include(t => t.ProjectEnvelope)
+            .FirstOrDefaultAsync(t => t.Id == id && t.Account.UserId == userId);
+
+        if (transaction == null) return NotFound();
+
+        transaction.IsRefund = dto.IsRefund;
+        await _context.SaveChangesAsync();
+
+        return Ok(MapToDto(transaction));
+    }
+
     /// <summary>Rattache (ou détache si null) une transaction à une enveloppe projet.</summary>
     [HttpPut("{id}/envelope")]
     public async Task<ActionResult<TransactionDto>> SetEnvelope(int id, SetEnvelopeDto dto)
@@ -442,6 +466,7 @@ public class TransactionController : ControllerBase
                 CategoryColor = t.Category.Color,
                 IsTransfer = t.Category.IsTransfer,
                 t.IsExceptional,
+                t.IsRefund,
             })
             .ToListAsync();
 
@@ -452,19 +477,25 @@ public class TransactionController : ControllerBase
         // (mais PAS de la courbe solde total plus bas — ces dépenses ont réellement eu lieu)
         var flux = includeExceptional ? rawAll : rawAll.Where(t => !t.IsExceptional).ToList();
 
-        // Exclure les transferts internes (épargne, comptes joints) des stats dépenses/revenus
-        var totalIncome = flux.Where(t => t.Type == TransactionType.Income && !t.IsTransfer).Sum(t => t.Amount);
-        var totalExpenses = flux.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer).Sum(t => t.Amount);
+        // Exclure les transferts internes (épargne, comptes joints) des stats dépenses/revenus.
+        // Un remboursement (revenu marqué IsRefund) n'est pas une rentrée : il s'impute en négatif sur
+        // les dépenses de sa catégorie, sinon les deux côtés du bilan gonflent du même montant (Refunds).
+        var totalIncome = flux
+            .Where(t => t.Type == TransactionType.Income && !t.IsTransfer && !Refunds.Applies(t.Type, t.IsRefund))
+            .Sum(t => t.Amount);
+        var totalExpenses = flux
+            .Where(t => !t.IsTransfer && (t.Type == TransactionType.Expense || Refunds.Applies(t.Type, t.IsRefund)))
+            .Sum(t => Refunds.Applies(t.Type, t.IsRefund) ? -t.Amount : t.Amount);
         // Mise de côté = catégories transfert (Épargne perso, etc.), nette des retraits (Income transfert en négatif)
         var totalSavings = flux.Where(t => t.IsTransfer)
             .Sum(t => t.Type == TransactionType.Expense ? t.Amount : -t.Amount);
 
         var expensesByCategory = flux
-            .Where(t => t.Type == TransactionType.Expense && !t.IsTransfer)
+            .Where(t => !t.IsTransfer && (t.Type == TransactionType.Expense || Refunds.Applies(t.Type, t.IsRefund)))
             .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
             .Select(g =>
             {
-                var amount = g.Sum(t => t.Amount);
+                var amount = g.Sum(t => Refunds.Applies(t.Type, t.IsRefund) ? -t.Amount : t.Amount);
                 return new CategoryBreakdownDto
                 {
                     CategoryId = g.Key.CategoryId,
@@ -479,7 +510,7 @@ public class TransactionController : ControllerBase
             .ToList();
 
         var incomeByCategory = flux
-            .Where(t => t.Type == TransactionType.Income && !t.IsTransfer)
+            .Where(t => t.Type == TransactionType.Income && !t.IsTransfer && !Refunds.Applies(t.Type, t.IsRefund))
             .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
             .Select(g =>
             {
@@ -523,7 +554,7 @@ public class TransactionController : ControllerBase
         // SQLite : agrégation client (exclut transferts internes)
         var rawMonthly = await _context.Transactions
             .Where(t => accountIds.Contains(t.AccountId) && t.Date >= startOfMonth)
-            .Select(t => new { t.Date.Year, t.Date.Month, t.Type, t.Amount, t.Category.IsTransfer, t.IsExceptional })
+            .Select(t => new { t.Date.Year, t.Date.Month, t.Type, t.Amount, t.Category.IsTransfer, t.IsExceptional, t.IsRefund })
             .ToListAsync();
 
         // Barres Income/Expenses : mêmes exclusions que les KPI (transferts + exceptionnelles si includeExceptional == false)
@@ -534,8 +565,9 @@ public class TransactionController : ControllerBase
             {
                 g.Key.Year,
                 g.Key.Month,
-                Income = g.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount),
-                Expenses = g.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount),
+                Income = g.Where(t => t.Type == TransactionType.Income && !Refunds.Applies(t.Type, t.IsRefund)).Sum(t => t.Amount),
+                Expenses = g.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount)
+                          - g.Where(t => Refunds.Applies(t.Type, t.IsRefund)).Sum(t => t.Amount),
             })
             .ToList();
 
@@ -626,6 +658,7 @@ public class TransactionController : ControllerBase
                 IsTransfer = t.Category.IsTransfer,
                 ExcludeFromMonthlyReport = t.Category.ExcludeFromMonthlyReport,
                 t.IsFixed,
+                t.IsRefund,
             })
             .ToListAsync();
 
@@ -643,8 +676,11 @@ public class TransactionController : ControllerBase
         // Tout le reste alimente les quatre blocs du modèle d'Audrey.
         var retenu = raw.Where(t => !t.ExcludeFromMonthlyReport).ToList();
 
-        // Bloc ENTRÉES : revenus non-transfert (hors régularisations fixes, déduites du bloc FIXE)
-        var entreesItems = retenu.Where(t => t.Type == TransactionType.Income && !t.IsTransfer && !t.IsFixed).ToList();
+        // Bloc ENTRÉES : revenus non-transfert, hors régularisations fixes (déduites du bloc FIXE) et
+        // hors remboursements (déduits du bloc de leur catégorie — voir Refunds)
+        var entreesItems = retenu
+            .Where(t => t.Type == TransactionType.Income && !t.IsTransfer && !t.IsFixed && !Refunds.Applies(t.Type, t.IsRefund))
+            .ToList();
         // Bloc FIXE : dépenses non-transfert marquées charge fixe, nettes des régularisations
         // (revenus fixes : remboursement énergie…) qui comptent en négatif
         var fixeItems = retenu
@@ -657,8 +693,20 @@ public class TransactionController : ControllerBase
             .Where(t => t.IsTransfer)
             .Select(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount })
             .ToList();
-        // Bloc VARIABLE : dépenses non-transfert non-fixes (le reste)
-        var variableItems = retenu.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer && !t.IsFixed).ToList();
+        // Bloc VARIABLE : dépenses non-transfert non-fixes (le reste), nettes des remboursements reçus
+        // sur ces mêmes catégories (une avance rendue annule la dépense, elle n'est pas une rentrée)
+        var variableItems = retenu
+            .Where(t => !t.IsTransfer && !t.IsFixed && (t.Type == TransactionType.Expense || Refunds.Applies(t.Type, t.IsRefund)))
+            .Select(t => new
+            {
+                t.CategoryId,
+                t.CategoryName,
+                t.CategoryIcon,
+                t.CategoryColor,
+                t.IsExceptional,
+                Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount,
+            })
+            .ToList();
 
         var entrees = entreesItems.Sum(t => t.Amount);
         var fixe = fixeItems.Sum(t => t.Amount);
