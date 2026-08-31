@@ -72,6 +72,7 @@ public class TransactionController : ControllerBase
             ExternalId = t.ExternalId,
             IsImported = t.IsImported,
             CounterpartyName = t.CounterpartyName,
+            CounterpartyIban = t.CounterpartyIban,
             IsExceptional = t.IsExceptional,
             IsFixed = t.IsFixed,
             IsProvisional = t.IsProvisional,
@@ -116,7 +117,16 @@ public class TransactionController : ControllerBase
         if (isExceptional.HasValue) query = query.Where(t => t.IsExceptional == isExceptional.Value);
         if (isFixed.HasValue) query = query.Where(t => t.IsFixed == isFixed.Value);
         if (!string.IsNullOrWhiteSpace(search))
-            query = query.Where(t => t.Description.Contains(search) || t.Category.Name.Contains(search) || t.Account.Name.Contains(search));
+        {
+            // La contrepartie et son IBAN sont cherchables : sur un virement, le libellé arrive souvent
+            // vide et c'est le bénéficiaire qui identifie la ligne (crèche communale, école, assurance).
+            var searchIban = GoCardlessTransactionFields.Normalize(search);
+            query = query.Where(t => t.Description.Contains(search)
+                                  || t.Category.Name.Contains(search)
+                                  || t.Account.Name.Contains(search)
+                                  || (t.CounterpartyName != null && t.CounterpartyName.Contains(search))
+                                  || (t.CounterpartyIban != null && t.CounterpartyIban.Contains(searchIban)));
+        }
 
         var descending = sortDesc ?? true;
         query = sortBy?.ToLower() switch
@@ -373,7 +383,7 @@ public class TransactionController : ControllerBase
         int fixedUpdated = 0;
         foreach (var tx in transactions)
         {
-            var rule = CategoryRuleMatcher.FirstMatch(rules, tx.Description, tx.CounterpartyName);
+            var rule = CategoryRuleMatcher.FirstMatch(rules, tx.Description, tx.CounterpartyName, tx.CounterpartyIban);
             if (rule == null) continue;
 
             if (tx.CategoryId == defaultCategoryId)

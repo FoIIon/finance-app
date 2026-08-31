@@ -78,12 +78,16 @@ public class BankSyncService : BackgroundService
     }
 
     /// <summary>
-    /// Synchronisation manuelle depuis le controller — laisse remonter les exceptions
+    /// Synchronisation manuelle depuis le controller — laisse remonter les exceptions.
+    /// <paramref name="daysBack"/> force la profondeur de la fenêtre demandée à la banque, pour un
+    /// rattrapage ponctuel d'un champ ajouté après coup (l'IBAN du bénéficiaire, le 31/08/2026). Hors
+    /// rattrapage, la fenêtre reste calculée par la sync : le quota GoCardless est de quatre appels par
+    /// jour et par compte, chaque appel gaspillé manque à la sync suivante.
     /// </summary>
-    public async Task SyncConnectionAsync(int connectionId)
+    public async Task SyncConnectionAsync(int connectionId, int? daysBack = null)
     {
         using var scope = _scopeFactory.CreateScope();
-        await SyncConnectionInternalAsync(connectionId, scope.ServiceProvider, rethrow: true);
+        await SyncConnectionInternalAsync(connectionId, scope.ServiceProvider, rethrow: true, daysBack: daysBack);
 
         // Une sync manuelle peut avoir importé le versement réel — réconcilier dans la foulée
         try
@@ -96,7 +100,7 @@ public class BankSyncService : BackgroundService
         }
     }
 
-    private async Task SyncConnectionInternalAsync(int connectionId, IServiceProvider serviceProvider, bool rethrow = false)
+    private async Task SyncConnectionInternalAsync(int connectionId, IServiceProvider serviceProvider, bool rethrow = false, int? daysBack = null)
     {
         var context = serviceProvider.GetRequiredService<AppDbContext>();
 
@@ -117,11 +121,11 @@ public class BankSyncService : BackgroundService
         }
         else
         {
-            await SyncGoCardlessAsync(connection, context, serviceProvider, rethrow);
+            await SyncGoCardlessAsync(connection, context, serviceProvider, rethrow, daysBack);
         }
     }
 
-    private async Task SyncGoCardlessAsync(BankConnection connection, AppDbContext context, IServiceProvider serviceProvider, bool rethrow)
+    private async Task SyncGoCardlessAsync(BankConnection connection, AppDbContext context, IServiceProvider serviceProvider, bool rethrow, int? daysBack = null)
     {
         var goCardless = serviceProvider.GetRequiredService<GoCardlessClient>();
 
@@ -188,9 +192,11 @@ public class BankSyncService : BackgroundService
         // L'index unique sur ExternalId absorbe les doublons re-fetchés.
         var slidingWindowStart = DateTime.UtcNow.AddDays(-14);
         var lastSync = connection.LastSyncAt ?? DateTime.UtcNow.AddDays(-90);
-        var dateFrom = hasMissingCounterparty
-            ? DateTime.UtcNow.AddDays(-90)
-            : (lastSync < slidingWindowStart ? lastSync : slidingWindowStart);
+        var dateFrom = daysBack.HasValue
+            ? DateTime.UtcNow.AddDays(-Math.Clamp(daysBack.Value, 1, 730))
+            : hasMissingCounterparty
+                ? DateTime.UtcNow.AddDays(-90)
+                : (lastSync < slidingWindowStart ? lastSync : slidingWindowStart);
 
         var anySyncFailed = false;
         foreach (var account in connection.BankAccounts.Where(a => a.IsActive))
@@ -253,6 +259,16 @@ public class BankSyncService : BackgroundService
                             if (cp != null)
                                 existing.CounterpartyName = cp;
                         }
+
+                        // Idem pour l'IBAN du bénéficiaire, ajouté le 31/08/2026 : les lignes importées
+                        // avant ne l'ont pas, et la banque le ressert tant que la transaction tient dans
+                        // la fenêtre demandée. Rien à récupérer sur une carte, elle n'en a jamais eu.
+                        if (existing.CounterpartyIban == null)
+                        {
+                            var backfilledIban = GoCardlessTransactionFields.CounterpartyIban(tx);
+                            if (backfilledIban != null)
+                                existing.CounterpartyIban = backfilledIban;
+                        }
                         continue;
                     }
 
@@ -276,9 +292,11 @@ public class BankSyncService : BackgroundService
                             ? deb.GetString()
                             : null;
 
+                    var counterpartyIban = GoCardlessTransactionFields.CounterpartyIban(tx);
+
                     // Appliquer les règles : la première qui matche (mot-clé le plus long d'abord) fixe la
                     // catégorie, le flag fixe et, pour une ligne TR, le périmètre perso/commun.
-                    var matchedRule = CategoryRuleMatcher.FirstMatch(rules, description, counterparty);
+                    var matchedRule = CategoryRuleMatcher.FirstMatch(rules, description, counterparty, counterpartyIban);
                     var categoryId = matchedRule?.CategoryId ?? defaultCategoryId;
                     var isFixed = matchedRule?.MarkAsFixed ?? false;
 
@@ -296,6 +314,7 @@ public class BankSyncService : BackgroundService
                         ExternalId = externalId,
                         IsImported = true,
                         CounterpartyName = counterparty,
+                        CounterpartyIban = counterpartyIban,
                         IsFixed = isFixed,
                         BankAccountId = account.Id
                     };

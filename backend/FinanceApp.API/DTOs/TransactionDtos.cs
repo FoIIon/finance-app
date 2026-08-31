@@ -19,6 +19,7 @@ public class TransactionDto
     public string? ExternalId { get; set; }
     public bool IsImported { get; set; }
     public string? CounterpartyName { get; set; }
+    public string? CounterpartyIban { get; set; }
     public bool IsExceptional { get; set; }
     public bool IsFixed { get; set; }
     public bool IsProvisional { get; set; }
