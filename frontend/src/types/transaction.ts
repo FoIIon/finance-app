@@ -25,6 +25,10 @@ export interface Transaction {
   isExceptional: boolean;
   /** Remboursement d'une dépense : sur un revenu, la ligne est déduite du bloc de sa catégorie au lieu de compter en entrées. */
   isRefund: boolean;
+  /** Renseigné quand la catégorie a été corrigée à la main. */
+  categorySetManuallyAt?: string | null;
+  /** Catégorie posée par la règle avant la première correction manuelle. */
+  categoryBeforeManualName?: string | null;
   /** Charge fixe récurrente (prêt, prélèvement, abonnement…). Posé par les règles, modifiable à la main. */
   isFixed: boolean;
   /** Transaction provisionnelle (salaire attendu, etc.) — supprimée quand le réel arrive. */
