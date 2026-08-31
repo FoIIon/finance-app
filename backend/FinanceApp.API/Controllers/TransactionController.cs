@@ -54,6 +54,19 @@ public class TransactionController : ControllerBase
         return await _dashboardService.GetDashboardAccountIds(personalDashboard.Id, userId);
     }
 
+    /// <summary>
+    /// Caractère d'échappement des jokers LIKE. Le point d'exclamation plutôt que l'antislash : SQLite
+    /// accepte n'importe quel caractère, et celui-là n'a pas besoin d'être échappé lui-même en C#.
+    /// </summary>
+    private const string EchappementLike = "!";
+
+    /// <summary>
+    /// Neutralise les jokers d'un motif LIKE saisi par l'utilisateur. Sans ça, chercher « 100% » ou
+    /// « _ » renverrait n'importe quoi.
+    /// </summary>
+    private static string EchapperLike(string valeur) =>
+        valeur.Replace("!", "!!").Replace("%", "!%").Replace("_", "!_");
+
     private static TransactionDto MapToDto(Transaction t)
     {
         return new TransactionDto
@@ -121,14 +134,26 @@ public class TransactionController : ControllerBase
         if (isFixed.HasValue) query = query.Where(t => t.IsFixed == isFixed.Value);
         if (!string.IsNullOrWhiteSpace(search))
         {
+            // LIKE et non Contains : EF traduit Contains par instr(), qui compare octet par octet, donc
+            // la recherche était sensible à la casse. Mesuré sur la prod le 31/08/2026 : « colruyt » ne
+            // rendait aucune ligne, « COLRUYT » en rendait cinq, et une comparaison insensible à la
+            // casse soixante-dix-huit. LIKE est insensible à la casse sur l'ASCII dans SQLite.
+            // Les accents restent non gérés (« Intermarche » ne trouve pas « Intermarché »), il faudrait
+            // une colonne normalisée pour ça.
+            //
             // La contrepartie et son IBAN sont cherchables : sur un virement, le libellé arrive souvent
             // vide et c'est le bénéficiaire qui identifie la ligne (crèche communale, école, assurance).
-            var searchIban = GoCardlessTransactionFields.Normalize(search);
-            query = query.Where(t => t.Description.Contains(search)
-                                  || t.Category.Name.Contains(search)
-                                  || t.Account.Name.Contains(search)
-                                  || (t.CounterpartyName != null && t.CounterpartyName.Contains(search))
-                                  || (t.CounterpartyIban != null && t.CounterpartyIban.Contains(searchIban)));
+            var motif = $"%{EchapperLike(search)}%";
+            var chercherIban = CategoryRuleMatcher.LooksLikeIban(search);
+            var motifIban = chercherIban
+                ? $"%{EchapperLike(GoCardlessTransactionFields.Normalize(search))}%"
+                : motif;
+
+            query = query.Where(t => EF.Functions.Like(t.Description, motif, EchappementLike)
+                                  || EF.Functions.Like(t.Category.Name, motif, EchappementLike)
+                                  || EF.Functions.Like(t.Account.Name, motif, EchappementLike)
+                                  || (t.CounterpartyName != null && EF.Functions.Like(t.CounterpartyName, motif, EchappementLike))
+                                  || (chercherIban && t.CounterpartyIban != null && EF.Functions.Like(t.CounterpartyIban, motifIban, EchappementLike)));
         }
 
         var descending = sortDesc ?? true;
