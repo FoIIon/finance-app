@@ -41,8 +41,10 @@ const SidebarContent = ({ email, pathname, onNavClick, onLogout }: SidebarConten
 
     <div className="flex-1 p-4 space-y-1">
       {navItems.map((item) => {
-        const isActive = item.path.startsWith('/dashboard')
-          ? pathname.startsWith('/dashboard')
+        // Le préfixe doit inclure la barre finale : sans elle, « /dashboard-settings » matchait le
+        // test de « /dashboard/overview » et les deux entrées s'allumaient ensemble (31/08/2026).
+        const isActive = item.path.startsWith('/dashboard/')
+          ? pathname === '/dashboard' || pathname.startsWith('/dashboard/')
           : pathname === item.path;
         return (
           <Link
