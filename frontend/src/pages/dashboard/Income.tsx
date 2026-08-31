@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { useDashboards } from '../../hooks/useDashboards';
 import { usePeriod } from '../../hooks/usePeriod';
 import { useSummaryQuery } from '../../hooks/queries';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { formatCurrency } from '../../utils/format';
+import { CategoryDetailModal } from '../../components/dashboard/CategoryDetailModal';
+import { TransactionType } from '../../types/transaction';
 
 const DashboardIncome = () => {
   const { currentDashboard } = useDashboards();
@@ -10,6 +13,9 @@ const DashboardIncome = () => {
   const { data: summary, isLoading } = useSummaryQuery(currentDashboard?.id, period);
   const incomes = summary?.incomeBreakdown ?? [];
   const totalIncome = summary?.totalIncome ?? 0;
+  // Le détail d'une rentrée se consulte comme celui d'une dépense : au clic sur la catégorie.
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const selected = selectedIdx !== null ? incomes[selectedIdx] : null;
 
   return (
     <div className="space-y-5">
@@ -83,7 +89,12 @@ const DashboardIncome = () => {
               </thead>
               <tbody>
                 {incomes.map((c, i) => (
-                  <tr key={i} className="border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors">
+                  <tr
+                    key={i}
+                    onClick={() => setSelectedIdx(i)}
+                    title={`Voir les lignes de ${c.categoryName}`}
+                    className="border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors cursor-pointer"
+                  >
                     <td className="p-3">
                       <div className="flex items-center gap-2">
                         <span aria-hidden="true">{c.categoryIcon}</span>
@@ -103,6 +114,20 @@ const DashboardIncome = () => {
           )}
         </div>
       </div>
+
+      {selected && currentDashboard && (
+        <CategoryDetailModal
+          categoryId={selected.categoryId}
+          categoryName={selected.categoryName}
+          categoryIcon={selected.categoryIcon}
+          categoryColor={selected.categoryColor}
+          totalAmount={Number(selected.amount)}
+          dashboardId={currentDashboard.id}
+          period={period}
+          type={TransactionType.Income}
+          onClose={() => setSelectedIdx(null)}
+        />
+      )}
     </div>
   );
 };
