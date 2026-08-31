@@ -79,11 +79,20 @@ public class PersoScopeRouterTests
     }
 
     [Fact]
-    public void RevenuTr_ResteCommun_MemeSiUneRegleMatche()
+    public void RevenuTr_MatchantUneReglePerso_PartPerso()
     {
-        // Un revenu TR (dividende, intérêts) n'est pas un achat perso. Le remboursement Apple de 1,20 €
-        // du 13/08 est un dividende en espèces, pas une dépense : il ne se route pas côté Perso.
-        Assert.Equal(TransactionScope.Common, Route(false, "tr-571", TransactionType.Income, "Anthropic"));
+        // Depuis le 31/08/2026, une règle perso route la ligne TR dans les deux sens : les intérêts
+        // versés par Trade Republic (33 lignes, 1 006,68 € depuis novembre 2023) viennent de l'épargne
+        // perso de Sébastien, ils sont son revenu et pas une rentrée du ménage.
+        Assert.Equal(TransactionScope.Perso, Route(false, "tr-571", TransactionType.Income, "Anthropic"));
+    }
+
+    [Fact]
+    public void RevenuTr_SansReglePerso_ResteCommun()
+    {
+        // Le défaut ne change pas : sans règle perso, une rentrée TR reste au bilan commun.
+        Assert.Equal(TransactionScope.Common, PersoScopeRouter.Decide(
+            false, "tr-604", TransactionType.Income, matchedRule: null, isInvestment: false));
     }
 
     // ---------------------------------------------------------------- garde-fous
