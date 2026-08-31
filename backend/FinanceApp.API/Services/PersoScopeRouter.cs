@@ -67,10 +67,13 @@ public static class PersoScopeRouter
         //    jamais comptée en revenu commun, pendant que la jambe sortante reste une dépense du Commun.
         if (bankAccountIsPersonal) return TransactionScope.Perso;
 
-        // 2. Une dépense carte Trade Republic dont la règle gagnante est perso. On se limite aux
-        //    dépenses (un revenu TR, dividende ou intérêts, reste commun) et aux lignes TR, seules
-        //    concernées par l'usage mixte de la carte. Une règle perso qui matche ailleurs ne route pas.
-        if (type == TransactionType.Expense && IsTradeRepublicLine(externalId) && matchedRule?.RouteToPerso == true)
+        // 2. Une ligne Trade Republic dont la règle gagnante est perso, dans les deux sens depuis le
+        //    31/08/2026. Les dépenses d'abord (les abos de Sébastien), mais aussi les revenus : les
+        //    intérêts que TR verse viennent de son épargne perso, ils sont son revenu et pas celui du
+        //    ménage. La restriction aux seules dépenses datait d'un moment où le périmètre perso
+        //    n'existait qu'à moitié, sans compte d'épargne perso ni espèces courtier à son nom.
+        //    Une règle perso qui matche ailleurs qu'une ligne TR ne route toujours rien.
+        if (IsTradeRepublicLine(externalId) && matchedRule?.RouteToPerso == true)
             return TransactionScope.Perso;
 
         // 3. Un mouvement de titres Trade Republic. Le portefeuille est celui de Sébastien, dans les
