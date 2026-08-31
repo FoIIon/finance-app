@@ -556,6 +556,12 @@ public class BankSyncService : BackgroundService
                 // Un mouvement interne a une jambe bancaire déjà importée par GoCardless. La neutraliser,
                 // sinon le paiement carte qu'elle finance est compté deux fois : une fois au débit du
                 // compte joint, une fois chez le commerçant.
+                //
+                // Le compte logique de cette jambe donne aussi le périmètre de la ligne TR : les deux
+                // moitiés d'un même mouvement appartiennent au même dashboard. Cas vécu (31/08/2026) :
+                // le dépôt de 720 € vers Trade Republic partait de l'Argenta perso, sa jambe TR restait
+                // au Commun et y affichait −720 € en hors bilan, sans contrepartie visible.
+                int? scopeDeLaJambe = null;
                 if (kind == TrLineKind.InternalTransfer)
                 {
                     var mirror = InternalTransferReconciler.FindMirror(
@@ -565,6 +571,7 @@ public class BankSyncService : BackgroundService
                     {
                         claimedLegs.Add(mirror.Id);
                         var legEntity = bankLegEntities.First(t => t.Id == mirror.Id);
+                        scopeDeLaJambe = legEntity.AccountId;
                         if (legEntity.CategoryId != virementInterneId)
                         {
                             _logger.LogInformation(
@@ -615,7 +622,8 @@ public class BankSyncService : BackgroundService
                     Date = tx.Date,
                     Type = type,
                     CategoryId = categoryId,
-                    AccountId = scope == TransactionScope.Perso ? await PersoAccountIdAsync() : defaultAccount.Id,
+                    AccountId = scopeDeLaJambe
+                        ?? (scope == TransactionScope.Perso ? await PersoAccountIdAsync() : defaultAccount.Id),
                     ExternalId = externalId,
                     IsImported = true,
                     CounterpartyName = tx.Title,
