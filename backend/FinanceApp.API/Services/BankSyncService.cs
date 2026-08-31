@@ -396,9 +396,48 @@ public class BankSyncService : BackgroundService
             // heures, le jeton stocké est toujours périmé.
             var sessionToken = await TradeRepublicSession.RefreshAndStoreAsync(connection, trClient, context, _logger);
 
-            // Récupérer les card transactions via HTTP REST (TR a abandonné le WebSocket pour les données)
-            // La déduplication par ExternalId évite les doublons — pas besoin de filtrer par date
-            var cardTransactions = await trClient.GetCardTransactionsHttpAsync(sessionToken);
+            // Le REST /api/v2/timeline/transactions ne rend que sa première page et ignore tout
+            // paramètre de pagination (constaté le 28/08/2026), soit une quinzaine de jours. C'est ce
+            // qui faisait manquer l'abonnement Shadow payé à la carte TR et les achats de titres
+            // mensuels : ils étaient hors fenêtre, pas mal classés. La pagination WebSocket
+            // (timelineTransactions + curseur « after ») remonte, elle, jusqu'au premier mouvement du
+            // compte.
+            //
+            // Elle coûte cher (jusqu'à 400 souscriptions), donc on ne la paie qu'une fois : tant que la
+            // base n'a aucune ligne TR de plus de 45 jours, on descend en profondeur, ensuite la
+            // première page suffit à rattraper le courant. Même idiome que le rattrapage des IBAN.
+            var trHistoriqueDejaLa = await context.Transactions
+                .AnyAsync(t => t.ExternalId != null
+                            && t.ExternalId.StartsWith("tr-")
+                            && t.Date < DateTime.UtcNow.AddDays(-45));
+
+            List<TrCardTransaction> cardTransactions;
+            if (trHistoriqueDejaLa)
+            {
+                // La déduplication par ExternalId évite les doublons — pas besoin de filtrer par date
+                cardTransactions = await trClient.GetCardTransactionsHttpAsync(sessionToken);
+            }
+            else
+            {
+                var refreshToken = trClient.DecryptToken(connection.EncryptedRefreshToken!);
+                var deviceToken = string.IsNullOrEmpty(connection.EncryptedDeviceToken)
+                    ? "" : trClient.DecryptToken(connection.EncryptedDeviceToken);
+                var timeline = await trClient.GetTimelineAllAsync(sessionToken, refreshToken, deviceToken);
+                cardTransactions = timeline
+                    .Select(i => new TrCardTransaction
+                    {
+                        Id = i.Id,
+                        Amount = i.Amount,
+                        Title = i.Title,
+                        Date = i.Date,
+                        EventType = i.EventType,
+                    })
+                    .ToList();
+                _logger.LogInformation(
+                    "TR : premier passage profond, {lignes} lignes de timeline, plus ancienne {date:yyyy-MM-dd}.",
+                    cardTransactions.Count,
+                    cardTransactions.Count > 0 ? cardTransactions.Min(t => t.Date) : DateTime.MinValue);
+            }
             if (cardTransactions.Count == 0)
             {
                 connection.LastSyncAt = DateTime.UtcNow;
