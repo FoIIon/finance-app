@@ -25,7 +25,13 @@ public class Investment
     public InvestmentSource Source { get; set; } = InvestmentSource.Manual;
     /// <summary>Identifiant côté courtier, pour la réconciliation à l'import.</summary>
     public string? ExternalId { get; set; }
-    public bool IsArchived { get; set; } = false;
+    public bool IsArchived { get; set; }
+
+    /// <summary>Ligne détenue à titre personnel. Elle reste rangée dans le portefeuille commun (qui
+    /// accueillera aussi celles d'Audrey) et apparaît EN PLUS sur le dashboard perso : sans ça, le
+    /// perso montrait les dépenses du compte Argenta perso et aucun rendement de l'épargne qu'il
+    /// alimente. Les deux patrimoines se recouvrent donc de ces lignes, volontairement.</summary>
+    public bool IsPersonal { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public Dashboard Dashboard { get; set; } = null!;

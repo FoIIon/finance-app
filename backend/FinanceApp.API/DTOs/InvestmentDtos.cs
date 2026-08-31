@@ -19,6 +19,8 @@ public class InvestmentDto
     public DateTime? FirstPurchaseDate { get; set; }
     public InvestmentSource Source { get; set; }
     public bool IsArchived { get; set; }
+    /// <summary>Détenue à titre personnel : visible aussi sur le dashboard perso.</summary>
+    public bool IsPersonal { get; set; }
     public DateTime CreatedAt { get; set; }
 
     /// <summary>PRU. Null pour un contrat d'assurance-vie.</summary>
@@ -96,6 +98,9 @@ public class UpdateInvestmentDto
     public DateTime? FirstPurchaseDate { get; set; }
 
     public bool? IsArchived { get; set; }
+
+    /// <summary>Détenue à titre personnel : la ligne apparaît aussi sur le dashboard perso.</summary>
+    public bool? IsPersonal { get; set; }
 }
 
 public class CreateValuationDto

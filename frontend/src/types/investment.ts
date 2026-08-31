@@ -44,6 +44,8 @@ export interface Investment {
   firstPurchaseDate: string | null;
   source: InvestmentSource;
   isArchived: boolean;
+  /** Détenue à titre personnel : la ligne apparaît aussi sur le dashboard perso. */
+  isPersonal: boolean;
   createdAt: string;
   /** PRU. null pour un contrat d'assurance-vie. */
   unitCost: number | null;
@@ -106,6 +108,7 @@ export interface UpdateInvestment {
   costBasis?: number;
   firstPurchaseDate?: string | null;
   isArchived?: boolean;
+  isPersonal?: boolean;
 }
 
 export interface CreateValuation {
