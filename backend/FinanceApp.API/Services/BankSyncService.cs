@@ -479,7 +479,11 @@ public class BankSyncService : BackgroundService
             int? persoAccountId = null;
             async Task<int> PersoAccountIdAsync() =>
                 persoAccountId ??= await PersoAccounts.GetOrCreatePersoAccountIdAsync(context, connection.UserId);
-            var trBankAccount = connection.BankAccounts.FirstOrDefault(ba => ba.IsActive);
+            // Le compte espèces TR est exclu : il ne porte qu'un solde. L'y accrocher ferait basculer
+            // toute la timeline côté Perso, puisqu'il est marqué perso, alors qu'une dépense carte TR
+            // est commune par défaut (TradeRepublicCashAccount.IsCashAccount).
+            var trBankAccount = connection.BankAccounts
+                .FirstOrDefault(ba => ba.IsActive && !TradeRepublicCashAccount.IsCashAccount(ba));
             var trBankAccountIsPersonal = trBankAccount?.IsPersonal ?? false;
 
             // Noms des titulaires de tous les comptes suivis : c'est ce qui permet de reconnaître
