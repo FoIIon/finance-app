@@ -10,23 +10,46 @@ namespace FinanceApp.API.Services;
 /// </summary>
 public static class CategoryRuleMatcher
 {
-    /// <summary>Vrai si le mot-clé apparaît dans le libellé ou dans la contrepartie, sans casse.</summary>
-    public static bool Matches(string keyword, string description, string? counterpartyName)
+    /// <summary>
+    /// Vrai si le mot-clé apparaît dans le libellé, dans la contrepartie, ou — quand le mot-clé est
+    /// lui-même un IBAN — dans le compte du bénéficiaire (31/08/2026). Un bénéficiaire garde son IBAN
+    /// quand la banque change l'orthographe de son nom : la commune de Marche facture tantôt
+    /// « Ville de Marche-en-Famenne », tantôt « ADMINISTRATION COMMUNALE DE MARCHE- », libellé vide.
+    /// </summary>
+    public static bool Matches(string keyword, string description, string? counterpartyName, string? counterpartyIban = null)
     {
         if (string.IsNullOrWhiteSpace(keyword)) return false;
         return description.Contains(keyword, StringComparison.OrdinalIgnoreCase)
-            || (counterpartyName != null && counterpartyName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+            || (counterpartyName != null && counterpartyName.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            || MatchesIban(counterpartyIban, keyword);
+    }
+
+    /// <summary>
+    /// L'IBAN ne se compare qu'à un mot-clé qui ressemble à un IBAN : deux lettres, deux chiffres, six
+    /// caractères au moins. Sans ce garde-fou, une règle de trois lettres comme « DVV » ou « CNS »
+    /// matcherait le code banque d'un IBAN étranger et raflerait des transactions qui ne lui vont pas.
+    /// </summary>
+    private static bool MatchesIban(string? counterpartyIban, string keyword)
+    {
+        if (counterpartyIban == null) return false;
+
+        var candidate = GoCardlessTransactionFields.Normalize(keyword);
+        if (candidate.Length < 6) return false;
+        if (!char.IsLetter(candidate[0]) || !char.IsLetter(candidate[1])) return false;
+        if (!char.IsDigit(candidate[2]) || !char.IsDigit(candidate[3])) return false;
+
+        return counterpartyIban.Contains(candidate, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
     /// La première règle qui matche, dans l'ordre reçu. L'appelant trie du mot-clé le plus long au
     /// plus court (règle de nature du 27/08/2026 : « Legumes vacances » bat « Vacance »).
     /// </summary>
-    public static CategoryRule? FirstMatch(IEnumerable<CategoryRule> orderedRules, string description, string? counterpartyName)
+    public static CategoryRule? FirstMatch(IEnumerable<CategoryRule> orderedRules, string description, string? counterpartyName, string? counterpartyIban = null)
     {
         foreach (var rule in orderedRules)
         {
-            if (Matches(rule.Keyword, description, counterpartyName)) return rule;
+            if (Matches(rule.Keyword, description, counterpartyName, counterpartyIban)) return rule;
         }
         return null;
     }

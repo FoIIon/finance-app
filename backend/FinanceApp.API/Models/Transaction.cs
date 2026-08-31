@@ -12,6 +12,13 @@ public class Transaction
     public string? ExternalId { get; set; }
     public bool IsImported { get; set; }
     public string? CounterpartyName { get; set; }
+
+    /// <summary>Compte de la contrepartie (IBAN normalisé, sans espaces), quand la banque le sert.
+    /// Null sur les paiements par carte et sur les lignes Trade Republic. Seul identifiant stable d'un
+    /// bénéficiaire : la commune de Marche facture tantôt « Ville de Marche-en-Famenne », tantôt
+    /// « ADMINISTRATION COMMUNALE DE MARCHE- », avec un libellé de virement vide.</summary>
+    public string? CounterpartyIban { get; set; }
+
     public bool IsExceptional { get; set; }
 
     /// <summary>Charge fixe récurrente (prêt, prélèvement, abonnement…). Posé par les règles

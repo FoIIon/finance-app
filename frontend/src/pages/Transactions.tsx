@@ -288,8 +288,12 @@ const Transactions = () => {
                       <>
                         <span className="block truncate" title={t.description}>{t.description || <em className="text-white/30">(sans libellé)</em>}</span>
                         {t.counterpartyName && (
-                          <span className="block text-white/50 text-xs truncate mt-0.5" title={t.counterpartyName}>
+                          <span
+                            className="block text-white/50 text-xs truncate mt-0.5"
+                            title={t.counterpartyIban ? `${t.counterpartyName} · ${t.counterpartyIban}` : t.counterpartyName}
+                          >
                             {t.type === TransactionType.Income ? '↩ De ' : '↪ Vers '}{t.counterpartyName}
+                            {t.counterpartyIban && <span className="text-white/30"> · {t.counterpartyIban}</span>}
                           </span>
                         )}
                         {t.isImported && (

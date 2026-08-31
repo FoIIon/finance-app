@@ -63,7 +63,7 @@ export const UncategorizedList = () => {
               <div className="min-w-0 flex-1">
                 <p className="text-white text-sm font-medium truncate">{t.description || <em className="text-white/30">(sans libellé)</em>}</p>
                 <p className="text-white/40 text-xs truncate">
-                  {t.counterpartyName && <>{t.type === TransactionType.Income ? '↩ ' : '↪ '}{t.counterpartyName} · </>}
+                  {t.counterpartyName && <span title={t.counterpartyIban ?? undefined}>{t.type === TransactionType.Income ? '↩ ' : '↪ '}{t.counterpartyName} · </span>}
                   {new Date(t.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
                 </p>
               </div>

@@ -20,6 +20,8 @@ export interface Transaction {
   externalId?: string;
   isImported: boolean;
   counterpartyName?: string;
+  /** IBAN du bénéficiaire quand la banque le sert. Absent sur les paiements par carte. */
+  counterpartyIban?: string;
   isExceptional: boolean;
   /** Charge fixe récurrente (prêt, prélèvement, abonnement…). Posé par les règles, modifiable à la main. */
   isFixed: boolean;

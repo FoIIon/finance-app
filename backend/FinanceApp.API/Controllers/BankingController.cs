@@ -305,7 +305,7 @@ public class BankingController : ControllerBase
     }
 
     [HttpPost("connections/{id}/sync")]
-    public async Task<ActionResult> SyncConnection(int id, [FromServices] BankSyncService syncService)
+    public async Task<ActionResult> SyncConnection(int id, [FromServices] BankSyncService syncService, [FromQuery] int? daysBack = null)
     {
         var userId = GetUserId();
         var connection = await _context.BankConnections
@@ -315,7 +315,7 @@ public class BankingController : ControllerBase
 
         try
         {
-            await syncService.SyncConnectionAsync(connection.Id);
+            await syncService.SyncConnectionAsync(connection.Id, daysBack);
             return Ok();
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
