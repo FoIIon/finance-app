@@ -20,22 +20,28 @@ interface Props {
   totalAmount: number;
   dashboardId: number;
   period: Period;
+  /**
+   * Sens des lignes à lister. Dépense par défaut. En revenu, l'historique 12 mois n'est pas affiché :
+   * l'endpoint category-history n'agrège que les dépenses.
+   */
+  type?: TransactionType;
   onClose: () => void;
 }
 
-export const CategoryDetailModal = ({ categoryId, categoryName, categoryIcon, categoryColor, totalAmount, dashboardId, period, onClose }: Props) => {
+export const CategoryDetailModal = ({ categoryId, categoryName, categoryIcon, categoryColor, totalAmount, dashboardId, period, type = TransactionType.Expense, onClose }: Props) => {
+  const estRevenu = type === TransactionType.Income;
   const { from, to } = periodToRange(period);
   const bankAccountId = useBankFilter();
 
   const { data: transactions, isLoading } = useQuery({
-    queryKey: ['category-detail', dashboardId, categoryId, period.key, bankAccountId],
+    queryKey: ['category-detail', dashboardId, categoryId, period.key, bankAccountId, type],
     queryFn: async () => {
       const res = await transactionsApi.getAll({
         dashboardId,
         categoryId,
         from,
         to,
-        type: TransactionType.Expense,
+        type,
         bankAccountId,
         sortBy: 'date',
         sortDesc: true,
@@ -73,7 +79,7 @@ export const CategoryDetailModal = ({ categoryId, categoryName, categoryIcon, ca
     return () => document.removeEventListener('keydown', onEsc);
   }, [onClose]);
 
-  const showChart = !historyError && history && history.length > 0;
+  const showChart = !estRevenu && !historyError && history && history.length > 0;
   const above = current ? (current.currentTotal > avg6) : false;
 
   const modal = (
@@ -93,7 +99,7 @@ export const CategoryDetailModal = ({ categoryId, categoryName, categoryIcon, ca
               <span aria-hidden="true">{categoryIcon}</span> {categoryName}
             </h3>
             <p className="text-white/50 text-sm mt-1">
-              {period.label} · <span className="text-red-400 font-semibold">{formatCurrency(totalAmount)}</span>
+              {period.label} · <span className={`font-semibold ${estRevenu ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(totalAmount)}</span>
             </p>
           </div>
           <button
@@ -106,7 +112,7 @@ export const CategoryDetailModal = ({ categoryId, categoryName, categoryIcon, ca
         </div>
 
         {/* Évolution 12 mois — barres empilées courant/exceptionnel + moyenne 6 mois glissante */}
-        {historyLoading ? (
+        {historyLoading && !estRevenu ? (
           <div className="h-[200px] rounded bg-white/5 animate-pulse mb-4" />
         ) : showChart ? (
           <div className="mb-4">
