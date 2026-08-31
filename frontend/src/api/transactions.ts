@@ -23,6 +23,9 @@ export const transactionsApi = {
   setFixed: (id: number, isFixed: boolean) =>
     apiClient.put<Transaction>(`/transaction/${id}/fixed`, { isFixed }),
 
+  setRefund: (id: number, isRefund: boolean) =>
+    apiClient.put<Transaction>(`/transaction/${id}/refund`, { isRefund }),
+
   setEnvelope: (id: number, projectEnvelopeId: number | null) =>
     apiClient.put<Transaction>(`/transaction/${id}/envelope`, { projectEnvelopeId }),
 

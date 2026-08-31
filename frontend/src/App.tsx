@@ -17,6 +17,7 @@ const DashboardOverview = lazy(() => import('./pages/dashboard/Overview'));
 const DashboardBilan = lazy(() => import('./pages/dashboard/Bilan'));
 const DashboardCategories = lazy(() => import('./pages/dashboard/Categories'));
 const DashboardIncome = lazy(() => import('./pages/dashboard/Income'));
+const DashboardFlows = lazy(() => import('./pages/dashboard/Flows'));
 const DashboardProjects = lazy(() => import('./pages/dashboard/Projects'));
 const DashboardTriage = lazy(() => import('./pages/dashboard/Triage'));
 const Transactions = lazy(() => import('./pages/Transactions'));
@@ -63,6 +64,7 @@ const App = () => {
                     <Route path="bilan" element={<DashboardBilan />} />
                     <Route path="income" element={<DashboardIncome />} />
                     <Route path="categories" element={<DashboardCategories />} />
+                    <Route path="flux" element={<DashboardFlows />} />
                     <Route path="projects" element={<DashboardProjects />} />
                     <Route path="triage" element={<DashboardTriage />} />
                   </Route>

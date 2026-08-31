@@ -69,6 +69,14 @@ export const useTransactions = () => {
     return response.data;
   };
 
+  const setRefund = async (id: number, isRefund: boolean) => {
+    const response = await transactionsApi.setRefund(id, isRefund);
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === id ? response.data : t))
+    );
+    return response.data;
+  };
+
   const setEnvelope = async (id: number, projectEnvelopeId: number | null) => {
     const response = await transactionsApi.setEnvelope(id, projectEnvelopeId);
     setTransactions((prev) =>
@@ -95,6 +103,7 @@ export const useTransactions = () => {
     deleteTransaction,
     setExceptional,
     setFixed,
+    setRefund,
     setEnvelope,
   };
 };
