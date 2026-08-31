@@ -1354,9 +1354,12 @@ public class TransactionController : ControllerBase
         var accountIds = await GetAccountIds(dashboardId);
         if (!accountIds.Any()) return Ok(new List<AccountBalanceDto>());
 
+        // Seuls les comptes GoCardless ont un solde à rafraîchir : un compte manuel se calcule, et le
+        // compte espèces Trade Republic est écrit par l'import TR, son ExternalAccountId n'existe pas
+        // chez GoCardless.
         var bankAccounts = await _context.BankAccounts
             .Include(ba => ba.BankConnection)
-            .Where(ba => ba.IsActive)
+            .Where(ba => ba.IsActive && !ba.IsManual && ba.BankConnection != null && ba.BankConnection.Provider == "GoCardless")
             .ToListAsync();
 
         foreach (var ba in bankAccounts)

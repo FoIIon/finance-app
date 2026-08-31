@@ -270,7 +270,10 @@ const Debts = () => {
     const cash = balances?.reduce((s, b) => s + b.balance, 0) ?? 0;
     // Les espèces qui dorment chez le courtier sont hors de la performance du
     // portefeuille, jamais hors du patrimoine : c'est de l'argent disponible.
-    const broker = brokerCash?.amount ?? 0;
+    // Depuis le 31/08/2026 elles sont aussi un compte bancaire à part entière, donc déjà dans les
+    // soldes du dashboard perso. On ne les ajoute une seconde fois que là où elles manquent.
+    const cashDejaCompte = balances?.some((b) => b.accountName?.startsWith('Trade Republic')) ?? false;
+    const broker = cashDejaCompte ? 0 : (brokerCash?.amount ?? 0);
     const invested = investments
       ?.filter((i) => !i.isArchived && i.marketValue != null)
       .reduce((s, i) => s + (i.marketValue ?? 0), 0) ?? 0;
