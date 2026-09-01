@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { transactionsApi } from '../../api/transactions';
@@ -8,6 +8,8 @@ import { periodToRange } from '../../utils/periods';
 import { formatCurrency } from '../../utils/format';
 import { useCategoriesQuery } from '../../hooks/queries';
 import { useToast } from '../../hooks/useToast';
+import { PeriodContext } from '../../context/period-context';
+import { CategoryFlowChart } from './CategoryFlowChart';
 
 interface Props {
   categoryId: number;
@@ -38,19 +40,23 @@ export const CategoryFlowModal = ({
   onClose,
 }: Props) => {
   const { from, to } = periodToRange(period);
+  // Le tableau des flux est produit par un résumé filtré par compte et par exceptionnel. Le graphe et
+  // la liste doivent lire les mêmes filtres, sinon le détail contredit la ligne qui l'a ouvert.
+  const { bankAccountFilter, includeExceptional } = useContext(PeriodContext);
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const { data: categories } = useCategoriesQuery();
   const [enCours, setEnCours] = useState<number | null>(null);
 
   const { data: transactions, isLoading, refetch } = useQuery({
-    queryKey: ['category-flow', dashboardId, categoryId, period.key],
+    queryKey: ['category-flow', dashboardId, categoryId, period.key, bankAccountFilter],
     queryFn: async () => {
       const res = await transactionsApi.getAll({
         dashboardId,
         categoryId,
         from,
         to,
+        bankAccountId: bankAccountFilter,
         sortBy: 'date',
         sortDesc: true,
       });
@@ -74,6 +80,7 @@ export const CategoryFlowModal = ({
       queryClient.invalidateQueries({ queryKey: ['monthly-report'] });
       queryClient.invalidateQueries({ queryKey: ['category-detail'] });
       queryClient.invalidateQueries({ queryKey: ['category-history'] });
+      queryClient.invalidateQueries({ queryKey: ['category-flow-history'] });
     } catch {
       showToast('Impossible de changer la catégorie', 'error');
     } finally {
@@ -112,6 +119,13 @@ export const CategoryFlowModal = ({
             ×
           </button>
         </div>
+
+        <CategoryFlowChart
+          categoryId={categoryId}
+          dashboardId={dashboardId}
+          bankAccountId={bankAccountFilter}
+          includeExceptional={includeExceptional}
+        />
 
         <div className="overflow-y-auto flex-1 -mx-2 px-2">
           {isLoading ? (

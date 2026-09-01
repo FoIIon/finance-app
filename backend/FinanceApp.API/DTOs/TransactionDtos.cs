@@ -167,6 +167,50 @@ public class MonthlyBalanceDto
     public decimal TotalBalance { get; set; }
 }
 
+/// <summary>Un mois de l'historique deux sens d'une catégorie, avec son homologue N-1 quand il est comparable.</summary>
+public class CategoryFlowMonthDto
+{
+    /// <summary>Clé triable "yyyy-MM".</summary>
+    public string Month { get; set; } = string.Empty;
+    /// <summary>Libellé court fr-FR "juil. 2026".</summary>
+    public string Label { get; set; } = string.Empty;
+    /// <summary>Entrées de la catégorie, remboursements exclus.</summary>
+    public decimal Income { get; set; }
+    /// <summary>Sorties de la catégorie, nettes des remboursements.</summary>
+    public decimal Expenses { get; set; }
+    /// <summary>Mises de côté (catégorie de transfert), nettes des retraits.</summary>
+    public decimal Savings { get; set; }
+    /// <summary>Entrées − sorties − mises de côté, sauf catégorie hors bilan.</summary>
+    public decimal Net { get; set; }
+
+    /// <summary>Mêmes montants douze mois plus tôt. Null tant que le mois N-1 n'est pas couvert par la banque.</summary>
+    public decimal? IncomePreviousYear { get; set; }
+    public decimal? ExpensesPreviousYear { get; set; }
+    public decimal? NetPreviousYear { get; set; }
+}
+
+/// <summary>Historique deux sens d'une catégorie et ce que la couverture bancaire autorise à comparer.</summary>
+public class CategoryFlowHistoryDto
+{
+    public List<CategoryFlowMonthDto> Months { get; set; } = new();
+
+    /// <summary>La catégorie est une catégorie de transfert (ses montants vont en mises de côté).</summary>
+    public bool IsTransferCategory { get; set; }
+    /// <summary>Catégorie hors bilan : ses mises de côté ne sont jamais soustraites du net.</summary>
+    public bool IsOffBalanceCategory { get; set; }
+
+    /// <summary>Au moins un mois de la fenêtre a un N-1 comparable.</summary>
+    public bool PreviousYearAvailable { get; set; }
+    /// <summary>Premier mois dont le N-1 deviendra comparable. Sert à le dire à l'écran plutôt qu'à le laisser deviner.</summary>
+    public DateTime? PreviousYearAvailableFrom { get; set; }
+    /// <summary>Première transaction bancaire du dashboard. Avant elle, l'historique n'est qu'un relevé de carte.</summary>
+    public DateTime? FirstBankTransactionDate { get; set; }
+
+    /// <summary>Premier mois entièrement couvert par la banque. Les mois d'avant ne portent que la carte
+    /// Trade Republic : le graphe le signale plutôt que de laisser lire une chute de dépenses.</summary>
+    public DateTime? FirstFullBankMonth { get; set; }
+}
+
 /// <summary>Dépenses d'une catégorie pour un mois calendaire (courant + exceptionnel séparés).</summary>
 public class CategoryMonthHistoryDto
 {

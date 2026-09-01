@@ -90,6 +90,39 @@ export interface MonthlyBalance {
   totalBalance: number;
 }
 
+/** Un mois de l'historique deux sens d'une catégorie, avec son homologue N-1 quand il est comparable. */
+export interface CategoryFlowMonth {
+  /** Clé triable "yyyy-MM". */
+  month: string;
+  /** Libellé court fr-FR "juil. 2026". */
+  label: string;
+  /** Entrées, remboursements exclus. */
+  income: number;
+  /** Sorties, nettes des remboursements. */
+  expenses: number;
+  /** Mises de côté (catégorie de transfert), nettes des retraits. */
+  savings: number;
+  /** Entrées − sorties − mises de côté, sauf catégorie hors bilan. */
+  net: number;
+  /** Mêmes montants douze mois plus tôt. Absents tant que le mois N-1 n'est pas couvert par la banque. */
+  incomePreviousYear: number | null;
+  expensesPreviousYear: number | null;
+  netPreviousYear: number | null;
+}
+
+/** Historique deux sens d'une catégorie et ce que la couverture bancaire autorise à comparer. */
+export interface CategoryFlowHistory {
+  months: CategoryFlowMonth[];
+  isTransferCategory: boolean;
+  isOffBalanceCategory: boolean;
+  previousYearAvailable: boolean;
+  /** Premier mois dont le N-1 deviendra comparable. */
+  previousYearAvailableFrom: string | null;
+  firstBankTransactionDate: string | null;
+  /** Premier mois entièrement couvert par la banque, "yyyy-MM-dd". Les mois d'avant ne portent que la carte. */
+  firstFullBankMonth: string | null;
+}
+
 export interface CategoryMonthHistory {
   /** Clé triable "yyyy-MM". */
   month: string;
