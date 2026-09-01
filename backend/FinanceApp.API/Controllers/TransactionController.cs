@@ -931,6 +931,109 @@ public class TransactionController : ControllerBase
     }
 
     /// <summary>
+    /// Historique deux sens d'une catégorie sur les N derniers mois calendaires, avec le même mois
+    /// douze mois plus tôt quand il est comparable.
+    ///
+    /// Pourquoi un second endpoint à côté de category-history : celui-ci n'agrège que les dépenses
+    /// brutes, alors que l'onglet Entrées/Sorties nette les remboursements et sépare les mises de côté.
+    /// Un graphe branché sur l'un sous une ligne calculée par l'autre montrerait deux chiffres
+    /// différents pour le même mois. Règles d'agrégation dans <see cref="CategoryFlowHistory"/>.
+    /// </summary>
+    [HttpGet("category-flow-history")]
+    public async Task<ActionResult<CategoryFlowHistoryDto>> GetCategoryFlowHistory(
+        [FromQuery] int? dashboardId,
+        [FromQuery] int categoryId,
+        [FromQuery] int months = 12,
+        [FromQuery] int? bankAccountId = null,
+        [FromQuery] bool includeExceptional = true)
+    {
+        var accountIds = await GetAccountIds(dashboardId);
+        if (!accountIds.Any()) return Ok(new CategoryFlowHistoryDto());
+
+        var categorie = await _context.Categories
+            .Where(c => c.Id == categoryId)
+            .Select(c => new { c.IsTransfer, c.ExcludeFromMonthlyReport })
+            .FirstOrDefaultAsync();
+        if (categorie is null) return NotFound();
+
+        months = Math.Clamp(months, 1, 24);
+
+        var now = DateTime.UtcNow;
+        var startMonth = new DateTime(now.Year, now.Month, 1).AddMonths(-(months - 1));
+        // On descend douze mois plus bas pour ramener le N-1 de chaque mois de la fenêtre en une requête.
+        var fetchFrom = startMonth.AddMonths(-12);
+
+        var query = _context.Transactions
+            .Where(t => accountIds.Contains(t.AccountId)
+                     && t.CategoryId == categoryId
+                     && t.Date >= fetchFrom);
+        // Mêmes filtres que le résumé qui a produit la ligne cliquée, sinon le graphe contredit le tableau.
+        if (bankAccountId.HasValue) query = query.Where(t => t.BankAccountId == bankAccountId.Value);
+        if (!includeExceptional) query = query.Where(t => !t.IsExceptional);
+
+        // SQLite ne supporte pas Sum(decimal) en SQL → agrégation client (même pattern que GetSummary)
+        var raw = await query
+            .Select(t => new { t.Date.Year, t.Date.Month, t.Type, t.Amount, IsTransfer = t.Category.IsTransfer, t.IsRefund })
+            .ToListAsync();
+
+        var byMonth = raw
+            .GroupBy(t => (t.Year, t.Month))
+            .ToDictionary(
+                g => g.Key,
+                g => CategoryFlowHistory.Aggregate(
+                    g.Select(t => new FlowLine(t.Type, t.Amount, t.IsTransfer, t.IsRefund))));
+
+        var horsBilan = categorie.ExcludeFromMonthlyReport;
+        FlowTotals TotauxDe(DateTime m) => byMonth.GetValueOrDefault((m.Year, m.Month));
+
+        var premiereBancaire = await _context.Transactions
+            .Where(t => accountIds.Contains(t.AccountId) && t.BankAccountId != null)
+            .OrderBy(t => t.Date)
+            .Select(t => (DateTime?)t.Date)
+            .FirstOrDefaultAsync();
+        var premierComparable = CategoryFlowHistory.FirstComparableMonth(premiereBancaire);
+
+        var culture = new System.Globalization.CultureInfo("fr-FR");
+        var mois = Enumerable.Range(0, months)
+            .Select(i => startMonth.AddMonths(i))
+            .Select(month =>
+            {
+                var t = TotauxDe(month);
+                var dto = new CategoryFlowMonthDto
+                {
+                    Month = month.ToString("yyyy-MM"),
+                    Label = month.ToString("MMM yyyy", culture),
+                    Income = t.Income,
+                    Expenses = t.Expenses,
+                    Savings = t.Savings,
+                    Net = CategoryFlowHistory.Net(t, horsBilan),
+                };
+
+                if (CategoryFlowHistory.IsComparable(month, premierComparable))
+                {
+                    var n1 = TotauxDe(month.AddMonths(-12));
+                    dto.IncomePreviousYear = n1.Income;
+                    dto.ExpensesPreviousYear = n1.Expenses;
+                    dto.NetPreviousYear = CategoryFlowHistory.Net(n1, horsBilan);
+                }
+
+                return dto;
+            })
+            .ToList();
+
+        return Ok(new CategoryFlowHistoryDto
+        {
+            Months = mois,
+            IsTransferCategory = categorie.IsTransfer,
+            IsOffBalanceCategory = horsBilan,
+            PreviousYearAvailable = mois.Any(m => m.NetPreviousYear.HasValue),
+            PreviousYearAvailableFrom = premierComparable,
+            FirstBankTransactionDate = premiereBancaire,
+            FirstFullBankMonth = CategoryFlowHistory.FirstFullBankMonth(premiereBancaire),
+        });
+    }
+
+    /// <summary>
     /// Burn-down du « reste du mois » : courbe jour par jour du reste (entrées − dépenses non-transfert)
     /// + projection de fin de mois. Agrégation client (pattern SQLite de GetSummary).
     /// Remplace la note manuelle d'Audrey (ce qui reste pour finir le mois).
