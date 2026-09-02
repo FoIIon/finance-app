@@ -74,7 +74,7 @@ public class ProvisionService
                 && t.Date >= monthStart && t.Date < monthEnd);
             if (alreadyProvisioned) continue;
 
-            var type = recurring.Type == "Income" ? TransactionType.Income : TransactionType.Expense;
+            var type = recurring.Type;
 
             // Compte cible : celui de la récurrente, sinon le premier compte du dashboard
             var accountId = recurring.AccountId ?? await _context.DashboardAccounts

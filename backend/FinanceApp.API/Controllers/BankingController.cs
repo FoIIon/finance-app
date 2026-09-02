@@ -370,13 +370,13 @@ public class BankingController : ControllerBase
 
         // Chercher une connexion TR existante à réutiliser (évite de créer un doublon)
         var existingConnection = await _context.BankConnections
-            .FirstOrDefaultAsync(bc => bc.UserId == userId && bc.Provider == "TradeRepublic"
+            .FirstOrDefaultAsync(bc => bc.UserId == userId && bc.Provider == BankProvider.TradeRepublic
                 && (bc.Status == BankConnectionStatus.Linked || bc.Status == BankConnectionStatus.Error));
 
         // Supprimer les connexions TR en attente de 2FA périmées
         var staleConnections = await _context.BankConnections
             .Include(bc => bc.BankAccounts)
-            .Where(bc => bc.UserId == userId && bc.Provider == "TradeRepublic" && bc.Status == BankConnectionStatus.PendingTwoFactor)
+            .Where(bc => bc.UserId == userId && bc.Provider == BankProvider.TradeRepublic && bc.Status == BankConnectionStatus.PendingTwoFactor)
             .ToListAsync();
 
         // Nullifier BankAccountId sur les transactions liées avant la suppression en cascade
@@ -416,7 +416,7 @@ public class BankingController : ControllerBase
                 InstitutionId = "trade-republic",
                 InstitutionName = "Trade Republic",
                 InstitutionLogo = "",
-                Provider = "TradeRepublic",
+                Provider = BankProvider.TradeRepublic,
                 Status = BankConnectionStatus.PendingTwoFactor
             };
             _context.BankConnections.Add(connection);
@@ -509,13 +509,13 @@ public class BankingController : ControllerBase
         var userId = GetUserId();
 
         // Trouver / créer la BankConnection "Manual" du user (placeholder requis par le schéma)
-        var manualConn = await _context.BankConnections.FirstOrDefaultAsync(bc => bc.UserId == userId && bc.Provider == "Manual");
+        var manualConn = await _context.BankConnections.FirstOrDefaultAsync(bc => bc.UserId == userId && bc.Provider == BankProvider.Manual);
         if (manualConn == null)
         {
             manualConn = new BankConnection
             {
                 UserId = userId,
-                Provider = "Manual",
+                Provider = BankProvider.Manual,
                 InstitutionId = "MANUAL",
                 InstitutionName = "Comptes manuels",
                 InstitutionLogo = "",

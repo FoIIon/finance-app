@@ -34,8 +34,8 @@ public class RecurringTransactionService
             CategoryColor = r.Category?.Color,
             Description = r.Description,
             Amount = r.Amount,
-            Type = r.Type,
-            Frequency = r.Frequency,
+            Type = r.Type.ToString(),
+            Frequency = r.Frequency.ToString(),
             DayOfMonth = r.DayOfMonth,
             StartDate = r.StartDate,
             EndDate = r.EndDate,
@@ -102,8 +102,8 @@ public class RecurringTransactionService
             CategoryId = dto.CategoryId,
             Description = dto.Description,
             Amount = dto.Amount,
-            Type = dto.Type,
-            Frequency = dto.Frequency,
+            Type = Enum.Parse<TransactionType>(dto.Type),
+            Frequency = Enum.Parse<RecurringFrequency>(dto.Frequency),
             DayOfMonth = dto.DayOfMonth,
             StartDate = dto.StartDate,
             EndDate = dto.EndDate,
@@ -154,8 +154,8 @@ public class RecurringTransactionService
 
         if (dto.Description != null) recurring.Description = dto.Description;
         if (dto.Amount.HasValue) recurring.Amount = dto.Amount.Value;
-        if (dto.Type != null) recurring.Type = dto.Type;
-        if (dto.Frequency != null) recurring.Frequency = dto.Frequency;
+        if (dto.Type != null) recurring.Type = Enum.Parse<TransactionType>(dto.Type);
+        if (dto.Frequency != null) recurring.Frequency = Enum.Parse<RecurringFrequency>(dto.Frequency);
         if (dto.DayOfMonth.HasValue) recurring.DayOfMonth = dto.DayOfMonth;
         if (dto.StartDate.HasValue) recurring.StartDate = dto.StartDate.Value;
         if (dto.EndDate.HasValue) recurring.EndDate = dto.EndDate;

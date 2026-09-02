@@ -110,12 +110,12 @@ public class BankSyncService : BackgroundService
 
         if (connection == null) return;
 
-        if (connection.Provider == "Manual")
+        if (connection.Provider == BankProvider.Manual)
         {
             // Comptes manuels : pas de sync externe, le solde est calculé dynamiquement
             return;
         }
-        else if (connection.Provider == "TradeRepublic")
+        else if (connection.Provider == BankProvider.TradeRepublic)
         {
             await SyncTradeRepublicAsync(connection, context, serviceProvider, rethrow);
         }

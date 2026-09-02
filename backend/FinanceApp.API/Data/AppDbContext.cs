@@ -163,6 +163,11 @@ public class AppDbContext : DbContext
             .HasForeignKey(bc => bc.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Enum stocke sous son nom : les lignes existantes portaient deja ces mots en clair.
+        modelBuilder.Entity<BankConnection>()
+            .Property(bc => bc.Provider)
+            .HasConversion<string>();
+
         modelBuilder.Entity<BankAccount>()
             .HasOne(ba => ba.BankConnection)
             .WithMany(bc => bc.BankAccounts)
@@ -193,6 +198,14 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<RecurringTransaction>()
             .Property(r => r.Amount)
             .HasPrecision(18, 2);
+
+        modelBuilder.Entity<RecurringTransaction>()
+            .Property(r => r.Type)
+            .HasConversion<string>();
+
+        modelBuilder.Entity<RecurringTransaction>()
+            .Property(r => r.Frequency)
+            .HasConversion<string>();
 
         modelBuilder.Entity<RecurringTransaction>()
             .HasOne(r => r.User)
