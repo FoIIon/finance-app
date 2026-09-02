@@ -1,14 +1,21 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using FinanceApp.API.Data;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
+using FinanceApp.API.Services.Reporting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace FinanceApp.API.Controllers;
 
+/// <summary>
+/// Les transactions : lecture, écriture, drapeaux, et les endpoints de reporting qui délèguent à
+/// <see cref="ReportingService"/> et <see cref="AccountBalanceService"/>. Le contrôleur n'agrège
+/// rien lui-même depuis le 02/09/2026 : il résout le périmètre (les comptes logiques du dashboard)
+/// et rend ce que les services calculent.
+/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
@@ -16,11 +23,19 @@ public class TransactionController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IDashboardService _dashboardService;
+    private readonly ReportingService _reporting;
+    private readonly AccountBalanceService _balances;
 
-    public TransactionController(AppDbContext context, IDashboardService dashboardService)
+    public TransactionController(
+        AppDbContext context,
+        IDashboardService dashboardService,
+        ReportingService reporting,
+        AccountBalanceService balances)
     {
         _context = context;
         _dashboardService = dashboardService;
+        _reporting = reporting;
+        _balances = balances;
     }
 
     private int GetUserId()
@@ -34,24 +49,27 @@ public class TransactionController : ControllerBase
     private async Task<bool> UserCanAccessDashboard(int dashboardId, int userId) =>
         await _context.DashboardMembers.AnyAsync(m => m.DashboardId == dashboardId && m.UserId == userId);
 
-    // Récupère les IDs de comptes visibles : soit via dashboardId, soit le dashboard personnel
+    /// <summary>
+    /// Le dashboard personnel de l'utilisateur, celui créé à l'inscription. Cible de repli quand un
+    /// endpoint est appelé sans dashboardId.
+    /// </summary>
+    private async Task<int?> PersonalDashboardIdAsync()
+    {
+        var userId = GetUserId();
+        return await _context.Dashboards
+            .Where(d => d.CreatorId == userId)
+            .OrderBy(d => d.CreatedAt)
+            .Select(d => (int?)d.Id)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>Les comptes logiques visibles : ceux du dashboard demandé, sinon ceux du dashboard personnel.</summary>
     private async Task<List<int>> GetAccountIds(int? dashboardId)
     {
         var userId = GetUserId();
-
-        if (dashboardId.HasValue)
-            return await _dashboardService.GetDashboardAccountIds(dashboardId.Value, userId);
-
-        // Fallback : dashboard personnel (premier dashboard créé par le user)
-        var personalDashboard = await _context.Dashboards
-            .Where(d => d.CreatorId == userId)
-            .OrderBy(d => d.CreatedAt)
-            .FirstOrDefaultAsync();
-
-        if (personalDashboard == null)
-            return new List<int>();
-
-        return await _dashboardService.GetDashboardAccountIds(personalDashboard.Id, userId);
+        var effective = dashboardId ?? await PersonalDashboardIdAsync();
+        if (effective == null) return new List<int>();
+        return await _dashboardService.GetDashboardAccountIds(effective.Value, userId);
     }
 
     /// <summary>
@@ -552,6 +570,10 @@ public class TransactionController : ControllerBase
         return Ok(new { updated, fixedUpdated, total = transactions.Count });
     }
 
+    /// <summary>
+    /// Résumé de la période : indicateurs, répartitions et tendance six mois. Règles dans
+    /// <see cref="SummaryBuilder"/>, requêtes dans <see cref="ReportingService"/>.
+    /// </summary>
     [HttpGet("summary")]
     public async Task<ActionResult<TransactionSummaryDto>> GetSummary(
         [FromQuery] int? dashboardId,
@@ -561,198 +583,10 @@ public class TransactionController : ControllerBase
         [FromQuery] bool includeExceptional = true)
     {
         var accountIds = await GetAccountIds(dashboardId);
-        if (!accountIds.Any())
-        {
-            return Ok(new TransactionSummaryDto
-            {
-                TotalIncome = 0,
-                TotalExpenses = 0,
-                Balance = 0,
-                CategoryBreakdown = new(),
-                MonthlyBalance = new()
-            });
-        }
-
-        // SQLite ne supporte pas Sum(decimal) en SQL → tout en client
-        var baseQuery = _context.Transactions.Where(t => accountIds.Contains(t.AccountId));
-        if (from.HasValue) baseQuery = baseQuery.Where(t => t.Date >= from.Value);
-        if (to.HasValue) baseQuery = baseQuery.Where(t => t.Date <= to.Value);
-        if (bankAccountId.HasValue) baseQuery = baseQuery.Where(t => t.BankAccountId == bankAccountId.Value);
-
-        var rawAll = await baseQuery
-            .Select(t => new
-            {
-                t.Type,
-                t.Amount,
-                CategoryId = t.Category.Id,
-                CategoryName = t.Category.Name,
-                CategoryIcon = t.Category.Icon,
-                CategoryColor = t.Category.Color,
-                IsTransfer = t.Category.IsTransfer,
-                t.IsExceptional,
-                t.IsRefund,
-            })
-            .ToListAsync();
-
-        // Dépenses exceptionnelles (non-transfert) de la période — toujours calculée, sert au libellé "dont X € exceptionnels"
-        var exceptionalExpenses = rawAll.Where(t => t.Type == TransactionType.Expense && !t.IsTransfer && t.IsExceptional).Sum(t => t.Amount);
-
-        // Filtre flux : quand includeExceptional == false, on retire les transactions exceptionnelles des agrégats de flux
-        // (mais PAS de la courbe solde total plus bas — ces dépenses ont réellement eu lieu)
-        var flux = includeExceptional ? rawAll : rawAll.Where(t => !t.IsExceptional).ToList();
-
-        // Exclure les transferts internes (épargne, comptes joints) des stats dépenses/revenus.
-        // Un remboursement (revenu marqué IsRefund) n'est pas une rentrée : il s'impute en négatif sur
-        // les dépenses de sa catégorie, sinon les deux côtés du bilan gonflent du même montant (Refunds).
-        var totalIncome = flux
-            .Where(t => t.Type == TransactionType.Income && !t.IsTransfer && !Refunds.Applies(t.Type, t.IsRefund))
-            .Sum(t => t.Amount);
-        var totalExpenses = flux
-            .Where(t => !t.IsTransfer && (t.Type == TransactionType.Expense || Refunds.Applies(t.Type, t.IsRefund)))
-            .Sum(t => Refunds.Applies(t.Type, t.IsRefund) ? -t.Amount : t.Amount);
-        // Mise de côté = catégories transfert (Épargne perso, etc.), nette des retraits (Income transfert en négatif)
-        var totalSavings = flux.Where(t => t.IsTransfer)
-            .Sum(t => t.Type == TransactionType.Expense ? t.Amount : -t.Amount);
-
-        var expensesByCategory = flux
-            .Where(t => !t.IsTransfer && (t.Type == TransactionType.Expense || Refunds.Applies(t.Type, t.IsRefund)))
-            .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
-            .Select(g =>
-            {
-                var amount = g.Sum(t => Refunds.Applies(t.Type, t.IsRefund) ? -t.Amount : t.Amount);
-                return new CategoryBreakdownDto
-                {
-                    CategoryId = g.Key.CategoryId,
-                    CategoryName = g.Key.CategoryName,
-                    CategoryIcon = g.Key.CategoryIcon,
-                    CategoryColor = g.Key.CategoryColor,
-                    Amount = amount,
-                    Percentage = totalExpenses > 0 ? Math.Round(amount / totalExpenses * 100, 1) : 0,
-                };
-            })
-            .OrderByDescending(c => c.Amount)
-            .ToList();
-
-        var incomeByCategory = flux
-            .Where(t => t.Type == TransactionType.Income && !t.IsTransfer && !Refunds.Applies(t.Type, t.IsRefund))
-            .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
-            .Select(g =>
-            {
-                var amount = g.Sum(t => t.Amount);
-                return new CategoryBreakdownDto
-                {
-                    CategoryId = g.Key.CategoryId,
-                    CategoryName = g.Key.CategoryName,
-                    CategoryIcon = g.Key.CategoryIcon,
-                    CategoryColor = g.Key.CategoryColor,
-                    Amount = amount,
-                    Percentage = totalIncome > 0 ? Math.Round(amount / totalIncome * 100, 1) : 0,
-                };
-            })
-            .OrderByDescending(c => c.Amount)
-            .ToList();
-
-        var savingsByCategory = flux
-            .Where(t => t.IsTransfer)
-            .GroupBy(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor })
-            .Select(g =>
-            {
-                var amount = g.Sum(t => t.Type == TransactionType.Expense ? t.Amount : -t.Amount);
-                return new CategoryBreakdownDto
-                {
-                    CategoryId = g.Key.CategoryId,
-                    CategoryName = g.Key.CategoryName,
-                    CategoryIcon = g.Key.CategoryIcon,
-                    CategoryColor = g.Key.CategoryColor,
-                    Amount = amount,
-                    Percentage = totalSavings > 0 ? Math.Round(amount / totalSavings * 100, 1) : 0,
-                };
-            })
-            .Where(c => c.Amount != 0)
-            .OrderByDescending(c => c.Amount)
-            .ToList();
-
-        var sixMonthsAgo = DateTime.UtcNow.AddMonths(-5);
-        var startOfMonth = new DateTime(sixMonthsAgo.Year, sixMonthsAgo.Month, 1);
-
-        // SQLite : agrégation client (exclut transferts internes)
-        var rawMonthly = await _context.Transactions
-            .Where(t => accountIds.Contains(t.AccountId) && t.Date >= startOfMonth)
-            .Select(t => new { t.Date.Year, t.Date.Month, t.Type, t.Amount, t.Category.IsTransfer, t.IsExceptional, t.IsRefund })
-            .ToListAsync();
-
-        // Barres Income/Expenses : mêmes exclusions que les KPI (transferts + exceptionnelles si includeExceptional == false)
-        var monthlyData = rawMonthly
-            .Where(t => !t.IsTransfer && (includeExceptional || !t.IsExceptional))
-            .GroupBy(t => new { t.Year, t.Month })
-            .Select(g => new
-            {
-                g.Key.Year,
-                g.Key.Month,
-                Income = g.Where(t => t.Type == TransactionType.Income && !Refunds.Applies(t.Type, t.IsRefund)).Sum(t => t.Amount),
-                Expenses = g.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount)
-                          - g.Where(t => Refunds.Applies(t.Type, t.IsRefund)).Sum(t => t.Amount),
-            })
-            .ToList();
-
-        // Solde total actuel du dashboard, ancré sur le solde booké (hors pending) plutôt que RealBalance/interimAvailable —
-        // cohérence avec le net mensuel qui n'agrège que des transactions booked (sinon le pending décale tous les points passés).
-        var currentTotalBalance = await GetTotalBookedBalanceAsync(dashboardId);
-
-        // Net mensuel sur tous les comptes du dashboard (ignore le filtre bankAccountId — le solde reste consolidé)
-        // Les IsTransfer s'annulent (transferts internes) ou n'existent pas (alimente un manuel, dont l'effet est dans currentTotal)
-        // Exclut les provisions : l'ancre (solde banque booké) ne contient pas cet argent, l'inclure ici
-        // décalerait tous les points passés de la courbe du montant provisionné jusqu'au versement réel
-        var rawForBalance = await _context.Transactions
-            .Where(t => accountIds.Contains(t.AccountId) && t.Date >= startOfMonth && !t.IsProvisional)
-            .Select(t => new { t.Date.Year, t.Date.Month, t.Type, t.Amount, IsTransfer = t.Category.IsTransfer })
-            .ToListAsync();
-        var monthlyNet = rawForBalance
-            .Where(t => !t.IsTransfer)
-            .GroupBy(t => new { t.Year, t.Month })
-            .ToDictionary(
-                g => (g.Key.Year, g.Key.Month),
-                g => g.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount)
-                   - g.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount));
-
-        var monthlyBalance = Enumerable.Range(0, 6)
-            .Select(i => startOfMonth.AddMonths(i))
-            .Select(month =>
-            {
-                var data = monthlyData.FirstOrDefault(d => d.Year == month.Year && d.Month == month.Month);
-                // Solde fin-de-mois = solde actuel - net cumulé des mois strictement postérieurs
-                var netAfter = monthlyNet
-                    .Where(kv => kv.Key.Year > month.Year || (kv.Key.Year == month.Year && kv.Key.Month > month.Month))
-                    .Sum(kv => kv.Value);
-                return new MonthlyBalanceDto
-                {
-                    Month = month.ToString("MMM yyyy"),
-                    Income = data?.Income ?? 0,
-                    Expenses = data?.Expenses ?? 0,
-                    Balance = (data?.Income ?? 0) - (data?.Expenses ?? 0),
-                    TotalBalance = currentTotalBalance - netAfter
-                };
-            })
-            .ToList();
-
-        return Ok(new TransactionSummaryDto
-        {
-            TotalIncome = totalIncome,
-            TotalExpenses = totalExpenses,
-            Balance = totalIncome - totalExpenses,
-            TotalSavings = totalSavings,
-            ExceptionalExpenses = exceptionalExpenses,
-            CategoryBreakdown = expensesByCategory,
-            IncomeBreakdown = incomeByCategory,
-            SavingsBreakdown = savingsByCategory,
-            MonthlyBalance = monthlyBalance
-        });
+        return Ok(await _reporting.SummaryAsync(GetUserId(), accountIds, from, to, bankAccountId, includeExceptional));
     }
 
-    /// <summary>
-    /// Bilan mensuel en blocs (modèle Excel d'Audrey) : ENTRÉES − FIXE − MISES DE CÔTÉ − VARIABLE = TOTAL.
-    /// Agrégation client (pattern SQLite de GetSummary — SQLite ne sait pas Sum(decimal) en SQL).
-    /// </summary>
+    /// <summary>Bilan mensuel en cinq blocs : ENTRÉES − FIXE − MISES DE CÔTÉ − VARIABLE = TOTAL, le hors bilan à part.</summary>
     [HttpGet("monthly-report")]
     public async Task<ActionResult<MonthlyReportDto>> GetMonthlyReport(
         [FromQuery] int? dashboardId,
@@ -762,124 +596,10 @@ public class TransactionController : ControllerBase
         if (month < 1 || month > 12) return BadRequest("Mois invalide (1-12).");
 
         var accountIds = await GetAccountIds(dashboardId);
-        if (!accountIds.Any())
-            return Ok(new MonthlyReportDto { Year = year, Month = month });
-
-        var start = new DateTime(year, month, 1);
-        var end = start.AddMonths(1);
-
-        var raw = await _context.Transactions
-            .Where(t => accountIds.Contains(t.AccountId) && t.Date >= start && t.Date < end)
-            .Select(t => new
-            {
-                t.Type,
-                t.Amount,
-                t.IsExceptional,
-                CategoryId = t.Category.Id,
-                CategoryName = t.Category.Name,
-                CategoryIcon = t.Category.Icon,
-                CategoryColor = t.Category.Color,
-                IsTransfer = t.Category.IsTransfer,
-                ExcludeFromMonthlyReport = t.Category.ExcludeFromMonthlyReport,
-                t.IsFixed,
-                t.IsRefund,
-            })
-            .ToListAsync();
-
-        // Hors bilan : les mouvements dont le montant du mois ne se décide pas dans le mois, et dont
-        // la contrepartie est déjà comptée ailleurs. Le balayage du compte joint vers le livret emporte
-        // le reliquat du mois précédent, donc le soustraire ici compte le même euro en positif en M−1
-        // puis en négatif en M. Les virements entre deux comptes suivis gonflent, eux, les deux côtés
-        // du bilan à la fois. Ces lignes sont rendues à part, en information, jamais soustraites.
-        // Diagnostic complet : projects/app-finance/double-comptage-2026-08-27.md dans le repo Yen.
-        var horsBilanItems = raw
-            .Where(t => t.ExcludeFromMonthlyReport)
-            .Select(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount })
-            .ToList();
-
-        // Tout le reste alimente les quatre blocs du modèle d'Audrey.
-        var retenu = raw.Where(t => !t.ExcludeFromMonthlyReport).ToList();
-
-        // Bloc ENTRÉES : revenus non-transfert, hors régularisations fixes (déduites du bloc FIXE) et
-        // hors remboursements (déduits du bloc de leur catégorie — voir Refunds)
-        var entreesItems = retenu
-            .Where(t => t.Type == TransactionType.Income && !t.IsTransfer && !t.IsFixed && !Refunds.Applies(t.Type, t.IsRefund))
-            .ToList();
-        // Bloc FIXE : dépenses non-transfert marquées charge fixe, nettes des régularisations
-        // (revenus fixes : remboursement énergie…) qui comptent en négatif
-        var fixeItems = retenu
-            .Where(t => !t.IsTransfer && t.IsFixed)
-            .Select(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount })
-            .ToList();
-        // Bloc MISES DE CÔTÉ : catégories transfert gardées au bilan (achat de titres, ordre permanent
-        // décidé dans le mois), nettes des retraits (un retrait = Income transfert, compté en négatif)
-        var misesItems = retenu
-            .Where(t => t.IsTransfer)
-            .Select(t => new { t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount })
-            .ToList();
-        // Bloc VARIABLE : dépenses non-transfert non-fixes (le reste), nettes des remboursements reçus
-        // sur ces mêmes catégories (une avance rendue annule la dépense, elle n'est pas une rentrée)
-        var variableItems = retenu
-            .Where(t => !t.IsTransfer && !t.IsFixed && (t.Type == TransactionType.Expense || Refunds.Applies(t.Type, t.IsRefund)))
-            .Select(t => new
-            {
-                t.CategoryId,
-                t.CategoryName,
-                t.CategoryIcon,
-                t.CategoryColor,
-                t.IsExceptional,
-                Amount = t.Type == TransactionType.Expense ? t.Amount : -t.Amount,
-            })
-            .ToList();
-
-        var entrees = entreesItems.Sum(t => t.Amount);
-        var fixe = fixeItems.Sum(t => t.Amount);
-        var mises = misesItems.Sum(t => t.Amount);
-        var variable = variableItems.Sum(t => t.Amount);
-        var variableExceptionnel = variableItems.Where(t => t.IsExceptional).Sum(t => t.Amount);
-        var horsBilan = horsBilanItems.Sum(t => t.Amount);
-
-        static List<CategoryBreakdownDto> Breakdown(IEnumerable<(int Id, string Name, string Icon, string Color, decimal Amount)> items) =>
-            items
-                .GroupBy(x => new { x.Id, x.Name, x.Icon, x.Color })
-                .Select(g => new CategoryBreakdownDto
-                {
-                    CategoryId = g.Key.Id,
-                    CategoryName = g.Key.Name,
-                    CategoryIcon = g.Key.Icon,
-                    CategoryColor = g.Key.Color,
-                    Amount = g.Sum(x => x.Amount),
-                    Percentage = 0,
-                })
-                .OrderByDescending(c => c.Amount)
-                .ToList();
-
-        return Ok(new MonthlyReportDto
-        {
-            Year = year,
-            Month = month,
-            Entrees = entrees,
-            Fixe = fixe,
-            MisesDeCote = mises,
-            Variable = variable,
-            VariableExceptionnel = variableExceptionnel,
-            HorsBilan = horsBilan,
-            Total = entrees - fixe - mises - variable,
-            EntreesByCategory = Breakdown(entreesItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
-            FixeByCategory = Breakdown(fixeItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount)))
-                .Where(c => c.Amount != 0).ToList(),
-            MisesDeCoteByCategory = Breakdown(misesItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount)))
-                .Where(c => c.Amount != 0).ToList(),
-            VariableByCategory = Breakdown(variableItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount))),
-            HorsBilanByCategory = Breakdown(horsBilanItems.Select(t => (t.CategoryId, t.CategoryName, t.CategoryIcon, t.CategoryColor, t.Amount)))
-                .Where(c => c.Amount != 0).ToList(),
-        });
+        return Ok(await _reporting.MonthlyReportAsync(accountIds, year, month));
     }
 
-    /// <summary>
-    /// Historique mensuel des dépenses d'une catégorie sur les N derniers mois calendaires (mois courant inclus,
-    /// mois vides à 0). Sépare courant / exceptionnel pour barres empilées côté front. Exclut les transferts internes.
-    /// </summary>
+    /// <summary>Dépenses d'une catégorie par mois, nettes des remboursements, part exceptionnelle séparée.</summary>
     [HttpGet("category-history")]
     public async Task<ActionResult<List<CategoryMonthHistoryDto>>> GetCategoryHistory(
         [FromQuery] int? dashboardId,
@@ -887,57 +607,12 @@ public class TransactionController : ControllerBase
         [FromQuery] int months = 12)
     {
         var accountIds = await GetAccountIds(dashboardId);
-        if (!accountIds.Any()) return Ok(new List<CategoryMonthHistoryDto>());
-
-        months = Math.Clamp(months, 1, 36);
-
-        var now = DateTime.UtcNow;
-        var startMonth = new DateTime(now.Year, now.Month, 1).AddMonths(-(months - 1));
-
-        // SQLite ne supporte pas Sum(decimal) en SQL → agrégation client (même pattern que GetSummary)
-        var raw = await _context.Transactions
-            .Where(t => accountIds.Contains(t.AccountId)
-                     && t.CategoryId == categoryId
-                     && t.Type == TransactionType.Expense
-                     && !t.Category.IsTransfer
-                     && t.Date >= startMonth)
-            .Select(t => new { t.Date.Year, t.Date.Month, t.Amount, t.IsExceptional })
-            .ToListAsync();
-
-        var byMonth = raw
-            .GroupBy(t => new { t.Year, t.Month })
-            .ToDictionary(g => (g.Key.Year, g.Key.Month), g => g.ToList());
-
-        var culture = new System.Globalization.CultureInfo("fr-FR");
-        var result = Enumerable.Range(0, months)
-            .Select(i => startMonth.AddMonths(i))
-            .Select(month =>
-            {
-                var txns = byMonth.GetValueOrDefault((month.Year, month.Month)) ?? new();
-                var total = txns.Sum(t => t.Amount);
-                var exceptional = txns.Where(t => t.IsExceptional).Sum(t => t.Amount);
-                return new CategoryMonthHistoryDto
-                {
-                    Month = month.ToString("yyyy-MM"),
-                    Label = month.ToString("MMM yyyy", culture),
-                    Total = total,
-                    CurrentTotal = total - exceptional,
-                    ExceptionalTotal = exceptional,
-                };
-            })
-            .ToList();
-
-        return Ok(result);
+        return Ok(await _reporting.CategoryHistoryAsync(accountIds, categoryId, months));
     }
 
     /// <summary>
-    /// Historique deux sens d'une catégorie sur les N derniers mois calendaires, avec le même mois
-    /// douze mois plus tôt quand il est comparable.
-    ///
-    /// Pourquoi un second endpoint à côté de category-history : celui-ci n'agrège que les dépenses
-    /// brutes, alors que l'onglet Entrées/Sorties nette les remboursements et sépare les mises de côté.
-    /// Un graphe branché sur l'un sous une ligne calculée par l'autre montrerait deux chiffres
-    /// différents pour le même mois. Règles d'agrégation dans <see cref="CategoryFlowHistory"/>.
+    /// Historique deux sens d'une catégorie, avec le même mois douze mois plus tôt quand la couverture
+    /// bancaire le rend comparable. Mêmes filtres que le résumé qui a produit la ligne cliquée.
     /// </summary>
     [HttpGet("category-flow-history")]
     public async Task<ActionResult<CategoryFlowHistoryDto>> GetCategoryFlowHistory(
@@ -948,96 +623,11 @@ public class TransactionController : ControllerBase
         [FromQuery] bool includeExceptional = true)
     {
         var accountIds = await GetAccountIds(dashboardId);
-        if (!accountIds.Any()) return Ok(new CategoryFlowHistoryDto());
-
-        var categorie = await _context.Categories
-            .Where(c => c.Id == categoryId)
-            .Select(c => new { c.IsTransfer, c.ExcludeFromMonthlyReport })
-            .FirstOrDefaultAsync();
-        if (categorie is null) return NotFound();
-
-        months = Math.Clamp(months, 1, 24);
-
-        var now = DateTime.UtcNow;
-        var startMonth = new DateTime(now.Year, now.Month, 1).AddMonths(-(months - 1));
-        // On descend douze mois plus bas pour ramener le N-1 de chaque mois de la fenêtre en une requête.
-        var fetchFrom = startMonth.AddMonths(-12);
-
-        var query = _context.Transactions
-            .Where(t => accountIds.Contains(t.AccountId)
-                     && t.CategoryId == categoryId
-                     && t.Date >= fetchFrom);
-        // Mêmes filtres que le résumé qui a produit la ligne cliquée, sinon le graphe contredit le tableau.
-        if (bankAccountId.HasValue) query = query.Where(t => t.BankAccountId == bankAccountId.Value);
-        if (!includeExceptional) query = query.Where(t => !t.IsExceptional);
-
-        // SQLite ne supporte pas Sum(decimal) en SQL → agrégation client (même pattern que GetSummary)
-        var raw = await query
-            .Select(t => new { t.Date.Year, t.Date.Month, t.Type, t.Amount, IsTransfer = t.Category.IsTransfer, t.IsRefund })
-            .ToListAsync();
-
-        var byMonth = raw
-            .GroupBy(t => (t.Year, t.Month))
-            .ToDictionary(
-                g => g.Key,
-                g => CategoryFlowHistory.Aggregate(
-                    g.Select(t => new FlowLine(t.Type, t.Amount, t.IsTransfer, t.IsRefund))));
-
-        var horsBilan = categorie.ExcludeFromMonthlyReport;
-        FlowTotals TotauxDe(DateTime m) => byMonth.GetValueOrDefault((m.Year, m.Month));
-
-        var premiereBancaire = await _context.Transactions
-            .Where(t => accountIds.Contains(t.AccountId) && t.BankAccountId != null)
-            .OrderBy(t => t.Date)
-            .Select(t => (DateTime?)t.Date)
-            .FirstOrDefaultAsync();
-        var premierComparable = CategoryFlowHistory.FirstComparableMonth(premiereBancaire);
-
-        var culture = new System.Globalization.CultureInfo("fr-FR");
-        var mois = Enumerable.Range(0, months)
-            .Select(i => startMonth.AddMonths(i))
-            .Select(month =>
-            {
-                var t = TotauxDe(month);
-                var dto = new CategoryFlowMonthDto
-                {
-                    Month = month.ToString("yyyy-MM"),
-                    Label = month.ToString("MMM yyyy", culture),
-                    Income = t.Income,
-                    Expenses = t.Expenses,
-                    Savings = t.Savings,
-                    Net = CategoryFlowHistory.Net(t, horsBilan),
-                };
-
-                if (CategoryFlowHistory.IsComparable(month, premierComparable))
-                {
-                    var n1 = TotauxDe(month.AddMonths(-12));
-                    dto.IncomePreviousYear = n1.Income;
-                    dto.ExpensesPreviousYear = n1.Expenses;
-                    dto.NetPreviousYear = CategoryFlowHistory.Net(n1, horsBilan);
-                }
-
-                return dto;
-            })
-            .ToList();
-
-        return Ok(new CategoryFlowHistoryDto
-        {
-            Months = mois,
-            IsTransferCategory = categorie.IsTransfer,
-            IsOffBalanceCategory = horsBilan,
-            PreviousYearAvailable = mois.Any(m => m.NetPreviousYear.HasValue),
-            PreviousYearAvailableFrom = premierComparable,
-            FirstBankTransactionDate = premiereBancaire,
-            FirstFullBankMonth = CategoryFlowHistory.FirstFullBankMonth(premiereBancaire),
-        });
+        var result = await _reporting.CategoryFlowHistoryAsync(accountIds, categoryId, months, bankAccountId, includeExceptional);
+        return result is null ? NotFound() : Ok(result);
     }
 
-    /// <summary>
-    /// Burn-down du « reste du mois » : courbe jour par jour du reste (entrées − dépenses non-transfert)
-    /// + projection de fin de mois. Agrégation client (pattern SQLite de GetSummary).
-    /// Remplace la note manuelle d'Audrey (ce qui reste pour finir le mois).
-    /// </summary>
+    /// <summary>Reste du mois jour par jour et projection de fin de mois. Remplace la note manuelle d'Audrey.</summary>
     [HttpGet("burndown")]
     public async Task<ActionResult<BurndownDto>> GetBurndown(
         [FromQuery] int? dashboardId,
@@ -1046,292 +636,9 @@ public class TransactionController : ControllerBase
     {
         if (month < 1 || month > 12) return BadRequest("Mois invalide (1-12).");
 
-        var lastDay = DateTime.DaysInMonth(year, month);
         var accountIds = await GetAccountIds(dashboardId);
-        if (!accountIds.Any())
-            return Ok(new BurndownDto { Year = year, Month = month, RecurringIncluded = true });
-
-        var start = new DateTime(year, month, 1);
-        var end = start.AddMonths(1);
-        var now = DateTime.UtcNow;
-
-        var isPast = end <= now;
-        var isCurrent = start <= now && now < end;
-        var isFuture = start > now;
-
-        // Jour de référence « aujourd'hui » dans ce mois : courant → now.Day, passé → dernier jour, futur → 0
-        var todayDay = isCurrent ? now.Day : (isPast ? lastDay : 0);
-
-        // Transactions du mois, hors transferts internes (mêmes filtres que GetSummary)
-        var raw = await _context.Transactions
-            .Where(t => accountIds.Contains(t.AccountId) && t.Date >= start && t.Date < end && !t.Category.IsTransfer)
-            .Select(t => new { t.Date, t.Type, t.Amount })
-            .ToListAsync();
-
-        var spentDelta = new decimal[lastDay + 1];
-        var incomeDelta = new decimal[lastDay + 1];
-        foreach (var t in raw)
-        {
-            var d = t.Date.Day;
-            if (d < 1 || d > lastDay) continue;
-            if (t.Type == TransactionType.Expense) spentDelta[d] += t.Amount;
-            else if (t.Type == TransactionType.Income) incomeDelta[d] += t.Amount;
-        }
-
-        var days = new List<BurndownDayDto>(lastDay);
-        decimal cumSpent = 0, cumIncome = 0, remainingToday = 0;
-        for (var d = 1; d <= lastDay; d++)
-        {
-            cumSpent += spentDelta[d];
-            cumIncome += incomeDelta[d];
-            var isFutureDay = isFuture || (isCurrent && d > todayDay);
-            days.Add(new BurndownDayDto
-            {
-                Day = d,
-                Date = start.AddDays(d - 1).ToString("yyyy-MM-dd"),
-                Spent = isFutureDay ? null : cumSpent,
-                Income = isFutureDay ? null : cumIncome,
-                Remaining = isFutureDay ? null : cumIncome - cumSpent,
-            });
-            if (!isFutureDay) remainingToday = cumIncome - cumSpent; // dernière valeur non-future = aujourd'hui / fin de mois passé
-        }
-
-        var daysRemaining = isCurrent ? lastDay - todayDay : (isFuture ? lastDay : 0);
-
-        // Rythme variable : moyenne journalière des dépenses variables (non-transfert, non-fixes) sur 14 jours glissants
-        var paceStart = now.Date.AddDays(-13);
-        var paceEnd = now.Date.AddDays(1);
-        var paceRaw = await _context.Transactions
-            .Where(t => accountIds.Contains(t.AccountId)
-                     && t.Type == TransactionType.Expense
-                     && !t.Category.IsTransfer
-                     && !t.IsFixed
-                     && t.Date >= paceStart && t.Date < paceEnd)
-            .Select(t => t.Amount)
-            .ToListAsync();
-        var dailyPaceVariable = paceRaw.Sum() / 14m;
-
-        // Récurrentes restant à tomber ce mois-ci. Modèle exploitable (Frequency + DayOfMonth/StartDate) → toujours calculable.
-        decimal upcomingExpenses = 0, upcomingIncome = 0;
-        var recurringIncluded = true;
-        if (!isPast)
-        {
-            var effectiveDashboardId = dashboardId;
-            if (effectiveDashboardId == null)
-            {
-                var userId = GetUserId();
-                var personal = await _context.Dashboards
-                    .Where(d => d.CreatorId == userId)
-                    .OrderBy(d => d.CreatedAt)
-                    .FirstOrDefaultAsync();
-                effectiveDashboardId = personal?.Id;
-            }
-
-            if (effectiveDashboardId.HasValue)
-            {
-                // Include Category pour exclure les transferts internes, cohérent avec la courbe (qui filtre !IsTransfer)
-                var recs = await _context.RecurringTransactions
-                    .Include(r => r.Category)
-                    .Where(r => r.DashboardId == effectiveDashboardId.Value && r.IsActive
-                             && (r.Category == null || !r.Category.IsTransfer))
-                    .ToListAsync();
-
-                // Récurrentes provisionnées : jamais en « à venir ». Leur montant est déjà dans le
-                // cumul, soit via la provision du jour 1, soit via le versement réel réconcilié
-                // (qui peut tomber avant DayOfMonth — le compter ici le doublerait).
-                // On garde aussi l'exclusion par provision existante pour couvrir une récurrente
-                // dont le flag aurait été désactivé en cours de mois.
-                var provisionedRecurringIds = await _context.Transactions
-                    .Where(t => t.IsProvisional && t.RecurringTransactionId != null
-                             && t.Date >= start && t.Date < end)
-                    .Select(t => t.RecurringTransactionId!.Value)
-                    .ToListAsync();
-
-                var fromDay = isCurrent ? todayDay + 1 : 1; // futur : tout le mois est « à venir »
-                foreach (var r in recs)
-                {
-                    if (r.ProvisionAtMonthStart || provisionedRecurringIds.Contains(r.Id)) continue;
-                    foreach (var _ in RecurringOccurrenceDays(r, year, month, fromDay, lastDay))
-                    {
-                        if (r.Type == TransactionType.Expense) upcomingExpenses += r.Amount;
-                        else if (r.Type == TransactionType.Income) upcomingIncome += r.Amount;
-                    }
-                }
-            }
-        }
-
-        var projected = isPast
-            ? remainingToday // mois passé : la « projection » est la valeur finale réelle
-            : remainingToday - dailyPaceVariable * daysRemaining - upcomingExpenses + upcomingIncome;
-
-        return Ok(new BurndownDto
-        {
-            Year = year,
-            Month = month,
-            Days = days,
-            RemainingToday = remainingToday,
-            DailyPaceVariable = dailyPaceVariable,
-            UpcomingRecurringExpenses = upcomingExpenses,
-            UpcomingRecurringIncome = upcomingIncome,
-            RecurringIncluded = recurringIncluded,
-            ProjectedEndOfMonth = projected,
-            DaysRemaining = daysRemaining,
-            IsPast = isPast,
-            TodayDay = isCurrent ? todayDay : (int?)null,
-        });
-    }
-
-    /// <summary>
-    /// Jours du mois (year, month) dans [fromDay, toDay] où une récurrente tombe, en respectant Start/End et la fréquence.
-    /// Monthly : DayOfMonth (clampé au dernier jour). Yearly : anniversaire StartDate. Weekly : cadence 7j depuis StartDate.
-    /// </summary>
-    private static IEnumerable<int> RecurringOccurrenceDays(RecurringTransaction r, int year, int month, int fromDay, int toDay)
-    {
-        if (fromDay > toDay) yield break;
-        var lastDay = DateTime.DaysInMonth(year, month);
-        var monthStart = new DateOnly(year, month, 1);
-        var monthEnd = new DateOnly(year, month, lastDay);
-        if (r.StartDate > monthEnd) yield break;
-        if (r.EndDate.HasValue && r.EndDate.Value < monthStart) yield break;
-
-        switch (r.Frequency)
-        {
-            case RecurringFrequency.Monthly:
-            {
-                var day = Math.Min(r.DayOfMonth ?? r.StartDate.Day, lastDay);
-                var occ = new DateOnly(year, month, day);
-                if (day >= fromDay && day <= toDay && occ >= r.StartDate
-                    && (!r.EndDate.HasValue || occ <= r.EndDate.Value))
-                    yield return day;
-                break;
-            }
-            case RecurringFrequency.Yearly:
-            {
-                if (r.StartDate.Month != month) break;
-                var day = Math.Min(r.StartDate.Day, lastDay);
-                var occ = new DateOnly(year, month, day);
-                if (day >= fromDay && day <= toDay && occ >= r.StartDate
-                    && (!r.EndDate.HasValue || occ <= r.EndDate.Value))
-                    yield return day;
-                break;
-            }
-            case RecurringFrequency.Weekly:
-            {
-                for (var day = fromDay; day <= toDay; day++)
-                {
-                    var occ = new DateOnly(year, month, day);
-                    if (occ < r.StartDate) continue;
-                    if (r.EndDate.HasValue && occ > r.EndDate.Value) continue;
-                    if ((occ.DayNumber - r.StartDate.DayNumber) % 7 == 0)
-                        yield return day;
-                }
-                break;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Les comptes bancaires actifs de l'utilisateur (connectés ou manuels) qui relèvent du périmètre du
-    /// dashboard. Les agrégats (bilan, courbes) filtrent déjà par compte logique. Les soldes, eux, sont
-    /// portés par le compte bancaire, qui n'appartient à aucun dashboard : avant le 28/08/2026 le widget
-    /// Soldes du Commun comptait l'Argenta perso et divergeait du bilan d'exactement ce montant.
-    /// Règle : un dashboard qui ne contient que le compte logique Perso ne voit que les comptes bancaires
-    /// marqués perso, un dashboard sans compte Perso ne voit que les autres, un dashboard mixte voit tout.
-    /// </summary>
-    private async Task<List<BankAccount>> GetBankAccountsInScopeAsync(List<int> accountIds)
-    {
-        var userId = GetUserId();
-
-        var bankAccounts = await _context.BankAccounts
-            .Include(ba => ba.BankConnection)
-            .Where(ba => ba.IsActive && (
-                (ba.BankConnection != null && ba.BankConnection.UserId == userId)
-                || (ba.IsManual && ba.UserId == userId)
-            ))
-            .ToListAsync();
-
-        var scopes = await _context.Accounts
-            .Where(a => accountIds.Contains(a.Id))
-            .Select(a => a.IsPersonalScope)
-            .Distinct()
-            .ToListAsync();
-        var hasPerso = scopes.Contains(true);
-        var hasCommon = scopes.Contains(false);
-
-        if (hasPerso && !hasCommon) return bankAccounts.Where(ba => ba.IsPersonal).ToList();
-        if (hasCommon && !hasPerso) return bankAccounts.Where(ba => !ba.IsPersonal).ToList();
-        return bankAccounts;
-    }
-
-    /// <summary>
-    /// Total des soldes du dashboard, ancré sur le solde booké (hors pending) pour les comptes GoCardless.
-    /// Réplique la résolution manuel/GoCardless de <see cref="GetAccountBalances"/> (branche non-historique),
-    /// mais préfère BookedBalance à RealBalance — RealBalance (interimAvailable) reste utilisé partout ailleurs
-    /// (KPI, liste de comptes) et n'est pas affecté par ce helper.
-    /// </summary>
-    private async Task<decimal> GetTotalBookedBalanceAsync(int? dashboardId)
-    {
-        var accountIds = await GetAccountIds(dashboardId);
-        if (!accountIds.Any()) return 0m;
-
-        var bankAccounts = await GetBankAccountsInScopeAsync(accountIds);
-
-        if (!bankAccounts.Any())
-        {
-            // Fallback : pas de banque connectée → solde calculé par Account interne (identique à GetAccountBalances)
-            var rawTxns = await _context.Transactions
-                .Where(t => accountIds.Contains(t.AccountId))
-                .Select(t => new { t.Type, t.Amount })
-                .ToListAsync();
-            return rawTxns.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount)
-                 - rawTxns.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount);
-        }
-
-        var bankAccountIds = bankAccounts.Where(ba => !ba.IsManual).Select(ba => ba.Id).ToList();
-        var rawByBank = await _context.Transactions
-            .Where(t => t.BankAccountId != null && bankAccountIds.Contains(t.BankAccountId.Value))
-            .Select(t => new { BankAccountId = t.BankAccountId!.Value, t.Type, t.Amount })
-            .ToListAsync();
-
-        var byBank = rawByBank
-            .GroupBy(t => t.BankAccountId)
-            .ToDictionary(
-                g => g.Key,
-                g => g.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount)
-                   - g.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount));
-
-        var manualAccounts = bankAccounts.Where(ba => ba.IsManual).ToList();
-        var manualTransfers = new Dictionary<int, decimal>();
-        foreach (var m in manualAccounts)
-        {
-            if (m.SourceBankAccountId == null || m.IncrementCategoryId == null) continue;
-            // Expense sur le compte source = versement vers le manuel, Income = retrait (miroir exact)
-            var transfers = await _context.Transactions
-                .Where(t => t.BankAccountId == m.SourceBankAccountId
-                         && t.CategoryId == m.IncrementCategoryId
-                         && (m.InitialBalanceDate == null || t.Date >= m.InitialBalanceDate))
-                .Select(t => new { t.Type, t.Amount })
-                .ToListAsync();
-            manualTransfers[m.Id] = transfers.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount)
-                                  - transfers.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount);
-        }
-
-        var total = 0m;
-        foreach (var ba in bankAccounts)
-        {
-            if (ba.IsManual)
-            {
-                // Comptes manuels : résolution inchangée (pas de notion de booké/pending côté banque)
-                total += (ba.InitialBalance ?? 0) + manualTransfers.GetValueOrDefault(ba.Id, 0);
-            }
-            else
-            {
-                var netFallback = byBank.GetValueOrDefault(ba.Id, 0);
-                total += ba.BookedBalance ?? ba.RealBalance ?? netFallback;
-            }
-        }
-
-        return total;
+        var effectiveDashboardId = dashboardId ?? await PersonalDashboardIdAsync();
+        return Ok(await _reporting.BurndownAsync(accountIds, effectiveDashboardId, year, month));
     }
 
     /// <summary>Transactions encore catégorisées en "Autres" (CategoryId == 10).</summary>
@@ -1437,10 +744,9 @@ public class TransactionController : ControllerBase
 
         return Ok(txns.Select(MapToDto).ToList());
     }
-
     /// <summary>
-    /// Soldes par compte bancaire physique (un par BankAccount). Préfère le solde réel banque.
-    /// Si <paramref name="to"/> est passé et antérieur à maintenant, calcule le solde rétrospectif à cette date.
+    /// Soldes par compte bancaire physique, rétrospectifs si <paramref name="to"/> est antérieur à
+    /// maintenant. Voir <see cref="AccountBalanceService"/>.
     /// </summary>
     [HttpGet("account-balances")]
     public async Task<ActionResult<List<AccountBalanceDto>>> GetAccountBalances(
@@ -1448,173 +754,20 @@ public class TransactionController : ControllerBase
         [FromQuery] DateTime? to)
     {
         var accountIds = await GetAccountIds(dashboardId);
-        if (!accountIds.Any()) return Ok(new List<AccountBalanceDto>());
-
-        var now = DateTime.UtcNow;
-        var asOf = to;
-        // Si la borne dépasse maintenant (ex: période "Cette année" jusqu'à 31 déc), on plafonne à now
-        if (asOf.HasValue && asOf.Value > now) asOf = null;
-        var historical = asOf.HasValue;
-
-        var bankAccounts = await GetBankAccountsInScopeAsync(accountIds);
-
-        if (!bankAccounts.Any())
-        {
-            // Fallback : pas de banque connectée → un solde calculé par Account interne
-            var fallback = await _context.Accounts
-                .Where(a => accountIds.Contains(a.Id))
-                .ToListAsync();
-            var rawTxns = await _context.Transactions
-                .Where(t => accountIds.Contains(t.AccountId)
-                         && (!historical || t.Date <= asOf!.Value))
-                .Select(t => new { t.AccountId, t.Type, t.Amount, t.Date })
-                .ToListAsync();
-            return Ok(fallback.Select(a =>
-            {
-                var g = rawTxns.Where(t => t.AccountId == a.Id).ToList();
-                return new AccountBalanceDto
-                {
-                    AccountId = a.Id,
-                    AccountName = a.Name,
-                    Balance = g.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount)
-                            - g.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount),
-                    IsRealBalance = false,
-                    LastTransactionDate = g.Any() ? g.Max(t => t.Date) : (DateTime?)null,
-                };
-            }).ToList());
-        }
-
-        // Stats par BankAccountId (pour les comptes connectés : Σ income/expense, et stats post-asOf pour rétrospective)
-        var bankAccountIds = bankAccounts.Where(ba => !ba.IsManual).Select(ba => ba.Id).ToList();
-        var rawByBank = await _context.Transactions
-            .Where(t => t.BankAccountId != null && bankAccountIds.Contains(t.BankAccountId.Value))
-            .Select(t => new { BankAccountId = t.BankAccountId!.Value, t.Type, t.Amount, t.Date })
-            .ToListAsync();
-
-        var byBank = rawByBank
-            .GroupBy(t => t.BankAccountId)
-            .ToDictionary(g => g.Key, g => new
-            {
-                Income = g.Where(t => t.Type == TransactionType.Income && (!historical || t.Date <= asOf!.Value)).Sum(t => t.Amount),
-                Expenses = g.Where(t => t.Type == TransactionType.Expense && (!historical || t.Date <= asOf!.Value)).Sum(t => t.Amount),
-                IncomeAfter = historical ? g.Where(t => t.Type == TransactionType.Income && t.Date > asOf!.Value).Sum(t => t.Amount) : 0m,
-                ExpensesAfter = historical ? g.Where(t => t.Type == TransactionType.Expense && t.Date > asOf!.Value).Sum(t => t.Amount) : 0m,
-                LastDate = g.Where(t => !historical || t.Date <= asOf!.Value).Select(t => (DateTime?)t.Date).DefaultIfEmpty(null).Max(),
-            });
-
-        // Pour les comptes manuels : charger les transferts entrants (transactions cat=IncrementCategory, ba=SourceBankAccount, expense, date>=InitialDate)
-        // Si asOf est passé, on borne à asOf — solde rétrospectif au passage de la borne.
-        var manualAccounts = bankAccounts.Where(ba => ba.IsManual).ToList();
-        var manualTransfers = new Dictionary<int, (decimal Sum, DateTime? LastDate)>();
-        foreach (var m in manualAccounts)
-        {
-            if (m.SourceBankAccountId == null || m.IncrementCategoryId == null) continue;
-            // Expense sur le compte source = versement vers le manuel, Income = retrait (miroir exact)
-            var transfers = await _context.Transactions
-                .Where(t => t.BankAccountId == m.SourceBankAccountId
-                         && t.CategoryId == m.IncrementCategoryId
-                         && (m.InitialBalanceDate == null || t.Date >= m.InitialBalanceDate)
-                         && (!historical || t.Date <= asOf!.Value))
-                .Select(t => new { t.Type, t.Amount, t.Date })
-                .ToListAsync();
-            manualTransfers[m.Id] = (
-                transfers.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount)
-                    - transfers.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount),
-                transfers.Any() ? transfers.Max(t => t.Date) : (DateTime?)null
-            );
-        }
-
-        var result = bankAccounts.Select(ba =>
-        {
-            decimal balance;
-            DateTime? lastDate;
-            bool isReal;
-
-            if (ba.IsManual)
-            {
-                var (sum, last) = manualTransfers.GetValueOrDefault(ba.Id, (0, null));
-                balance = (ba.InitialBalance ?? 0) + sum;
-                lastDate = last;
-                isReal = false; // calculé, pas un solde banque
-            }
-            else
-            {
-                var stats = byBank.GetValueOrDefault(ba.Id);
-                if (historical && ba.RealBalance.HasValue && stats != null)
-                {
-                    // Solde rétrospectif : RealBalance d'aujourd'hui - net des transactions postérieures à asOf
-                    balance = ba.RealBalance.Value - stats.IncomeAfter + stats.ExpensesAfter;
-                    isReal = false;
-                }
-                else
-                {
-                    balance = ba.RealBalance ?? (stats != null ? stats.Income - stats.Expenses : 0);
-                    isReal = !historical && ba.RealBalance.HasValue;
-                }
-                lastDate = stats?.LastDate;
-            }
-
-            return new AccountBalanceDto
-            {
-                AccountId = ba.Id,
-                AccountName = !string.IsNullOrWhiteSpace(ba.AccountName) ? ba.AccountName : ba.Iban,
-                BankInstitutionName = ba.BankConnection?.InstitutionName ?? (ba.IsManual ? "Manuel" : null),
-                Balance = balance,
-                IsRealBalance = isReal,
-                IsManual = ba.IsManual,
-                LastTransactionDate = lastDate,
-                BalanceUpdatedAt = ba.BalanceUpdatedAt ?? ba.InitialBalanceDate,
-            };
-        })
-        .OrderByDescending(b => b.Balance)
-        .ToList();
-
-        return Ok(result);
+        return Ok(await _balances.AccountBalancesAsync(GetUserId(), accountIds, to));
     }
 
-    /// <summary>Force la récupération des soldes réels via GoCardless (sans attendre le sync 6h).</summary>
+    /// <summary>Force la récupération des soldes réels via GoCardless, sans attendre la boucle de six heures.</summary>
     [HttpPost("refresh-balances")]
     public async Task<ActionResult<List<AccountBalanceDto>>> RefreshBalances(
         [FromQuery] int? dashboardId,
         [FromServices] GoCardlessClient goCardless)
     {
         var accountIds = await GetAccountIds(dashboardId);
-        if (!accountIds.Any()) return Ok(new List<AccountBalanceDto>());
+        if (accountIds.Count == 0) return Ok(new List<AccountBalanceDto>());
 
-        // Seuls les comptes GoCardless ont un solde à rafraîchir : un compte manuel se calcule, et le
-        // compte espèces Trade Republic est écrit par l'import TR, son ExternalAccountId n'existe pas
-        // chez GoCardless.
-        var bankAccounts = await _context.BankAccounts
-            .Include(ba => ba.BankConnection)
-            .Where(ba => ba.IsActive && !ba.IsManual && ba.BankConnection != null && ba.BankConnection.Provider == BankProvider.GoCardless)
-            .ToListAsync();
-
-        foreach (var ba in bankAccounts)
-        {
-            try
-            {
-                var data = await goCardless.GetBalancesAsync(ba.ExternalAccountId);
-                if (data.TryGetProperty("balances", out var arr))
-                {
-                    foreach (var b in arr.EnumerateArray())
-                    {
-                        if (b.TryGetProperty("balanceAmount", out var amt) && amt.TryGetProperty("amount", out var v))
-                        {
-                            if (decimal.TryParse(v.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var bal))
-                            {
-                                ba.RealBalance = bal;
-                                ba.BalanceUpdatedAt = DateTime.UtcNow;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            catch { /* silencieux : on garde le fallback */ }
-        }
-        await _context.SaveChangesAsync();
-
-        return await GetAccountBalances(dashboardId, null);
+        var userId = GetUserId();
+        await _balances.RefreshRealBalancesAsync(userId, goCardless);
+        return Ok(await _balances.AccountBalancesAsync(userId, accountIds, null));
     }
 }
-
