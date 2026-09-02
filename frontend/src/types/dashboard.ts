@@ -2,6 +2,7 @@ export interface Dashboard {
   id: number;
   name: string;
   isCreator: boolean;
+  isPersonal: boolean;
   createdAt: string;
 }
 
@@ -9,6 +10,7 @@ export interface DashboardDetail {
   id: number;
   name: string;
   isCreator: boolean;
+  isPersonal: boolean;
   createdAt: string;
   members: DashboardMember[];
   accounts: Account[];

@@ -7,6 +7,8 @@ public class DashboardDto
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public bool IsCreator { get; set; }
+    /// <summary>Le dashboard personnel de son créateur, créé à l'inscription.</summary>
+    public bool IsPersonal { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
@@ -15,6 +17,8 @@ public class DashboardDetailDto
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public bool IsCreator { get; set; }
+    /// <summary>Le dashboard personnel de son créateur, créé à l'inscription.</summary>
+    public bool IsPersonal { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<DashboardMemberDto> Members { get; set; } = new();
     public List<AccountDto> Accounts { get; set; } = new();

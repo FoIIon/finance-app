@@ -7,6 +7,8 @@ namespace FinanceApp.API.Services;
 public interface IDashboardService
 {
     Task<Dashboard> CreateDefaultDashboardForUser(int userId, int defaultAccountId);
+    /// <summary>Le dashboard personnel de l'utilisateur (Dashboard.IsPersonal), ou null s'il n'en a pas.</summary>
+    Task<int?> GetPersonalDashboardIdAsync(int userId);
     Task<Dashboard> CreateDashboard(int userId, string name);
     Task<List<Dashboard>> GetUserDashboards(int userId);
     Task<Dashboard?> GetDashboardDetail(int dashboardId, int userId);
@@ -28,6 +30,7 @@ public class DashboardService : IDashboardService
         var dashboard = new Dashboard
         {
             Name = "Personnel",
+            IsPersonal = true,
             CreatorId = userId
         };
 
@@ -83,6 +86,14 @@ public class DashboardService : IDashboardService
             .ToListAsync();
     }
 
+    public async Task<int?> GetPersonalDashboardIdAsync(int userId)
+    {
+        return await _context.Dashboards
+            .Where(d => d.CreatorId == userId && d.IsPersonal)
+            .Select(d => (int?)d.Id)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task<Dashboard?> GetDashboardDetail(int dashboardId, int userId)
     {
         return await _context.Dashboards
@@ -109,6 +120,9 @@ public class DashboardService : IDashboardService
 
         if (dashboard == null)
             throw new InvalidOperationException("Dashboard introuvable ou non autorisé.");
+
+        if (dashboard.IsPersonal)
+            throw new InvalidOperationException("Le dashboard personnel est structurel, il ne se supprime pas.");
 
         _context.Dashboards.Remove(dashboard);
         await _context.SaveChangesAsync();

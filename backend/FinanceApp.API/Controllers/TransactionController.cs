@@ -55,12 +55,7 @@ public class TransactionController : ControllerBase
     /// </summary>
     private async Task<int?> PersonalDashboardIdAsync()
     {
-        var userId = GetUserId();
-        return await _context.Dashboards
-            .Where(d => d.CreatorId == userId)
-            .OrderBy(d => d.CreatedAt)
-            .Select(d => (int?)d.Id)
-            .FirstOrDefaultAsync();
+        return await _dashboardService.GetPersonalDashboardIdAsync(GetUserId());
     }
 
     /// <summary>Les comptes logiques visibles : ceux du dashboard demandé, sinon ceux du dashboard personnel.</summary>
@@ -641,7 +636,7 @@ public class TransactionController : ControllerBase
         return Ok(await _reporting.BurndownAsync(accountIds, effectiveDashboardId, year, month));
     }
 
-    /// <summary>Transactions encore catégorisées en "Autres" (CategoryId == 10).</summary>
+    /// <summary>Transactions encore dans la catégorie système « Autres », celle qu'aucune règle n'a attrapée.</summary>
     [HttpGet("uncategorized")]
     public async Task<ActionResult<List<TransactionDto>>> GetUncategorized(
         [FromQuery] int? dashboardId,
@@ -651,7 +646,7 @@ public class TransactionController : ControllerBase
         var accountIds = await GetAccountIds(dashboardId);
         if (!accountIds.Any()) return Ok(new List<TransactionDto>());
 
-        const int othersCategoryId = 10;
+        var othersCategoryId = await SystemCategories.AutresIdAsync(_context);
         var query = _context.Transactions
             .Include(t => t.Category)
             .Include(t => t.Account)

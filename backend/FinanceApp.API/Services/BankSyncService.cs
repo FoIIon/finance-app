@@ -166,9 +166,7 @@ public class BankSyncService : BackgroundService
 
         // Compte par défaut de l'utilisateur pour les transactions importées
         var defaultAccount = await context.Accounts
-            .Where(a => a.UserId == connection.UserId && !a.IsPersonalScope)
-            .OrderBy(a => a.CreatedAt)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(a => a.UserId == connection.UserId && a.IsPrimary);
 
         if (defaultAccount == null)
         {
@@ -462,9 +460,7 @@ public class BankSyncService : BackgroundService
             var investissementId = await SystemCategories.InvestissementIdAsync(context);
 
             var defaultAccount = await context.Accounts
-                .Where(a => a.UserId == connection.UserId)
-                .OrderBy(a => a.CreatedAt)
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(a => a.UserId == connection.UserId && a.IsPrimary);
 
             if (defaultAccount == null)
             {

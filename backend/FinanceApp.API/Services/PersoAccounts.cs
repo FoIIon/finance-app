@@ -50,9 +50,7 @@ public static class PersoAccounts
         }
 
         var personalDashboard = await context.Dashboards
-            .Where(d => d.CreatorId == userId)
-            .OrderBy(d => d.CreatedAt)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(d => d.CreatorId == userId && d.IsPersonal);
 
         if (personalDashboard != null)
         {
