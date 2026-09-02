@@ -1,3 +1,6 @@
+#if DEBUG
+// Harnais d'exploration : compilé en Debug seulement. En Release (le binaire publié sur le Pi) la
+// classe n'existe pas, le test d'environnement à l'exécution devient une ceinture sur bretelles.
 using FinanceApp.API.Data;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
@@ -146,3 +149,4 @@ public class TradeRepublicExplorationController : ApiControllerBase
         return Ok(results);
     }
 }
+#endif

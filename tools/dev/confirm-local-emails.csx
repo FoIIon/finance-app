@@ -1,9 +1,12 @@
 #!/usr/bin/env dotnet-script
+// Outil de dev : confirme d'office tous les emails de la base LOCALE (finance.db du projet), pour
+// tester sans boîte mail. Ne jamais pointer sur la base du Pi. Lancer depuis n'importe où :
+//   dotnet script tools/dev/confirm-local-emails.csx
 #r "nuget: Microsoft.Data.Sqlite, 8.0.26"
 
 using Microsoft.Data.Sqlite;
 
-var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "backend", "FinanceApp.API", "finance.db");
+var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "backend", "FinanceApp.API", "finance.db");
 dbPath = Path.GetFullPath(dbPath);
 
 using var conn = new SqliteConnection($"Data Source={dbPath}");
