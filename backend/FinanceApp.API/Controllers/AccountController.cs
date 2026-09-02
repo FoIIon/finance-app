@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using FinanceApp.API.Data;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Services;
@@ -11,7 +10,7 @@ namespace FinanceApp.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class AccountController : ControllerBase
+public class AccountController : ApiControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IAccountService _accountService;
@@ -21,9 +20,6 @@ public class AccountController : ControllerBase
         _context = context;
         _accountService = accountService;
     }
-
-    private int GetUserId() =>
-        int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     [HttpGet]
     public async Task<ActionResult<List<AccountDto>>> GetAll()

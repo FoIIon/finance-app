@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -9,21 +8,13 @@ namespace FinanceApp.API.Controllers;
 [ApiController]
 [Route("api/dashboards/{dashboardId}/recurring")]
 [Authorize]
-public class RecurringTransactionController : ControllerBase
+public class RecurringTransactionController : ApiControllerBase
 {
     private readonly RecurringTransactionService _service;
 
     public RecurringTransactionController(RecurringTransactionService service)
     {
         _service = service;
-    }
-
-    private int GetUserId()
-    {
-        var raw = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!int.TryParse(raw, out var userId))
-            throw new InvalidOperationException("Claim NameIdentifier absent ou invalide.");
-        return userId;
     }
 
     [HttpGet]

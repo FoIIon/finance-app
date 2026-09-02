@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using FinanceApp.API.Data;
@@ -15,7 +14,7 @@ namespace FinanceApp.API.Controllers;
 [ApiController]
 [Route("api/banking")]
 [Authorize]
-public class BankingController : ControllerBase
+public class BankingController : ApiControllerBase
 {
     private readonly AppDbContext _context;
     private readonly GoCardlessClient _goCardless;
@@ -30,14 +29,6 @@ public class BankingController : ControllerBase
         _configuration = configuration;
         _trAuthStore = trAuthStore;
         _logger = logger;
-    }
-
-    private int GetUserId()
-    {
-        var raw = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!int.TryParse(raw, out var userId))
-            throw new InvalidOperationException("Claim NameIdentifier absent ou invalide.");
-        return userId;
     }
 
     [HttpGet("institutions")]

@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using FinanceApp.API.Data;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Models;
@@ -12,7 +11,7 @@ namespace FinanceApp.API.Controllers;
 [ApiController]
 [Route("api/loans")]
 [Authorize]
-public class LoanController : ControllerBase
+public class LoanController : ApiControllerBase
 {
     private readonly AppDbContext _context;
 
@@ -20,9 +19,6 @@ public class LoanController : ControllerBase
     {
         _context = context;
     }
-
-    private int GetUserId() =>
-        int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     private async Task<bool> UserCanAccessDashboard(int dashboardId, int userId) =>
         await _context.DashboardMembers.AnyAsync(m => m.DashboardId == dashboardId && m.UserId == userId);

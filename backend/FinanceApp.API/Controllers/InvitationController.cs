@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -9,7 +8,7 @@ namespace FinanceApp.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class InvitationController : ControllerBase
+public class InvitationController : ApiControllerBase
 {
     private readonly IInvitationService _invitationService;
 
@@ -17,9 +16,6 @@ public class InvitationController : ControllerBase
     {
         _invitationService = invitationService;
     }
-
-    private int GetUserId() =>
-        int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     [HttpPost("send")]
     public async Task<ActionResult<InvitationDto>> Send(InviteDto dto)

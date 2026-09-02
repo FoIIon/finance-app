@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using FinanceApp.API.Data;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
@@ -33,7 +32,7 @@ public class TradeRepublicProbeResult
 [ApiController]
 [Route("api/banking/traderepublic")]
 [Authorize]
-public class TradeRepublicExplorationController : ControllerBase
+public class TradeRepublicExplorationController : ApiControllerBase
 {
     private const int BodyTruncation = 12000;
 
@@ -45,9 +44,6 @@ public class TradeRepublicExplorationController : ControllerBase
         _context = context;
         _env = env;
     }
-
-    private int GetUserId() =>
-        int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     /// <summary>Ajoute le token de session dans l'objet JSON d'une souscription WebSocket.</summary>
     private static string InjectToken(string payloadJson, string sessionToken)
