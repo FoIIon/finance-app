@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using FinanceApp.API.Data;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Models;
@@ -12,7 +11,7 @@ namespace FinanceApp.API.Controllers;
 [ApiController]
 [Route("api/projectenvelope")]
 [Authorize]
-public class ProjectEnvelopeController : ControllerBase
+public class ProjectEnvelopeController : ApiControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IDashboardService _dashboardService;
@@ -22,9 +21,6 @@ public class ProjectEnvelopeController : ControllerBase
         _context = context;
         _dashboardService = dashboardService;
     }
-
-    private int GetUserId() =>
-        int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     private async Task<bool> UserCanAccessDashboard(int dashboardId, int userId) =>
         await _context.DashboardMembers.AnyAsync(m => m.DashboardId == dashboardId && m.UserId == userId);

@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using FinanceApp.API.Data;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Models;
@@ -11,21 +10,13 @@ namespace FinanceApp.API.Controllers;
 [ApiController]
 [Route("api/categoryrules")]
 [Authorize]
-public class CategoryRuleController : ControllerBase
+public class CategoryRuleController : ApiControllerBase
 {
     private readonly AppDbContext _context;
 
     public CategoryRuleController(AppDbContext context)
     {
         _context = context;
-    }
-
-    private int GetUserId()
-    {
-        var raw = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!int.TryParse(raw, out var userId))
-            throw new InvalidOperationException("Claim NameIdentifier absent ou invalide.");
-        return userId;
     }
 
     [HttpGet]
