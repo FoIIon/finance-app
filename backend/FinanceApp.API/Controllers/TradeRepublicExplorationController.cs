@@ -77,7 +77,7 @@ public class TradeRepublicExplorationController : ControllerBase
         // l'ancien refresh répond 405, alors que les tokens restent présents et exploitables.
         var connection = await _context.BankConnections
             .FirstOrDefaultAsync(bc => bc.Id == dto.ConnectionId && bc.UserId == userId
-                && bc.Provider == "TradeRepublic"
+                && bc.Provider == BankProvider.TradeRepublic
                 && (bc.Status == BankConnectionStatus.Linked || bc.Status == BankConnectionStatus.Error));
 
         if (connection == null) return NotFound("Aucune connexion Trade Republic liée.");

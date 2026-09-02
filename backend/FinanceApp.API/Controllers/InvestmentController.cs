@@ -280,7 +280,7 @@ public class InvestmentController : ControllerBase
         // patrimoine sans le moindre signe.
         var connections = await _context.BankConnections
             .Where(bc => bc.UserId == userId
-                      && bc.Provider == "TradeRepublic"
+                      && bc.Provider == BankProvider.TradeRepublic
                       && bc.CashBalance != null)
             .ToListAsync();
 
@@ -442,7 +442,7 @@ public class InvestmentController : ControllerBase
         if (!await UserCanAccessDashboard(dashboardId, userId)) return Forbid();
 
         var connection = await _context.BankConnections
-            .FirstOrDefaultAsync(bc => bc.UserId == userId && bc.Provider == "TradeRepublic"
+            .FirstOrDefaultAsync(bc => bc.UserId == userId && bc.Provider == BankProvider.TradeRepublic
                 && bc.EncryptedRefreshToken != null);
 
         if (connection == null)

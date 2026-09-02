@@ -1153,8 +1153,8 @@ public class TransactionController : ControllerBase
                     if (r.ProvisionAtMonthStart || provisionedRecurringIds.Contains(r.Id)) continue;
                     foreach (var _ in RecurringOccurrenceDays(r, year, month, fromDay, lastDay))
                     {
-                        if (r.Type == "Expense") upcomingExpenses += r.Amount;
-                        else if (r.Type == "Income") upcomingIncome += r.Amount;
+                        if (r.Type == TransactionType.Expense) upcomingExpenses += r.Amount;
+                        else if (r.Type == TransactionType.Income) upcomingIncome += r.Amount;
                     }
                 }
             }
@@ -1196,7 +1196,7 @@ public class TransactionController : ControllerBase
 
         switch (r.Frequency)
         {
-            case "Monthly":
+            case RecurringFrequency.Monthly:
             {
                 var day = Math.Min(r.DayOfMonth ?? r.StartDate.Day, lastDay);
                 var occ = new DateOnly(year, month, day);
@@ -1205,7 +1205,7 @@ public class TransactionController : ControllerBase
                     yield return day;
                 break;
             }
-            case "Yearly":
+            case RecurringFrequency.Yearly:
             {
                 if (r.StartDate.Month != month) break;
                 var day = Math.Min(r.StartDate.Day, lastDay);
@@ -1215,7 +1215,7 @@ public class TransactionController : ControllerBase
                     yield return day;
                 break;
             }
-            case "Weekly":
+            case RecurringFrequency.Weekly:
             {
                 for (var day = fromDay; day <= toDay; day++)
                 {
@@ -1586,7 +1586,7 @@ public class TransactionController : ControllerBase
         // chez GoCardless.
         var bankAccounts = await _context.BankAccounts
             .Include(ba => ba.BankConnection)
-            .Where(ba => ba.IsActive && !ba.IsManual && ba.BankConnection != null && ba.BankConnection.Provider == "GoCardless")
+            .Where(ba => ba.IsActive && !ba.IsManual && ba.BankConnection != null && ba.BankConnection.Provider == BankProvider.GoCardless)
             .ToListAsync();
 
         foreach (var ba in bankAccounts)
