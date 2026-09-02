@@ -1,4 +1,5 @@
 using FinanceApp.API.Models;
+using FinanceApp.API.Services.Reporting;
 
 namespace FinanceApp.API.Services;
 
@@ -7,7 +8,9 @@ public readonly record struct FlowLine(
     TransactionType Type,
     decimal Amount,
     bool IsTransfer,
-    bool IsRefund);
+    bool IsRefund,
+    bool IsFixed = false,
+    bool ExcludeFromMonthlyReport = false);
 
 /// <summary>Les trois sens d'un mois pour une catégorie.</summary>
 public readonly record struct FlowTotals(decimal Income, decimal Expenses, decimal Savings);
@@ -17,9 +20,10 @@ public readonly record struct FlowTotals(decimal Income, decimal Expenses, decim
 ///
 /// Pourquoi ce service existe (01/09/2026) : l'onglet Entrées/Sorties nette les remboursements sur le
 /// bloc de dépense de leur catégorie (voir <see cref="Refunds"/>), alors que l'endpoint
-/// category-history n'agrège que les dépenses brutes. Un graphe branché sur le second sous une ligne
-/// calculée par le premier afficherait deux chiffres différents pour le même mois. Les 271,50 € de
-/// places de foot avancées le 07/08 et remboursées le 10/08 suffisent à créer l'écart.
+/// category-history n'agrégeait que les dépenses brutes. Un graphe branché sur le second sous une ligne
+/// calculée par le premier affichait deux chiffres différents pour le même mois. Les 271,50 € de
+/// places de foot avancées le 07/08 et remboursées le 10/08 suffisent à créer l'écart. Depuis le
+/// 02/09/2026 les deux passent par <see cref="BilanClassifier"/>.
 ///
 /// La comparaison N-1 est bornée par la couverture bancaire. La timeline Trade Republic remonte à
 /// novembre 2023, les comptes bancaires n'ont été connectés que le 30/01/2026 : sur Alimentation,
@@ -30,25 +34,31 @@ public readonly record struct FlowTotals(decimal Income, decimal Expenses, decim
 public static class CategoryFlowHistory
 {
     /// <summary>
-    /// Mêmes règles que GetSummary : un transfert va aux mises de côté, un remboursement s'impute en
-    /// négatif sur les dépenses, jamais en entrée.
+    /// Les blocs du bilan ramenés à trois sens : Entrées en entrées, Fixe et Variable en sorties,
+    /// Mises de côté et Hors bilan en mises de côté. Le hors bilan y va parce qu'une catégorie est
+    /// hors bilan en entier, et que la modale l'affiche en information sous ce libellé sans le
+    /// soustraire du net (voir <see cref="Net"/>).
     /// </summary>
     public static FlowTotals Aggregate(IEnumerable<FlowLine> lines)
     {
         decimal income = 0, expenses = 0, savings = 0;
-
         foreach (var l in lines)
         {
-            if (l.IsTransfer)
-                savings += l.Type == TransactionType.Expense ? l.Amount : -l.Amount;
-            else if (Refunds.Applies(l.Type, l.IsRefund))
-                expenses -= l.Amount;
-            else if (l.Type == TransactionType.Expense)
-                expenses += l.Amount;
-            else
-                income += l.Amount;
+            var e = BilanClassifier.Classify(new BilanLine(l.Type, l.Amount, l.IsTransfer, l.ExcludeFromMonthlyReport, l.IsFixed, l.IsRefund));
+            switch (e.Block)
+            {
+                case BilanBlock.Entrees:
+                    income += e.Amount;
+                    break;
+                case BilanBlock.Fixe:
+                case BilanBlock.Variable:
+                    expenses += e.Amount;
+                    break;
+                default:
+                    savings += e.Amount;
+                    break;
+            }
         }
-
         return new FlowTotals(income, expenses, savings);
     }
 
