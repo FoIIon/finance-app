@@ -36,7 +36,7 @@ public class PersoAccountsTests : IDisposable
         var user = new User { Email = "seb@test.local", PasswordHash = "x", CreatedAt = DateTime.UtcNow };
         ctx.Users.Add(user);
         await ctx.SaveChangesAsync();
-        var personal = new Dashboard { Name = "Personnel", CreatorId = user.Id, CreatedAt = DateTime.UtcNow.AddDays(-2) };
+        var personal = new Dashboard { Name = "Personnel", CreatorId = user.Id, IsPersonal = true, CreatedAt = DateTime.UtcNow.AddDays(-2) };
         var common = new Dashboard { Name = "Commun", CreatorId = user.Id, CreatedAt = DateTime.UtcNow.AddDays(-1) };
         ctx.Dashboards.AddRange(personal, common);
         await ctx.SaveChangesAsync();
@@ -44,7 +44,7 @@ public class PersoAccountsTests : IDisposable
     }
 
     [Fact]
-    public async Task Cree_LeCompte_Et_LeRattacheAuDashboardLePlusAncien()
+    public async Task Cree_LeCompte_Et_LeRattacheAuDashboardPersonnel()
     {
         var (userId, personalDashboardId) = await SeedUserAsync();
 
@@ -161,5 +161,42 @@ public class PersoAccountsTests : IDisposable
         await Assert.ThrowsAsync<DbUpdateException>(() => loser.SaveChangesAsync());
         loser.ChangeTracker.Clear();
         Assert.Equal(winnerId, await PersoAccounts.GetOrCreatePersoAccountIdAsync(loser, userId));
+    }
+
+    [Fact]
+    public async Task LeDashboardPersonnel_EstReconnuParSonDrapeau_PasParSonAge()
+    {
+        // Avant le 02/09/2026 le code prenait « le plus ancien des dashboards du créateur ». Ici le
+        // Commun est plus ancien que le Personnel : c'est quand même le Personnel qui reçoit le compte.
+        int userId, personalId;
+        using (var ctx = NewContext())
+        {
+            var user = new User { Email = "flag@test.local", PasswordHash = "x", CreatedAt = DateTime.UtcNow };
+            ctx.Users.Add(user);
+            await ctx.SaveChangesAsync();
+            var common = new Dashboard { Name = "Commun", CreatorId = user.Id, CreatedAt = DateTime.UtcNow.AddDays(-10) };
+            var personal = new Dashboard { Name = "Personnel", CreatorId = user.Id, IsPersonal = true, CreatedAt = DateTime.UtcNow };
+            ctx.Dashboards.AddRange(common, personal);
+            await ctx.SaveChangesAsync();
+            userId = user.Id;
+            personalId = personal.Id;
+        }
+
+        int id;
+        using (var ctx = NewContext())
+            id = await PersoAccounts.GetOrCreatePersoAccountIdAsync(ctx, userId);
+
+        using var check = NewContext();
+        var links = await check.DashboardAccounts.Where(da => da.AccountId == id).Select(da => da.DashboardId).ToListAsync();
+        Assert.Equal(new[] { personalId }, links);
+    }
+
+    [Fact]
+    public async Task DeuxDashboardsPersonnels_PourUnMemeCreateur_SontRefusesParLaBase()
+    {
+        var (userId, _) = await SeedUserAsync();
+        using var ctx = NewContext();
+        ctx.Dashboards.Add(new Dashboard { Name = "Doublon", CreatorId = userId, IsPersonal = true });
+        await Assert.ThrowsAsync<DbUpdateException>(() => ctx.SaveChangesAsync());
     }
 }

@@ -81,6 +81,8 @@ public class AccountController : ControllerBase
         if (account == null) return NotFound();
         if (account.Transactions.Any())
             return BadRequest("Impossible de supprimer un compte qui contient des transactions.");
+        if (account.IsPrimary || account.IsPersonalScope)
+            return BadRequest("Le compte principal et le compte Perso sont structurels, ils ne se suppriment pas.");
 
         _context.Accounts.Remove(account);
         await _context.SaveChangesAsync();

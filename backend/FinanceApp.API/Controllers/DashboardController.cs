@@ -36,6 +36,7 @@ public class DashboardController : ControllerBase
             Id = d.Id,
             Name = d.Name,
             IsCreator = d.CreatorId == userId,
+            IsPersonal = d.IsPersonal,
             CreatedAt = d.CreatedAt
         }));
     }
@@ -53,6 +54,7 @@ public class DashboardController : ControllerBase
             Id = dashboard.Id,
             Name = dashboard.Name,
             IsCreator = dashboard.CreatorId == userId,
+            IsPersonal = dashboard.IsPersonal,
             CreatedAt = dashboard.CreatedAt,
             Members = dashboard.Members.Select(m => new DashboardMemberDto
             {
@@ -79,6 +81,7 @@ public class DashboardController : ControllerBase
             Id = dashboard.Id,
             Name = dashboard.Name,
             IsCreator = true,
+            IsPersonal = false,
             CreatedAt = dashboard.CreatedAt
         });
     }
@@ -100,6 +103,7 @@ public class DashboardController : ControllerBase
             Id = dashboard.Id,
             Name = dashboard.Name,
             IsCreator = dashboard.CreatorId == userId,
+            IsPersonal = dashboard.IsPersonal,
             CreatedAt = dashboard.CreatedAt
         });
     }

@@ -64,4 +64,8 @@ public static class SystemCategories
     /// <summary>« Investissement », créée au besoin.</summary>
     public static Task<int> InvestissementIdAsync(AppDbContext context) =>
         GetOrCreateIdAsync(context, Investissement, "📈", "#10B981", isTransfer: true, excludeFromMonthlyReport: false);
+
+    /// <summary>« Autres », la catégorie du seed où tombe ce qu'aucune règle ne classe. Retrouvée par son nom, jamais par son Id.</summary>
+    public static Task<int> AutresIdAsync(AppDbContext context) =>
+        GetOrCreateIdAsync(context, Autres, "D83DDCE6", "#C9CBCF", isTransfer: false, excludeFromMonthlyReport: false);
 }

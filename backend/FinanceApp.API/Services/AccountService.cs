@@ -22,7 +22,10 @@ public class AccountService : IAccountService
 
     public async Task<Account> CreateDefaultAccount(int userId)
     {
-        return await CreateAccount(userId, "Compte principal");
+        var account = new Account { Name = "Compte principal", UserId = userId, IsPrimary = true };
+        _context.Accounts.Add(account);
+        await _context.SaveChangesAsync();
+        return account;
     }
 
     public async Task<Account> CreateAccount(int userId, string name)

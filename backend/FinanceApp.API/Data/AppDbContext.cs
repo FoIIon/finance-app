@@ -100,6 +100,25 @@ public class AppDbContext : DbContext
             .HasFilter("[IsPersonalScope] = 1")
             .HasDatabaseName("IX_Accounts_UserId_PersonalScope");
 
+        // Un seul compte principal par utilisateur, un seul dashboard personnel par créateur : les
+        // colonnes explicites qui remplacent « le plus ancien » (02/09/2026).
+        modelBuilder.Entity<Account>()
+            .HasIndex(a => new { a.UserId, a.IsPrimary })
+            .IsUnique()
+            .HasFilter("[IsPrimary] = 1")
+            .HasDatabaseName("IX_Accounts_UserId_Primary");
+
+        // Déclaré explicitement : sans ça, EF retire l'index de clé étrangère au profit du composite
+        // filtré ci-dessous, qui ne couvre pas les lectures par créateur.
+        modelBuilder.Entity<Dashboard>()
+            .HasIndex(d => d.CreatorId);
+
+        modelBuilder.Entity<Dashboard>()
+            .HasIndex(d => new { d.CreatorId, d.IsPersonal })
+            .IsUnique()
+            .HasFilter("[IsPersonal] = 1")
+            .HasDatabaseName("IX_Dashboards_CreatorId_Personal");
+
         // Dashboard
         modelBuilder.Entity<Dashboard>()
             .HasOne(d => d.Creator)
