@@ -1,12 +1,11 @@
 {
-  "name": "FinanceApp",
+  "name": "Finance",
   "short_name": "Finance",
   "description": "Suivi des finances de la famille",
   "lang": "fr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
   "theme_color": "#0a0a1a",
   "background_color": "#0a0a1a",
   "icons": [
