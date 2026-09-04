@@ -28,6 +28,8 @@ public class AppDbContext : DbContext
     public DbSet<InvestmentMovement> InvestmentMovements => Set<InvestmentMovement>();
     public DbSet<PortfolioValuation> PortfolioValuations => Set<PortfolioValuation>();
     public DbSet<Loan> Loans => Set<Loan>();
+    public DbSet<Echeance> Echeances => Set<Echeance>();
+    public DbSet<Document> Documents => Set<Document>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -476,6 +478,98 @@ public class AppDbContext : DbContext
             .HasIndex(m => m.ExternalId)
             .IsUnique()
             .HasFilter("[ExternalId] IS NOT NULL");
+
+        // Echeance : ce que le ménage doit, hors bilan. Aucune colonne de statut (EcheanceStatusRules).
+        modelBuilder.Entity<Echeance>()
+            .Property(e => e.Amount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Echeance>()
+            .Property(e => e.Label)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<Echeance>()
+            .Property(e => e.Notes)
+            .HasMaxLength(1000);
+
+        modelBuilder.Entity<Echeance>()
+            .HasOne(e => e.Dashboard)
+            .WithMany()
+            .HasForeignKey(e => e.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Supprimer la transaction détache l'échéance, qui redevient à payer. Jamais l'inverse.
+        modelBuilder.Entity<Echeance>()
+            .HasOne(e => e.Transaction)
+            .WithMany()
+            .HasForeignKey(e => e.TransactionId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .IsRequired(false);
+
+        modelBuilder.Entity<Echeance>()
+            .HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<Echeance>()
+            .HasIndex(e => new { e.DashboardId, e.DueDate });
+
+        // Une transaction ne prouve qu'une échéance.
+        modelBuilder.Entity<Echeance>()
+            .HasIndex(e => e.TransactionId)
+            .IsUnique()
+            .HasFilter("[TransactionId] IS NOT NULL");
+
+        // Document : le fichier vit sous Documents:Root, la ligne ne porte qu'un chemin relatif.
+        modelBuilder.Entity<Document>()
+            .Property(d => d.Kind)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+        modelBuilder.Entity<Document>()
+            .Property(d => d.OriginalFileName)
+            .HasMaxLength(250);
+
+        modelBuilder.Entity<Document>()
+            .Property(d => d.StoredPath)
+            .HasMaxLength(260);
+
+        modelBuilder.Entity<Document>()
+            .Property(d => d.ContentType)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Document>()
+            .Property(d => d.Sha256)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<Document>()
+            .HasOne(d => d.Dashboard)
+            .WithMany()
+            .HasForeignKey(d => d.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Supprimer une échéance n'efface jamais une facture : le document reste, détaché.
+        modelBuilder.Entity<Document>()
+            .HasOne(d => d.Echeance)
+            .WithMany(e => e.Documents)
+            .HasForeignKey(d => d.EcheanceId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .IsRequired(false);
+
+        modelBuilder.Entity<Document>()
+            .HasOne(d => d.UploadedByUser)
+            .WithMany()
+            .HasForeignKey(d => d.UploadedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Le même contenu n'est rangé qu'une fois par dashboard (409 avec l'identifiant existant).
+        modelBuilder.Entity<Document>()
+            .HasIndex(d => new { d.DashboardId, d.Sha256 })
+            .IsUnique();
+
+        modelBuilder.Entity<Document>()
+            .HasIndex(d => new { d.DashboardId, d.FiscalYear });
 
         modelBuilder.Entity<Category>().HasData(
             new Category { Id = 1, Name = "Alimentation", Icon = "\uD83C\uDF55", Color = "#FF6384", IsDefault = true },
