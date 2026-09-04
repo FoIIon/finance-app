@@ -15,6 +15,22 @@ var jwtKey = builder.Configuration["Jwt:Key"];
 if (string.IsNullOrEmpty(jwtKey))
     throw new InvalidOperationException("JWT Key not configured. Set Jwt__Key environment variable.");
 
+// Même exigence pour la racine des documents : obligatoire, résolue depuis le ContentRoot, refusée
+// sous wwwroot. Le dossier est créé et .incoming nettoyé ici, au démarrage, pas à la première requête.
+var documentsOptions = new DocumentStorageOptions
+{
+    Root = DocumentStorage.ResolveRoot(
+        builder.Configuration["Documents:Root"],
+        builder.Environment.ContentRootPath,
+        builder.Environment.WebRootPath,
+        AppContext.BaseDirectory),
+    MaxFileBytes = builder.Configuration.GetValue<long?>("Documents:MaxFileBytes") ?? DocumentStorageOptions.DefaultMaxFileBytes,
+    QuotaBytesPerDashboard = builder.Configuration.GetValue<long?>("Documents:QuotaBytesPerDashboard") ?? DocumentStorageOptions.DefaultQuotaBytesPerDashboard,
+};
+builder.Services.AddSingleton(documentsOptions);
+builder.Services.AddSingleton(new DocumentStorage(documentsOptions));
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => o.MultipartBodyLengthLimit = documentsOptions.MaxFileBytes);
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
