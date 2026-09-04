@@ -226,8 +226,83 @@ public class EcheanceDocumentAuthorizationTests : IDisposable
             File = TestHousehold.FormFile(TestHousehold.PdfBytes("a-vers-b"), "x.pdf"),
         }, CancellationToken.None);
 
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.IsType<NotFoundResult>(result.Result);
         Assert.Equal(0, await ctx.Documents.CountAsync(d => d.DashboardId == _a.DashboardId));
+        Assert.Empty(Directory.GetFiles(Path.Combine(_root, ".incoming")));
+    }
+
+    [Fact]
+    public async Task A_NeRattachePas_SonDocument_AUneEcheanceDeB_ParModification()
+    {
+        using var ctx = NewContext();
+        var ctl = Documents(ctx, _a.UserId);
+        var uploaded = await ctl.Upload(new UploadDocumentDto
+        {
+            DashboardId = _a.DashboardId, Kind = DocumentKind.Autre,
+            File = TestHousehold.FormFile(TestHousehold.PdfBytes("a-doc"), "a.pdf"),
+        }, CancellationToken.None);
+        var id = ((DocumentDto)((CreatedAtActionResult)uploaded.Result!).Value!).Id;
+
+        var result = await ctl.Update(id, new UpdateDocumentDto { Kind = DocumentKind.Facture, EcheanceId = _echeanceB });
+
+        Assert.IsType<NotFoundResult>(result.Result);
+        Assert.Null((await ctx.Documents.SingleAsync(d => d.Id == id)).EcheanceId);
+    }
+
+    [Fact]
+    public async Task UneTransactionDuDashboard_ProuveLEcheance_QuiPasseAPayee()
+    {
+        using var ctx = NewContext();
+        var tx = new Transaction { AccountId = _b.AccountId, CategoryId = 3, Amount = 1234.56m, Date = new DateTime(2026, 10, 10), Type = TransactionType.Expense, Description = "Précompte" };
+        ctx.Transactions.Add(tx);
+        await ctx.SaveChangesAsync();
+
+        var result = await Echeances(ctx, _b.UserId).Update(_echeanceB, new UpdateEcheanceDto
+        {
+            Label = "Précompte immobilier", DueDate = new DateOnly(2026, 10, 15), Amount = 1234.56m, TransactionId = tx.Id,
+        });
+
+        var dto = (EcheanceDto)((OkObjectResult)result.Result!).Value!;
+        Assert.Equal("Payee", dto.Status);
+        Assert.Equal(tx.Id, dto.TransactionId);
+        Assert.Null(dto.PaidAt);
+    }
+
+    [Fact]
+    public async Task UneTransactionQuiProuveDeja_UneAutreEcheance_Rend409()
+    {
+        using var ctx = NewContext();
+        var ctl = Echeances(ctx, _b.UserId);
+        var tx = new Transaction { AccountId = _b.AccountId, CategoryId = 3, Amount = 50m, Date = new DateTime(2026, 10, 10), Type = TransactionType.Expense, Description = "Taxe" };
+        ctx.Transactions.Add(tx);
+        await ctx.SaveChangesAsync();
+        var second = (EcheanceDto)((CreatedAtActionResult)(await ctl.Create(new CreateEcheanceDto
+        {
+            DashboardId = _b.DashboardId, Label = "Taxe déchets", DueDate = new DateOnly(2026, 10, 20), Amount = 50m,
+        })).Result!).Value!;
+
+        Assert.IsType<OkObjectResult>((await ctl.Update(second.Id, new UpdateEcheanceDto { Label = second.Label, DueDate = second.DueDate, Amount = 50m, TransactionId = tx.Id })).Result);
+        var result = await ctl.Update(_echeanceB, new UpdateEcheanceDto { Label = "Précompte immobilier", DueDate = new DateOnly(2026, 10, 15), TransactionId = tx.Id });
+
+        Assert.IsType<ConflictObjectResult>(result.Result);
+        Assert.Null((await ctx.Echeances.AsNoTracking().SingleAsync(e => e.Id == _echeanceB)).TransactionId);
+    }
+
+    [Fact]
+    public async Task UneTransactionProvisionnelle_NeProuvePas_UnPaiement()
+    {
+        using var ctx = NewContext();
+        var tx = new Transaction { AccountId = _b.AccountId, CategoryId = 8, Amount = 3000m, Date = new DateTime(2026, 10, 25), Type = TransactionType.Income, Description = "Salaire attendu", IsProvisional = true };
+        ctx.Transactions.Add(tx);
+        await ctx.SaveChangesAsync();
+
+        var result = await Echeances(ctx, _b.UserId).Update(_echeanceB, new UpdateEcheanceDto
+        {
+            Label = "Précompte immobilier", DueDate = new DateOnly(2026, 10, 15), TransactionId = tx.Id,
+        });
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Contains("provisionnelle", bad.Value!.ToString());
     }
 
     [Fact]
@@ -243,6 +318,89 @@ public class EcheanceDocumentAuthorizationTests : IDisposable
         Assert.StartsWith("inline", disposition);
         Assert.Contains("avertissement.pdf", disposition);
         await file.FileStream.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ContentDisposition_PorteUnNomNonAscii_AvecGuillemets_EnUtf8()
+    {
+        using var ctx = NewContext();
+        var ctl = Documents(ctx, _a.UserId);
+        var uploaded = await ctl.Upload(new UploadDocumentDto
+        {
+            DashboardId = _a.DashboardId, Kind = DocumentKind.Facture,
+            File = TestHousehold.FormFile(TestHousehold.PdfBytes("nom"), "Facture \"été\" n°3 – Léonie.pdf"),
+        }, CancellationToken.None);
+        var id = ((DocumentDto)((CreatedAtActionResult)uploaded.Result!).Value!).Id;
+
+        var file = Assert.IsType<FileStreamResult>(await ctl.GetContent(id));
+        await file.FileStream.DisposeAsync();
+        var disposition = ctl.Response.Headers.ContentDisposition.ToString();
+
+        Assert.StartsWith("inline", disposition);
+        Assert.Contains("filename*=UTF-8''", disposition);
+        Assert.Contains("%C3%A9t%C3%A9", disposition);      // été
+        Assert.Contains("%22", disposition);                // les guillemets, encodés, jamais bruts dans filename*
+        Assert.DoesNotContain("\"été\"", disposition);
+        Assert.Equal("nosniff", ctl.Response.Headers[Microsoft.Net.Http.Headers.HeaderNames.XContentTypeOptions].ToString());
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01 }, "image/jpeg", "jpg")]
+    [InlineData(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D }, "image/png", "png")]
+    public async Task UneImage_EstRecue_TypeeParSesOctets_EtServieSousCeType(byte[] bytes, string contentType, string extension)
+    {
+        using var ctx = NewContext();
+        var ctl = Documents(ctx, _a.UserId);
+        var uploaded = await ctl.Upload(new UploadDocumentDto
+        {
+            DashboardId = _a.DashboardId, Kind = DocumentKind.Autre,
+            File = TestHousehold.FormFile(bytes, "scan.pdf", "application/pdf"),   // nom et type annoncés faux, volontairement
+        }, CancellationToken.None);
+
+        var dto = (DocumentDto)((CreatedAtActionResult)uploaded.Result!).Value!;
+        Assert.Equal(contentType, dto.ContentType);
+        var row = await ctx.Documents.SingleAsync(d => d.Id == dto.Id);
+        Assert.EndsWith("." + extension, row.StoredPath);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(Path.Combine(_root, row.StoredPath)));
+
+        var file = Assert.IsType<FileStreamResult>(await ctl.GetContent(dto.Id));
+        Assert.Equal(contentType, file.ContentType);
+        await file.FileStream.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task SansNature_LEnvoiEstRefuse_400()
+    {
+        using var ctx = NewContext();
+        var result = await Documents(ctx, _a.UserId).Upload(new UploadDocumentDto
+        {
+            DashboardId = _a.DashboardId, Kind = null,
+            File = TestHousehold.FormFile(TestHousehold.PdfBytes("sans-kind"), "x.pdf"),
+        }, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Empty(Directory.GetFiles(Path.Combine(_root, ".incoming")));
+    }
+
+    [Fact]
+    public async Task SupprimerUnDashboard_EffaceLesFichiersDeSesDocuments()
+    {
+        using var ctx = NewContext();
+        var service = new DashboardService(ctx, _storage);
+        var dashboard = await service.CreateDashboard(_a.UserId, "Travaux");
+        var uploaded = await Documents(ctx, _a.UserId).Upload(new UploadDocumentDto
+        {
+            DashboardId = dashboard.Id, Kind = DocumentKind.Contrat,
+            File = TestHousehold.FormFile(TestHousehold.PdfBytes("devis"), "devis.pdf"),
+        }, CancellationToken.None);
+        var stored = (await ctx.Documents.SingleAsync(d => d.Id == ((DocumentDto)((CreatedAtActionResult)uploaded.Result!).Value!).Id)).StoredPath;
+        Assert.True(File.Exists(Path.Combine(_root, stored)));
+
+        await service.DeleteDashboard(dashboard.Id, _a.UserId);
+
+        Assert.False(await ctx.Documents.AnyAsync(d => d.DashboardId == dashboard.Id));
+        Assert.False(File.Exists(Path.Combine(_root, stored)));
+        // Le document du ménage B, dans un autre dashboard, n'a pas bougé.
+        Assert.True(File.Exists(Path.Combine(_root, (await ctx.Documents.SingleAsync(d => d.Id == _documentB)).StoredPath)));
     }
 
     [Fact]

@@ -96,7 +96,11 @@ public class DocumentStorageTests : IDisposable
     [InlineData("/etc/passwd")]
     [InlineData("")]
     [InlineData("2026//1.pdf")]
-    public void UnCheminQuiSortDeLaRacine_EstUneErreur(string storedPath)
+    [InlineData("2026\\1.pdf")]
+    [InlineData("2026/1.exe")]
+    [InlineData("2026/1.pdf.html")]
+    [InlineData("data/1.pdf")]
+    public void UnCheminQuiSortDeLaRacine_OuHorsForme_EstUneErreur(string storedPath)
     {
         Assert.Throws<InvalidOperationException>(() => _storage.Open(storedPath));
     }
@@ -106,35 +110,67 @@ public class DocumentStorageTests : IDisposable
     {
         var content = Path.Combine(Path.GetTempPath(), "app");
         var ex = Assert.Throws<InvalidOperationException>(() =>
-            DocumentStorage.ResolveRoot("wwwroot/docs", content, Path.Combine(content, "wwwroot"), content));
+            DocumentStorage.ResolveRoot("wwwroot/docs", content, Path.Combine(content, "wwwroot"), content, isProduction: false));
         Assert.Contains("wwwroot", ex.Message);
 
         // Même quand WebRootPath n'est pas renseigné (dossier wwwroot absent au démarrage).
-        Assert.Throws<InvalidOperationException>(() => DocumentStorage.ResolveRoot("wwwroot", content, null, content));
+        Assert.Throws<InvalidOperationException>(() => DocumentStorage.ResolveRoot("wwwroot", content, null, content, isProduction: false));
     }
 
     [Fact]
     public void RacineAbsente_EstRefusee()
     {
         var content = Path.Combine(Path.GetTempPath(), "app");
-        Assert.Throws<InvalidOperationException>(() => DocumentStorage.ResolveRoot(null, content, null, content));
-        Assert.Throws<InvalidOperationException>(() => DocumentStorage.ResolveRoot("  ", content, null, content));
+        Assert.Throws<InvalidOperationException>(() => DocumentStorage.ResolveRoot(null, content, null, content, isProduction: false));
+        Assert.Throws<InvalidOperationException>(() => DocumentStorage.ResolveRoot("  ", content, null, content, isProduction: true));
     }
 
     [Fact]
     public void RacineEgaleAuDossierDeLApplication_EstRefusee()
     {
         var content = Path.Combine(Path.GetTempPath(), "app");
-        Assert.Throws<InvalidOperationException>(() => DocumentStorage.ResolveRoot(".", content, null, content));
-        Assert.Throws<InvalidOperationException>(() => DocumentStorage.ResolveRoot(content, content, null, Path.Combine(content, "publish")));
+        Assert.Throws<InvalidOperationException>(() => DocumentStorage.ResolveRoot(".", content, null, content, isProduction: false));
+        Assert.Throws<InvalidOperationException>(() => DocumentStorage.ResolveRoot(content, content, null, Path.Combine(content, "publish"), isProduction: false));
     }
 
     [Fact]
-    public void RacineRelative_SeResoutDepuisLeContentRoot()
+    public void EnDeveloppement_RacineRelative_SeResoutDepuisLeContentRoot()
     {
         var content = Path.Combine(Path.GetTempPath(), "app");
-        var root = DocumentStorage.ResolveRoot("data/documents", content, null, content);
+        var root = DocumentStorage.ResolveRoot("data/documents", content, null, content, isProduction: false);
         Assert.Equal(Path.GetFullPath(Path.Combine(content, "data", "documents")), root);
+    }
+
+    [Fact]
+    public void EnProduction_RacineRelative_EstRefusee()
+    {
+        // Le défaut de appsettings.json : sur le Pi, le dossier de l'app est remplacé à chaque livraison.
+        var content = Path.Combine(Path.GetTempPath(), "finance-app", "app");
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            DocumentStorage.ResolveRoot("data/documents", content, null, content, isProduction: true));
+        Assert.Contains("relatif", ex.Message);
+    }
+
+    [Fact]
+    public void EnProduction_RacineAbsolueSousLeDossierDeLApp_EstRefusee()
+    {
+        var content = Path.Combine(Path.GetTempPath(), "finance-app", "app");
+        var publish = Path.Combine(Path.GetTempPath(), "finance-app", "publish");
+        Assert.Throws<InvalidOperationException>(() =>
+            DocumentStorage.ResolveRoot(Path.Combine(content, "data", "documents"), content, null, publish, isProduction: true));
+        Assert.Throws<InvalidOperationException>(() =>
+            DocumentStorage.ResolveRoot(Path.Combine(publish, "documents"), content, null, publish, isProduction: true));
+    }
+
+    [Fact]
+    public void EnProduction_RacineAbsolueACoteDeLaBase_EstAcceptee()
+    {
+        // /home/admin/finance-app/data/documents à côté de finance.db, l'app dans /home/admin/finance-app/app.
+        var home = Path.Combine(Path.GetTempPath(), "finance-app-" + Guid.NewGuid().ToString("N"));
+        var content = Path.Combine(home, "app");
+        var data = Path.Combine(home, "data", "documents");
+        var root = DocumentStorage.ResolveRoot(data, content, Path.Combine(content, "wwwroot"), content, isProduction: true);
+        Assert.Equal(Path.GetFullPath(data), root);
     }
 
     [Fact]
