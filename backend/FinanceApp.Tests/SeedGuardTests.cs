@@ -203,7 +203,7 @@ public class SeedGuardTests
         Assert.Equal(10, lines.Select(t => t.CategoryId).Distinct().Count());
         Assert.Equal(6, lines.Count(t => t.Description == "Salaire"));
         Assert.Equal(3, lines.Count(t => t.Description == "Loyer maison" && t.IsFixed));
-        Assert.InRange(lines.Count(t => t.IsRefund), 3, 4);
+        Assert.Equal(4, lines.Count(t => t.IsRefund));
         Assert.Single(lines.Where(t => t.IsExceptional));
         Assert.All(lines, t => Assert.InRange(t.Date, new DateTime(2026, 6, 4), new DateTime(2026, 9, 4)));
 
@@ -250,6 +250,143 @@ public class SeedGuardTests
         foreach (var d in digits)
             remainder = (remainder * 10 + (d - '0')) % 97;
         return remainder == 1;
+    }
+
+    [Fact]
+    public async Task Seed_NeToucheJamaisUnUtilisateurHorsDemo()
+    {
+        // La promesse centrale du README : un vrai utilisateur de la base de dev, avec ses lignes, ses
+        // comptes et sa récurrente, ressort de deux passes du seed à l'octet près (mêmes Id, mêmes
+        // montants, mêmes rattachements), et rien de lui n'est compté comme démo.
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        using (var ctx = new AppDbContext(options))
+            ctx.Database.EnsureCreated();
+
+        int realUserId;
+        using (var ctx = new AppDbContext(options))
+        {
+            var user = new User { Email = "vrai.compte@example.org", PasswordHash = "hash", EmailConfirmed = true };
+            ctx.Users.Add(user);
+            await ctx.SaveChangesAsync();
+            realUserId = user.Id;
+
+            var account = new Account { Name = "Compte principal", UserId = user.Id, IsPrimary = true };
+            ctx.Accounts.Add(account);
+            var dashboard = new Dashboard { Name = "Personnel", CreatorId = user.Id, IsPersonal = true };
+            ctx.Dashboards.Add(dashboard);
+            await ctx.SaveChangesAsync();
+            ctx.DashboardMembers.Add(new DashboardMember { DashboardId = dashboard.Id, UserId = user.Id });
+            ctx.DashboardAccounts.Add(new DashboardAccount { DashboardId = dashboard.Id, AccountId = account.Id });
+
+            var custom = new Category { Name = "Restaurants", Icon = "x", Color = "#000000", UserId = user.Id };
+            ctx.Categories.Add(custom);
+            await ctx.SaveChangesAsync();
+            ctx.CategoryRules.Add(new CategoryRule { UserId = user.Id, Keyword = "resto", CategoryId = custom.Id });
+
+            for (var i = 0; i < 10; i++)
+                ctx.Transactions.Add(new Transaction
+                {
+                    Amount = 10.5m + i, Description = $"Ligne réelle {i}", Date = new DateTime(2026, 8, 1 + i),
+                    Type = i % 4 == 0 ? TransactionType.Income : TransactionType.Expense,
+                    CategoryId = i % 2 == 0 ? custom.Id : 1, AccountId = account.Id,
+                    ExternalId = i % 3 == 0 ? null : $"bank-{i}", IsImported = i % 3 != 0,
+                });
+            ctx.RecurringTransactions.Add(new RecurringTransaction
+            {
+                UserId = user.Id, DashboardId = dashboard.Id, AccountId = account.Id, CategoryId = 8,
+                Description = "Salaire réel", Amount = 2500m, Type = TransactionType.Income,
+                Frequency = RecurringFrequency.Monthly, DayOfMonth = 25, StartDate = new DateOnly(2026, 1, 1),
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        var before = await RealUserSnapshot(options, realUserId);
+        Assert.Equal(10, before.Transactions.Count);
+
+        var today = new DateOnly(2026, 9, 4);
+        SeedSummary summary;
+        using (var ctx = new AppDbContext(options)) await DemoSeeder.RunAsync(ctx, today);
+        using (var ctx = new AppDbContext(options)) summary = await DemoSeeder.RunAsync(ctx, today);
+
+        var after = await RealUserSnapshot(options, realUserId);
+        Assert.Equal(before, after);
+
+        // Le résumé ne compte que la démo, et la base contient exactement le réel plus la démo.
+        Assert.Equal(2, summary.Users);
+        using var check = new AppDbContext(options);
+        Assert.Equal(3, await check.Users.CountAsync());
+        Assert.Equal(summary.Transactions + 10, await check.Transactions.CountAsync());
+        Assert.Equal(summary.RecurringTransactions + 1, await check.RecurringTransactions.CountAsync());
+        Assert.Equal(11, await check.Categories.CountAsync());
+        Assert.Equal(1, await check.CategoryRules.CountAsync());
+    }
+
+    [Fact]
+    public async Task Purge_SurvitAUneCategorieCustomAvecRegle_CreeeDepuisLaDemo()
+    {
+        // CategoryRule.Category est en Restrict : sans purge explicite des règles puis des catégories du
+        // compte démo, la cascade depuis User échoue et la seconde passe s'arrête net.
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        using (var ctx = new AppDbContext(options))
+            ctx.Database.EnsureCreated();
+
+        var today = new DateOnly(2026, 9, 4);
+        using (var ctx = new AppDbContext(options))
+        {
+            await DemoSeeder.RunAsync(ctx, today);
+            var seb = await ctx.Users.SingleAsync(u => u.Email == DemoSeeder.SebEmail);
+            var custom = new Category { Name = "Custom démo", Icon = "x", Color = "#000000", UserId = seb.Id };
+            ctx.Categories.Add(custom);
+            await ctx.SaveChangesAsync();
+            ctx.CategoryRules.Add(new CategoryRule { UserId = seb.Id, Keyword = "custom", CategoryId = custom.Id });
+            var first = await ctx.Transactions.OrderBy(t => t.Id).FirstAsync(t => t.ExternalId!.StartsWith(DemoSeeder.ExternalIdPrefix));
+            first.CategoryId = custom.Id;
+            await ctx.SaveChangesAsync();
+        }
+
+        using (var ctx = new AppDbContext(options))
+        {
+            var summary = await DemoSeeder.RunAsync(ctx, today);
+            Assert.Equal(2, summary.Users);
+        }
+
+        using var check = new AppDbContext(options);
+        Assert.Equal(10, await check.Categories.CountAsync());
+        Assert.Equal(0, await check.CategoryRules.CountAsync());
+    }
+
+    private sealed record RealUserSnapshotData(
+        List<(int Id, string Name, bool IsPrimary)> Accounts,
+        List<(int Id, string Name, bool IsPersonal)> Dashboards,
+        List<(int DashboardId, int AccountId)> DashboardAccounts,
+        List<(int Id, decimal Amount, string Description, DateTime Date, int CategoryId, int AccountId, string? ExternalId)> Transactions,
+        List<(int Id, string Description, decimal Amount, int DashboardId)> Recurring,
+        List<(int Id, string Name)> Categories,
+        List<(int Id, string Keyword, int CategoryId)> Rules)
+    {
+        public bool Equals(RealUserSnapshotData? other) => other != null
+            && Accounts.SequenceEqual(other.Accounts) && Dashboards.SequenceEqual(other.Dashboards)
+            && DashboardAccounts.SequenceEqual(other.DashboardAccounts) && Transactions.SequenceEqual(other.Transactions)
+            && Recurring.SequenceEqual(other.Recurring) && Categories.SequenceEqual(other.Categories) && Rules.SequenceEqual(other.Rules);
+        public override int GetHashCode() => Transactions.Count;
+    }
+
+    private static async Task<RealUserSnapshotData> RealUserSnapshot(DbContextOptions<AppDbContext> options, int userId)
+    {
+        using var ctx = new AppDbContext(options);
+        var accountIds = await ctx.Accounts.Where(a => a.UserId == userId).Select(a => a.Id).ToListAsync();
+        return new RealUserSnapshotData(
+            (await ctx.Accounts.Where(a => a.UserId == userId).OrderBy(a => a.Id).ToListAsync()).Select(a => (a.Id, a.Name, a.IsPrimary)).ToList(),
+            (await ctx.Dashboards.Where(d => d.CreatorId == userId).OrderBy(d => d.Id).ToListAsync()).Select(d => (d.Id, d.Name, d.IsPersonal)).ToList(),
+            (await ctx.DashboardAccounts.Where(da => accountIds.Contains(da.AccountId)).OrderBy(da => da.DashboardId).ToListAsync()).Select(da => (da.DashboardId, da.AccountId)).ToList(),
+            (await ctx.Transactions.Where(t => accountIds.Contains(t.AccountId)).OrderBy(t => t.Id).ToListAsync()).Select(t => (t.Id, t.Amount, t.Description, t.Date, t.CategoryId, t.AccountId, t.ExternalId)).ToList(),
+            (await ctx.RecurringTransactions.Where(r => r.UserId == userId).OrderBy(r => r.Id).ToListAsync()).Select(r => (r.Id, r.Description, r.Amount, r.DashboardId)).ToList(),
+            (await ctx.Categories.Where(c => c.UserId == userId).OrderBy(c => c.Id).ToListAsync()).Select(c => (c.Id, c.Name)).ToList(),
+            (await ctx.CategoryRules.Where(cr => cr.UserId == userId).OrderBy(cr => cr.Id).ToListAsync()).Select(cr => (cr.Id, cr.Keyword, cr.CategoryId)).ToList());
     }
 
     private static async Task<List<(string, decimal, DateTime, string, int, bool, bool, bool)>> Snapshot(AppDbContext ctx)

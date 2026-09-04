@@ -18,7 +18,9 @@ public sealed class TransactionGenerator
     public const int SalaryDay = 27;
     public const int EnergyDay = 12;
 
-    private const string RentIban = "BE68539007547034";
+    // Distincts des IBAN des comptes démo (DemoSeeder.SebIban, AudreyIban) : un loyer versé vers le
+    // propre IBAN de Seb serait pris pour un virement interne par la détection par IBAN.
+    private const string RentIban = "BE43068999999501";
     private const string EnergyIban = "BE71096123456769";
 
     private readonly Random _rng;
