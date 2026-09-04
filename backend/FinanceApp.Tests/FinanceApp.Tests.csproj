@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FinanceApp.API\FinanceApp.API.csproj" />
+    <ProjectReference Include="..\..\tools\SeedDemo\SeedDemo.csproj" />
   </ItemGroup>
 
   <ItemGroup>
