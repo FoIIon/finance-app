@@ -1,4 +1,5 @@
 using FinanceApp.API.Data;
+using FinanceApp.API.Models;
 using FinanceApp.SeedDemo;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -124,6 +125,7 @@ public class SeedGuardTests
         Assert.Equal(2, first.Users);
         Assert.Equal(3, first.Dashboards);
         Assert.Equal(3, first.Accounts);
+        Assert.Equal(2, first.BankAccounts);
         Assert.Equal(3, first.RecurringTransactions);
         Assert.InRange(first.Transactions, 120, 200);
 
@@ -135,9 +137,33 @@ public class SeedGuardTests
         Assert.Equal(2, await check.Users.CountAsync());
         Assert.Equal(3, await check.Dashboards.CountAsync());
         Assert.Equal(3, await check.Accounts.CountAsync());
+        Assert.Equal(2, await check.BankConnections.CountAsync());
+        Assert.Equal(2, await check.BankAccounts.CountAsync());
         Assert.Equal(first.Transactions, await check.Transactions.CountAsync());
         Assert.Equal(5, await check.DashboardAccounts.CountAsync());
         Assert.Equal(4, await check.DashboardMembers.CountAsync());
+    }
+
+    [Fact]
+    public async Task Seed_LaGraineChangeLeTirage_PasLaForme()
+    {
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        using (var ctx = new AppDbContext(options))
+            ctx.Database.EnsureCreated();
+
+        var today = new DateOnly(2026, 9, 4);
+        List<(string, decimal, DateTime, string, int, bool, bool, bool)> seed42, seed42Again, seed43;
+        using (var ctx = new AppDbContext(options)) { await DemoSeeder.RunAsync(ctx, today, seed: 42); seed42 = await Snapshot(ctx); }
+        using (var ctx = new AppDbContext(options)) { await DemoSeeder.RunAsync(ctx, today, seed: 42); seed42Again = await Snapshot(ctx); }
+        using (var ctx = new AppDbContext(options)) { await DemoSeeder.RunAsync(ctx, today, seed: 43); seed43 = await Snapshot(ctx); }
+
+        Assert.Equal(seed42, seed42Again);
+        Assert.NotEqual(seed42, seed43);
+        // Les postes fixes ne bougent pas avec la graine, seuls les montants et jours tirés au sort.
+        Assert.Equal(seed42.Count(l => l.Item4 == "Salaire"), seed43.Count(l => l.Item4 == "Salaire"));
+        Assert.Equal(seed42.Count(l => l.Item4 == "Loyer maison"), seed43.Count(l => l.Item4 == "Loyer maison"));
     }
 
     [Fact]
@@ -185,6 +211,45 @@ public class SeedGuardTests
         Assert.Equal(3, recurring.Count);
         Assert.All(recurring, r => Assert.Equal(common.Id, r.DashboardId));
         Assert.Single(recurring.Where(r => r.ProvisionAtMonthStart));
+
+        // Un compte bancaire par compte principal, sur une connexion que la sync de fond ignore
+        // (Provider.Manual), sans secret ni identifiant GoCardless. Le Perso n'en a pas.
+        var connections = await seeded.BankConnections.ToListAsync();
+        Assert.Equal(2, connections.Count);
+        Assert.All(connections, c => Assert.Equal(BankProvider.Manual, c.Provider));
+        Assert.All(connections, c => Assert.Null(c.EncryptedSessionToken));
+        Assert.All(connections, c => Assert.StartsWith("demo-", c.RequisitionId));
+
+        var banks = await seeded.BankAccounts.ToListAsync();
+        Assert.Equal(2, banks.Count);
+        Assert.All(banks, b => Assert.False(b.IsManual));
+        Assert.All(banks, b => Assert.True(IbanChecksumIsValid(b.Iban), b.Iban));
+
+        var sebPrimary = await seeded.Accounts.SingleAsync(a => a.UserId == seb.Id && a.IsPrimary);
+        var sebPerso = await seeded.Accounts.SingleAsync(a => a.UserId == seb.Id && a.IsPersonalScope);
+        var audreyPrimary = await seeded.Accounts.SingleAsync(a => a.UserId == audrey.Id && a.IsPrimary);
+        var sebBank = banks.Single(b => b.UserId == seb.Id);
+        var audreyBank = banks.Single(b => b.UserId == audrey.Id);
+        Assert.All(lines.Where(t => t.AccountId == sebPrimary.Id), t => Assert.Equal(sebBank.Id, t.BankAccountId));
+        Assert.All(lines.Where(t => t.AccountId == audreyPrimary.Id), t => Assert.Equal(audreyBank.Id, t.BankAccountId));
+        Assert.All(lines.Where(t => t.AccountId == sebPerso.Id), t => Assert.Null(t.BankAccountId));
+        Assert.NotEmpty(lines.Where(t => t.AccountId == sebPerso.Id));
+
+        // Le solde booké suit les lignes : ouverture + net, pas un chiffre posé au hasard.
+        var sebNet = lines.Where(t => t.BankAccountId == sebBank.Id)
+            .Sum(t => t.Type == TransactionType.Income ? t.Amount : -t.Amount);
+        Assert.Equal(2350.18m + sebNet, sebBank.BookedBalance);
+        Assert.Equal(sebBank.BookedBalance, sebBank.RealBalance);
+    }
+
+    private static bool IbanChecksumIsValid(string iban)
+    {
+        var rearranged = iban[4..] + iban[..4];
+        var digits = string.Concat(rearranged.Select(c => char.IsDigit(c) ? c.ToString() : (c - 'A' + 10).ToString()));
+        var remainder = 0;
+        foreach (var d in digits)
+            remainder = (remainder * 10 + (d - '0')) % 97;
+        return remainder == 1;
     }
 
     private static async Task<List<(string, decimal, DateTime, string, int, bool, bool, bool)>> Snapshot(AppDbContext ctx)

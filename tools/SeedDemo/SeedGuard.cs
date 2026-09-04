@@ -10,7 +10,8 @@ namespace FinanceApp.SeedDemo;
 /// </summary>
 public static class SeedGuard
 {
-    public const string Usage = "Usage : dotnet run --project tools/SeedDemo -- --db <chemin-vers-une-base-de-dev.db>";
+    public const string Usage =
+        "Usage : dotnet run --project tools/SeedDemo -- --db <chemin-vers-une-base-de-dev.db> [--today AAAA-MM-JJ] [--seed <entier>]";
 
     public const string ProductionMachineName = "raspberrypi5";
 
