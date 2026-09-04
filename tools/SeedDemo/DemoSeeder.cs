@@ -206,6 +206,11 @@ public static class DemoSeeder
             .ExecuteDeleteAsync();
         await ctx.Accounts.Where(a => userIds.Contains(a.UserId)).ExecuteDeleteAsync();
         await ctx.Dashboards.Where(d => userIds.Contains(d.CreatorId)).ExecuteDeleteAsync();
+        // Règles puis catégories custom, explicitement : CategoryRule.Category est en Restrict et SQLite
+        // l'évalue pendant la cascade depuis User, une catégorie créée dans l'UI de démo avec une règle
+        // dessus ferait échouer la purge.
+        await ctx.CategoryRules.Where(cr => userIds.Contains(cr.UserId)).ExecuteDeleteAsync();
+        await ctx.Categories.Where(c => c.UserId != null && userIds.Contains(c.UserId.Value)).ExecuteDeleteAsync();
         await ctx.Users.Where(u => userIds.Contains(u.Id)).ExecuteDeleteAsync();
     }
 
