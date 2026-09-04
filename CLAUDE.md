@@ -15,7 +15,7 @@ dotnet ef migrations add <Name>   # Add a new migration after model changes
 dotnet ef migrations has-pending-model-changes   # Must say "No changes" before committing a model change
 
 cd ..
-dotnet test FinanceApp.Tests/FinanceApp.Tests.csproj   # xunit, ~240 tests, no database except a few SQLite in-memory fixtures
+dotnet test FinanceApp.Tests/FinanceApp.Tests.csproj   # xunit, ~320 tests, no database except a few SQLite in-memory fixtures
 ```
 
 ### Frontend (React 19 + Vite)
@@ -47,13 +47,13 @@ npm run test:headed
 
 ### Backend
 
-- **`Controllers/`** — 16 controllers on `ApiControllerBase` (which owns `GetUserId()`), plus `AuthController` (anonymous). `TransactionController` (~760 lines) carries CRUD, flags and the reporting endpoints, all of which delegate to `Services/Reporting`. `TradeRepublicExplorationController` is compiled in Debug only.
+- **`Controllers/`** — 18 controllers on `ApiControllerBase` (which owns `GetUserId()`), plus `AuthController` (anonymous). `TransactionController` (~760 lines) carries CRUD, flags and the reporting endpoints, all of which delegate to `Services/Reporting`. `TradeRepublicExplorationController` is compiled in Debug only.
 - **`Services/`** — Business logic, injected via DI. Two families:
-  - *Pure, static, tested without a database*: `BilanClassifier` and the `Reporting/*Builder` classes, `CategoryFlowHistory`, `Refunds`, `PersoScopeRouter`, `InternalTransferReconciler`, `PersonNameMatcher`, `BankAccountReconciler`, `CategoryRuleMatcher`, `InvestmentCalculator`, `LoanCalculator`, `TradeRepublicTimelineClassifier`, `TradeRepublicPortfolioParser`.
-  - *Stateful (DbContext or HTTP)*: `Reporting/ReportingService` and `Reporting/AccountBalanceService` (EF queries feeding the builders), `BankSyncService` (hosted service, syncs every 6h, imports and categorizes), `ProvisionService`, `GoCardlessClient`, `TradeRepublicClient`, `DashboardService`, `AccountService`, `InvitationService`, `EmailService`, `TokenService`.
-- **`Models/`** — 21 EF Core entities. Key relationships: `User → Account (logical) → Transaction`, `Dashboard → DashboardMember/DashboardAccount` (composite keys), `BankConnection → BankAccount (physical)`. Reporting is scoped by *logical* account through the dashboard; balances are carried by *physical* bank accounts.
+  - *Pure, static, tested without a database*: `BilanClassifier` and the `Reporting/*Builder` classes, `EcheanceStatusRules`, `FileSignature`, `CategoryFlowHistory`, `Refunds`, `PersoScopeRouter`, `InternalTransferReconciler`, `PersonNameMatcher`, `BankAccountReconciler`, `CategoryRuleMatcher`, `InvestmentCalculator`, `LoanCalculator`, `TradeRepublicTimelineClassifier`, `TradeRepublicPortfolioParser`.
+  - *Stateful (DbContext or HTTP)*: `Reporting/ReportingService` and `Reporting/AccountBalanceService` (EF queries feeding the builders), `BankSyncService` (hosted service, syncs every 6h, imports and categorizes), `ProvisionService`, `GoCardlessClient`, `TradeRepublicClient`, `DashboardService`, `AccountService`, `InvitationService`, `EmailService`, `TokenService`, `DocumentStorage` (disk only: staging in `.incoming`, SHA-256, move under `{year}/{id}.{ext}`).
+- **`Models/`** — 23 EF Core entities. Key relationships: `User → Account (logical) → Transaction`, `Dashboard → DashboardMember/DashboardAccount` (composite keys), `BankConnection → BankAccount (physical)`. Reporting is scoped by *logical* account through the dashboard; balances are carried by *physical* bank accounts.
 - **`DTOs/`** — DataAnnotations validation. Pattern: `CreateXDto` in, `XDto` out. Enums stored as text (`BankProvider`, `RecurringFrequency`, `TransactionType` on recurring) stay strings on the wire.
-- **`Data/AppDbContext.cs`** — all configuration in `OnModelCreating` (indexes, FKs, string conversions, seed of 10 default categories). 20 migrations since the July 2026 baseline.
+- **`Data/AppDbContext.cs`** — all configuration in `OnModelCreating` (indexes, FKs, string conversions, seed of 10 default categories). 21 migrations since the July 2026 baseline.
 
 **The one rule that decides where a transaction counts:** `Services/Reporting/BilanClassifier.cs`. Every aggregation (monthly report, summary, burn-down, category histories) goes through it. Change a bilan rule there and nowhere else, then add a test.
 
@@ -82,6 +82,8 @@ Secrets live outside git: `appsettings.Development.json` locally, `appsettings.P
 - `GoCardless.SecretId` / `GoCardless.SecretKey` — Open Banking EU
 - `Smtp.*` — used in Production only, Development logs emails instead
 - `TradeRepublic.DefaultHolder` — holder name written on imported investment lines
+- `Documents.Root` — required, the app refuses to start without it or if it resolves under `wwwroot/` (relative paths start at the content root, `data/documents` in dev, gitignored). Uploaded files live there as `{year}/{id}.{ext}`, named from the row id and typed from their first bytes, never from the client.
+- `Documents.MaxFileBytes` / `Documents.QuotaBytesPerDashboard` — 20 MiB per file, 2 GiB per dashboard by default. On the Pi, point `Documents.Root` next to `finance.db` and back both up together.
 
 Ports: backend `5000`, frontend `5173`. CORS allows `http://localhost:5173` only; in production the backend serves the frontend build from `wwwroot/` on the same origin.
 
