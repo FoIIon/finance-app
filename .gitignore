@@ -8,6 +8,9 @@ backend/**/*.db
 backend/**/*.db-journal
 backend/**/*.db-shm
 backend/**/*.db-wal
+tools/**/bin/
+tools/**/obj/
+tools/**/*.db
 
 # Frontend
 frontend/node_modules/

@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FinanceApp.SeedDemo;
 
-public record SeedSummary(int Users, int Dashboards, int Accounts, int Transactions, int RecurringTransactions);
+public record SeedSummary(int Users, int Dashboards, int Accounts, int BankAccounts, int Transactions, int RecurringTransactions);
 
 /// <summary>
 /// Remplit une base de dev avec un ménage de démonstration : deux utilisateurs, un dashboard commun,
@@ -21,6 +21,10 @@ public static class DemoSeeder
     public const string ExternalIdPrefix = "demo-";
     public const string CommonDashboardName = "Commun démo";
     public const int DefaultSeed = 20260904;
+
+    // IBAN de test à clé mod 97 valide, jamais ceux d'un vrai titulaire.
+    public const string SebIban = "BE68539007547034";
+    public const string AudreyIban = "BE62510007547061";
 
     private static readonly string[] RequiredCategories =
         { "Alimentation", "Transport", "Logement", "Loisirs", "Santé", "Éducation", "Shopping", "Salaire", "Freelance", "Autres" };
@@ -74,9 +78,35 @@ public static class DemoSeeder
             new DashboardAccount { DashboardId = common.Id, AccountId = sebPrimary.Id },
             new DashboardAccount { DashboardId = common.Id, AccountId = audreyPrimary.Id });
 
+        // Un compte bancaire physique par compte principal, porté par une connexion Manual : la sync de
+        // fond la saute sans appel externe (BankSyncService), donc aucun risque de toucher un quota
+        // GoCardless. Le compte lui-même n'est pas manuel, pour que les soldes et la couverture
+        // bancaire (période « Tout ») se comportent comme avec une vraie banque.
+        var sebConnection = DemoConnection(seb.Id, createdAt);
+        var audreyConnection = DemoConnection(audrey.Id, createdAt);
+        ctx.BankConnections.AddRange(sebConnection, audreyConnection);
+        await ctx.SaveChangesAsync();
+
+        var sebBank = DemoBankAccount(sebConnection.Id, seb.Id, "demo-account-seb", SebIban, "Compte à vue démo Seb");
+        var audreyBank = DemoBankAccount(audreyConnection.Id, audrey.Id, "demo-account-audrey", AudreyIban, "Compte à vue démo Audrey");
+        ctx.BankAccounts.AddRange(sebBank, audreyBank);
+        await ctx.SaveChangesAsync();
+
+        var bankAccountByLogical = new Dictionary<int, int>
+        {
+            [sebPrimary.Id] = sebBank.Id,
+            [audreyPrimary.Id] = audreyBank.Id,
+        };
         var generator = new TransactionGenerator(new Random(seed), today, categories,
-            sebPrimary.Id, sebPerso.Id, audreyPrimary.Id);
-        ctx.Transactions.AddRange(generator.Generate());
+            sebPrimary.Id, sebPerso.Id, audreyPrimary.Id, bankAccountByLogical);
+        var lines = generator.Generate();
+        ctx.Transactions.AddRange(lines);
+
+        // Solde booké = solde d'ouverture plausible + net des lignes, daté d'aujourd'hui, pour que la
+        // page des comptes et la courbe rétrospective aient quelque chose à montrer.
+        var asOf = today.ToDateTime(new TimeOnly(7, 0), DateTimeKind.Utc);
+        SetBalances(sebBank, 2350.18m, lines.Where(t => t.BankAccountId == sebBank.Id), asOf);
+        SetBalances(audreyBank, 1480.55m, lines.Where(t => t.BankAccountId == audreyBank.Id), asOf);
 
         var firstMonth = today.AddMonths(-3);
         var startOfWindow = new DateOnly(firstMonth.Year, firstMonth.Month, 1);
@@ -109,6 +139,42 @@ public static class DemoSeeder
         return await CountAsync(ctx);
     }
 
+    private static BankConnection DemoConnection(int userId, DateTime createdAt) => new()
+    {
+        UserId = userId,
+        Provider = BankProvider.Manual,
+        Status = BankConnectionStatus.Linked,
+        InstitutionId = "DEMO",
+        InstitutionName = "Banque démo",
+        InstitutionLogo = string.Empty,
+        RequisitionId = $"demo-requisition-{userId}",
+        Reference = $"demo-reference-{userId}",
+        CreatedAt = createdAt,
+        LastSyncAt = createdAt,
+    };
+
+    private static BankAccount DemoBankAccount(int connectionId, int userId, string externalId, string iban, string name) => new()
+    {
+        BankConnectionId = connectionId,
+        UserId = userId,
+        ExternalAccountId = externalId,
+        Iban = iban,
+        OwnerName = "Titulaire démo",
+        AccountName = name,
+        Currency = "EUR",
+        IsActive = true,
+        IsManual = false,
+        IsPersonal = false,
+    };
+
+    private static void SetBalances(BankAccount bank, decimal opening, IEnumerable<Transaction> lines, DateTime asOf)
+    {
+        var net = lines.Sum(t => t.Type == TransactionType.Income ? t.Amount : -t.Amount);
+        bank.BookedBalance = opening + net;
+        bank.RealBalance = bank.BookedBalance;
+        bank.BalanceUpdatedAt = asOf;
+    }
+
     /// <summary>
     /// Efface tout ce qui appartient aux utilisateurs de démo, dans l'ordre que les clés étrangères
     /// imposent. Les autres tables rattachées à un dashboard (budgets, enveloppes, prêts, invitations…)
@@ -119,10 +185,16 @@ public static class DemoSeeder
         var userIds = await ctx.Users.Where(u => u.Email.EndsWith(EmailDomain)).Select(u => u.Id).ToListAsync();
         var dashboardIds = await ctx.Dashboards.Where(d => userIds.Contains(d.CreatorId)).Select(d => d.Id).ToListAsync();
         var accountIds = await ctx.Accounts.Where(a => userIds.Contains(a.UserId)).Select(a => a.Id).ToListAsync();
+        var connectionIds = await ctx.BankConnections.Where(bc => userIds.Contains(bc.UserId)).Select(bc => bc.Id).ToListAsync();
 
         await ctx.Transactions
             .Where(t => accountIds.Contains(t.AccountId) || (t.ExternalId != null && t.ExternalId.StartsWith(ExternalIdPrefix)))
             .ExecuteDeleteAsync();
+        await ctx.BankAccounts
+            .Where(ba => (ba.BankConnectionId != null && connectionIds.Contains(ba.BankConnectionId.Value))
+                         || (ba.UserId != null && userIds.Contains(ba.UserId.Value)))
+            .ExecuteDeleteAsync();
+        await ctx.BankConnections.Where(bc => connectionIds.Contains(bc.Id)).ExecuteDeleteAsync();
         await ctx.DashboardAccounts
             .Where(da => dashboardIds.Contains(da.DashboardId) || accountIds.Contains(da.AccountId))
             .ExecuteDeleteAsync();
@@ -144,6 +216,7 @@ public static class DemoSeeder
             userIds.Count,
             await ctx.Dashboards.CountAsync(d => userIds.Contains(d.CreatorId)),
             await ctx.Accounts.CountAsync(a => userIds.Contains(a.UserId)),
+            await ctx.BankAccounts.CountAsync(ba => ba.UserId != null && userIds.Contains(ba.UserId.Value)),
             await ctx.Transactions.CountAsync(t => t.ExternalId != null && t.ExternalId.StartsWith(ExternalIdPrefix)),
             await ctx.RecurringTransactions.CountAsync(r => userIds.Contains(r.UserId)));
     }

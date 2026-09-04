@@ -28,11 +28,15 @@ public sealed class TransactionGenerator
     private readonly int _sebPrimary;
     private readonly int _sebPerso;
     private readonly int _audreyPrimary;
+    private readonly IReadOnlyDictionary<int, int> _bankAccountByLogical;
     private readonly List<Transaction> _lines = new();
     private int _next = 1;
 
+    /// <param name="bankAccountByLogical">Compte bancaire physique porté par chaque compte logique.
+    /// Les comptes absents (le Perso) produisent des lignes sans BankAccountId.</param>
     public TransactionGenerator(Random rng, DateOnly today, IReadOnlyDictionary<string, int> categories,
-        int sebPrimaryAccountId, int sebPersoAccountId, int audreyPrimaryAccountId)
+        int sebPrimaryAccountId, int sebPersoAccountId, int audreyPrimaryAccountId,
+        IReadOnlyDictionary<int, int>? bankAccountByLogical = null)
     {
         _rng = rng;
         _today = today;
@@ -41,6 +45,7 @@ public sealed class TransactionGenerator
         _sebPrimary = sebPrimaryAccountId;
         _sebPerso = sebPersoAccountId;
         _audreyPrimary = audreyPrimaryAccountId;
+        _bankAccountByLogical = bankAccountByLogical ?? new Dictionary<int, int>();
     }
 
     public List<Transaction> Generate()
@@ -191,6 +196,7 @@ public sealed class TransactionGenerator
             Type = type,
             CategoryId = _categories[category],
             AccountId = accountId,
+            BankAccountId = _bankAccountByLogical.TryGetValue(accountId, out var bankAccountId) ? bankAccountId : null,
             ExternalId = DemoSeeder.ExternalIdPrefix + _next++,
             IsImported = true,
             CounterpartyName = counterparty,
