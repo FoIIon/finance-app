@@ -123,9 +123,14 @@ public class EcheanceController : ApiControllerBase
         {
             // La transaction doit vivre sur un compte du dashboard : on ne prouve pas une échéance
             // du Commun avec une ligne du Perso.
-            var inScope = await _context.Transactions.AnyAsync(t => t.Id == dto.TransactionId.Value
-                && t.Account.DashboardAccounts.Any(da => da.DashboardId == echeance.DashboardId));
-            if (!inScope) return BadRequest("Transaction introuvable sur les comptes de ce dashboard.");
+            var candidate = await _context.Transactions
+                .Where(t => t.Id == dto.TransactionId.Value
+                         && t.Account.DashboardAccounts.Any(da => da.DashboardId == echeance.DashboardId))
+                .Select(t => new { t.IsProvisional })
+                .FirstOrDefaultAsync();
+            if (candidate == null) return BadRequest("Transaction introuvable sur les comptes de ce dashboard.");
+            // Une provision (salaire attendu, matérialisé en début de mois) n'est pas un paiement.
+            if (candidate.IsProvisional) return BadRequest("Une transaction provisionnelle ne prouve pas un paiement.");
 
             var alreadyProves = await _context.Echeances.AnyAsync(e => e.TransactionId == dto.TransactionId.Value && e.Id != id);
             if (alreadyProves) return Conflict("Cette transaction règle déjà une autre échéance.");
@@ -138,7 +143,15 @@ public class EcheanceController : ApiControllerBase
         echeance.TransactionId = dto.TransactionId;
         echeance.UpdatedAt = DateTime.UtcNow;
 
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Deux mises à jour concurrentes sur la même transaction : l'index unique tranche.
+            return Conflict("Cette transaction règle déjà une autre échéance.");
+        }
         return Ok(Map(echeance, Today));
     }
 

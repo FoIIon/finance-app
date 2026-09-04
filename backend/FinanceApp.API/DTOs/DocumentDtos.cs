@@ -33,15 +33,17 @@ public class UploadDocumentDto
     [Range(1990, 2100)]
     public int? FiscalYear { get; set; }
 
+    /// <summary>Nullable pour que [Required] morde : sur un enum non nullable, un formulaire sans kind donnerait Facture en silence.</summary>
     [Required]
-    public DocumentKind Kind { get; set; }
+    public DocumentKind? Kind { get; set; }
 }
 
 /// <summary>Remplacement des seules métadonnées modifiables. Le fichier lui-même ne change pas.</summary>
 public class UpdateDocumentDto
 {
+    /// <summary>Nullable pour que [Required] morde : sur un enum non nullable, un formulaire sans kind donnerait Facture en silence.</summary>
     [Required]
-    public DocumentKind Kind { get; set; }
+    public DocumentKind? Kind { get; set; }
 
     [Range(1990, 2100)]
     public int? FiscalYear { get; set; }

@@ -17,19 +17,32 @@ if (string.IsNullOrEmpty(jwtKey))
 
 // Même exigence pour la racine des documents : obligatoire, résolue depuis le ContentRoot, refusée
 // sous wwwroot. Le dossier est créé et .incoming nettoyé ici, au démarrage, pas à la première requête.
+// [RequestSizeLimit] sur l'envoi est une constante (DefaultMaxFileBytes) : une valeur configurée
+// au-dessus serait coupée par Kestrel avant d'arriver au contrôleur, on la ramène au plafond et on le dit.
+var configuredMaxFileBytes = builder.Configuration.GetValue<long?>("Documents:MaxFileBytes") ?? DocumentStorageOptions.DefaultMaxFileBytes;
+string? documentsWarning = null;
+if (configuredMaxFileBytes > DocumentStorageOptions.DefaultMaxFileBytes)
+{
+    documentsWarning = $"Documents:MaxFileBytes ({configuredMaxFileBytes}) dépasse le plafond de la requête ({DocumentStorageOptions.DefaultMaxFileBytes}), ramené au plafond.";
+    configuredMaxFileBytes = DocumentStorageOptions.DefaultMaxFileBytes;
+}
 var documentsOptions = new DocumentStorageOptions
 {
     Root = DocumentStorage.ResolveRoot(
         builder.Configuration["Documents:Root"],
         builder.Environment.ContentRootPath,
         builder.Environment.WebRootPath,
-        AppContext.BaseDirectory),
-    MaxFileBytes = builder.Configuration.GetValue<long?>("Documents:MaxFileBytes") ?? DocumentStorageOptions.DefaultMaxFileBytes,
+        AppContext.BaseDirectory,
+        builder.Environment.IsProduction()),
+    MaxFileBytes = configuredMaxFileBytes,
     QuotaBytesPerDashboard = builder.Configuration.GetValue<long?>("Documents:QuotaBytesPerDashboard") ?? DocumentStorageOptions.DefaultQuotaBytesPerDashboard,
 };
 builder.Services.AddSingleton(documentsOptions);
 builder.Services.AddSingleton(new DocumentStorage(documentsOptions));
-builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => o.MultipartBodyLengthLimit = documentsOptions.MaxFileBytes);
+// Un peu au-dessus de la limite du fichier : un fichier trop gros doit atteindre DocumentStorage, qui
+// répond 413 avec un message, au lieu d'un 400 du binder de formulaire.
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
+    o.MultipartBodyLengthLimit = documentsOptions.MaxFileBytes + DocumentStorageOptions.RequestOverheadBytes);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -150,6 +163,8 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+if (documentsWarning != null) app.Logger.LogWarning("{Message}", documentsWarning);
 
 if (app.Environment.IsDevelopment())
 {

@@ -19,10 +19,12 @@ public interface IDashboardService
 public class DashboardService : IDashboardService
 {
     private readonly AppDbContext _context;
+    private readonly DocumentStorage _documents;
 
-    public DashboardService(AppDbContext context)
+    public DashboardService(AppDbContext context, DocumentStorage documents)
     {
         _context = context;
+        _documents = documents;
     }
 
     public async Task<Dashboard> CreateDefaultDashboardForUser(int userId, int defaultAccountId)
@@ -124,7 +126,17 @@ public class DashboardService : IDashboardService
         if (dashboard.IsPersonal)
             throw new InvalidOperationException("Le dashboard personnel est structurel, il ne se supprime pas.");
 
+        // La cascade efface les lignes Documents, pas leurs fichiers : on relève les chemins avant,
+        // on efface après, un fichier déjà absent n'est pas une erreur.
+        var storedPaths = await _context.Documents
+            .Where(d => d.DashboardId == dashboardId)
+            .Select(d => d.StoredPath)
+            .ToListAsync();
+
         _context.Dashboards.Remove(dashboard);
         await _context.SaveChangesAsync();
+
+        foreach (var path in storedPaths)
+            _documents.Delete(path);
     }
 }
