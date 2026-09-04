@@ -75,8 +75,9 @@ public class DocumentController : ApiControllerBase
     {
         var userId = GetUserId();
         if (!await IsMemberAsync(dto.DashboardId, userId)) return NotFound();
-        if (dto.EcheanceId.HasValue && !await EcheanceInDashboardAsync(dto.EcheanceId.Value, dto.DashboardId))
-            return BadRequest("Échéance introuvable dans ce dashboard.");
+        // Une échéance d'un autre dashboard : 404, comme toute ligne hors périmètre.
+        if (dto.EcheanceId.HasValue && !await EcheanceInDashboardAsync(dto.EcheanceId.Value, dto.DashboardId)) return NotFound();
+        if (dto.Kind is null) return BadRequest("Nature du document manquante.");
         if (dto.File == null || dto.File.Length == 0) return BadRequest("Fichier manquant.");
 
         StageResult staged;
@@ -120,7 +121,7 @@ public class DocumentController : ApiControllerBase
             {
                 DashboardId = dto.DashboardId,
                 EcheanceId = dto.EcheanceId,
-                Kind = dto.Kind,
+                Kind = dto.Kind.Value,
                 FiscalYear = dto.FiscalYear,
                 OriginalFileName = DisplayName(dto.File.FileName),
                 ContentType = FileSignature.ContentType(file.Kind),
@@ -208,6 +209,8 @@ public class DocumentController : ApiControllerBase
         var disposition = new ContentDispositionHeaderValue("inline");
         disposition.SetHttpFileName(document.OriginalFileName);
         Response.Headers[HeaderNames.ContentDisposition] = disposition.ToString();
+        // Déjà posé par le middleware global, redit ici : ce contenu vient de l'extérieur, le navigateur ne devine rien.
+        Response.Headers[HeaderNames.XContentTypeOptions] = "nosniff";
 
         return File(stream, document.ContentType, enableRangeProcessing: true);
     }
@@ -218,10 +221,10 @@ public class DocumentController : ApiControllerBase
     {
         var document = await FindOwnedAsync(id, GetUserId());
         if (document == null) return NotFound();
-        if (dto.EcheanceId.HasValue && !await EcheanceInDashboardAsync(dto.EcheanceId.Value, document.DashboardId))
-            return BadRequest("Échéance introuvable dans ce dashboard.");
+        if (dto.EcheanceId.HasValue && !await EcheanceInDashboardAsync(dto.EcheanceId.Value, document.DashboardId)) return NotFound();
+        if (dto.Kind is null) return BadRequest("Nature du document manquante.");
 
-        document.Kind = dto.Kind;
+        document.Kind = dto.Kind.Value;
         document.FiscalYear = dto.FiscalYear;
         document.EcheanceId = dto.EcheanceId;
         await _context.SaveChangesAsync();

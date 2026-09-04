@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 
 namespace FinanceApp.API.Services;
 
@@ -13,7 +14,9 @@ public sealed class DocumentStorageOptions
     /// Plafond de la requête d'envoi (fichier plus champs du formulaire), posé par [RequestSizeLimit] qui
     /// exige une constante. Une valeur configurée au-dessus de DefaultMaxFileBytes n'a donc aucun effet.
     /// </summary>
-    public const long MaxRequestBytes = DefaultMaxFileBytes + 64 * 1024;
+    public const long MaxRequestBytes = DefaultMaxFileBytes + RequestOverheadBytes;
+    /// <summary>Marge pour les champs du formulaire et les frontières multipart autour du fichier.</summary>
+    public const long RequestOverheadBytes = 64 * 1024;
 
     public string Root { get; init; } = string.Empty;
     public long MaxFileBytes { get; init; } = DefaultMaxFileBytes;
@@ -63,11 +66,19 @@ public class DocumentStorage
     /// Résout Documents:Root. Obligatoire, même exigence que Jwt:Key. Un chemin relatif part du
     /// ContentRootPath. Refusé sous wwwroot (UseStaticFiles servirait chaque facture à qui en devine
     /// l'URL) et sur le dossier de l'application lui-même.
+    ///
+    /// En Production, refusé aussi s'il est relatif ou simplement sous le dossier de l'application :
+    /// le déploiement sur le Pi remplace ce dossier à chaque livraison (rotation app-old-*, purge au-delà
+    /// de deux), les lignes survivraient et chaque fichier répondrait 410. Le défaut « data/documents »
+    /// ne vaut donc qu'en développement.
     /// </summary>
-    public static string ResolveRoot(string? configured, string contentRootPath, string? webRootPath, string appBaseDirectory)
+    public static string ResolveRoot(string? configured, string contentRootPath, string? webRootPath, string appBaseDirectory, bool isProduction)
     {
         if (string.IsNullOrWhiteSpace(configured))
             throw new InvalidOperationException("Documents:Root non configuré. Renseigner Documents__Root (dossier hors de wwwroot).");
+
+        if (isProduction && !Path.IsPathRooted(configured))
+            throw new InvalidOperationException($"Documents:Root ({configured}) est relatif : en Production il doit être absolu et hors du dossier de l'application, qui est remplacé à chaque déploiement.");
 
         var root = Path.GetFullPath(Path.IsPathRooted(configured) ? configured : Path.Combine(contentRootPath, configured));
         var wwwroot = Path.GetFullPath(string.IsNullOrWhiteSpace(webRootPath) ? Path.Combine(contentRootPath, "wwwroot") : webRootPath);
@@ -76,6 +87,8 @@ public class DocumentStorage
             throw new InvalidOperationException($"Documents:Root ({root}) est sous wwwroot, qui est servi en clair. Choisir un dossier hors du site.");
         if (PathsEqual(root, contentRootPath) || PathsEqual(root, appBaseDirectory))
             throw new InvalidOperationException($"Documents:Root ({root}) est le dossier de l'application. Choisir un sous-dossier dédié.");
+        if (isProduction && (IsSameOrUnder(root, contentRootPath) || IsSameOrUnder(root, appBaseDirectory)))
+            throw new InvalidOperationException($"Documents:Root ({root}) est sous le dossier de l'application, remplacé à chaque déploiement : les fichiers seraient perdus. Le placer à côté de finance.db.");
 
         return root;
     }
@@ -175,11 +188,13 @@ public class DocumentStorage
     /// <summary>Efface le fichier d'une ligne déjà supprimée. Déjà absent : ce n'est pas une erreur.</summary>
     public void Delete(string storedPath) => TryDelete(Resolve(storedPath));
 
-    /// <summary>Chemin absolu d'un StoredPath, vérifié sous la racine.</summary>
+    /// <summary>La seule forme qu'un StoredPath écrit par Commit peut avoir. Tout autre contenu en base est une altération.</summary>
+    private static readonly Regex StoredPathShape = new(@"^\d{4}/\d+\.(pdf|jpg|png)$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>Chemin absolu d'un StoredPath, vérifié dans sa forme puis sous la racine.</summary>
     public string Resolve(string storedPath)
     {
-        if (string.IsNullOrWhiteSpace(storedPath) || Path.IsPathRooted(storedPath)
-            || storedPath.Split('/', '\\').Any(segment => segment is "" or "." or ".."))
+        if (string.IsNullOrWhiteSpace(storedPath) || !StoredPathShape.IsMatch(storedPath))
             throw new InvalidOperationException($"Chemin de document invalide : « {storedPath} ».");
 
         var full = Path.GetFullPath(Path.Combine(Root, storedPath));
