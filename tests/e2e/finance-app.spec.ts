@@ -344,4 +344,44 @@ test.describe.serial('FinanceApp E2E', () => {
     await dialog.getByRole('button', { name: 'Fermer' }).click();
     await expect(dialog).not.toBeVisible();
   });
+
+  test('Test 12 : Agenda, route par défaut, navigation et menu mobile', async () => {
+    // La racine mène désormais à l'agenda, l'écran qu'Audrey ouvre le matin.
+    await page.goto('/');
+    await page.waitForURL('**/agenda**');
+
+    // Le jour courant est rendu par le serveur (isToday) : en vue semaine il est toujours là.
+    // Aucune donnée de calendrier ni d'échéance n'est requise, le bloc existe même vide.
+    await expect(page.getByRole('heading', { name: /^Aujourd'hui/ })).toBeVisible({ timeout: 10000 });
+
+    // Hors période courante seulement : en vue semaine sur aujourd'hui, pas de bouton « Aujourd'hui ».
+    const todayButton = page.getByRole('button', { name: "Aujourd'hui", exact: true });
+    await expect(todayButton).toHaveCount(0);
+
+    // La vue vit dans l'URL, pour le retour arrière et le partage d'un lien.
+    await page.getByRole('button', { name: 'Mois', exact: true }).click();
+    await page.waitForURL(/view=month/);
+
+    // Le mois suivant ne contient pas aujourd'hui : le bouton apparaît, et le ramène.
+    await page.getByRole('button', { name: 'Période suivante' }).click();
+    await page.waitForURL(/anchor=\d{4}-\d{2}-\d{2}/);
+    await expect(todayButton).toBeVisible();
+    await todayButton.click();
+    await expect(page).not.toHaveURL(/anchor=/);
+    await expect(todayButton).toHaveCount(0);
+
+    // Sur un iPhone (390 × 664), la sidebar défile : « Déconnexion » reste atteignable au bas du menu.
+    await page.setViewportSize({ width: 390, height: 664 });
+    await page.getByRole('button', { name: 'Ouvrir le menu' }).click();
+    const logout = page.getByRole('button', { name: 'Déconnexion' });
+    await logout.scrollIntoViewIfNeeded();
+    await expect(logout).toBeInViewport();
+
+    // Aucun défilement horizontal à 390 px.
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+
+    await page.getByRole('button', { name: 'Fermer le menu' }).click();
+    await page.setViewportSize({ width: 1280, height: 1000 });
+  });
 });
