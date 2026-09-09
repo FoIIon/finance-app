@@ -73,9 +73,10 @@ internal static class AgendaTestSupport
     public static string FamilleIcs() =>
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "famille.ics"));
 
+    /// <summary>Les options telles qu'appsettings.json les pose : la classe n'a pas de défaut pour AllowedHosts.</summary>
     public static CalendarOptions Options(Action<CalendarOptions>? tune = null)
     {
-        var o = new CalendarOptions();
+        var o = new CalendarOptions { AllowedHosts = new[] { "calendar.google.com" } };
         tune?.Invoke(o);
         return o;
     }
