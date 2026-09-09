@@ -112,7 +112,10 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.getByRole('button', { name: 'Se connecter' }).click();
 
     // Vérifier qu'on est de retour sur le dashboard
-    await page.waitForURL('**/dashboard/**');
+    // La racine ouvre l'Agenda depuis le lot 2 (09/09/2026) : le tableau de bord se rejoint explicitement.
+    await page.waitForURL('**/agenda');
+    await page.goto('/dashboard/overview');
+    await page.waitForURL('**/dashboard/overview');
     await expect(page.getByRole('heading', { name: 'Dernières transactions' })).toBeVisible({ timeout: 10000 });
   });
 
@@ -195,6 +198,9 @@ test.describe.serial('FinanceApp E2E', () => {
 
   test('Test 6 : Vérifier le dashboard', async () => {
     await page.goto('/');
+    // La racine ouvre l'Agenda depuis le lot 2 (09/09/2026) : le tableau de bord se rejoint explicitement.
+    await page.waitForURL('**/agenda');
+    await page.goto('/dashboard/overview');
     await page.waitForURL('**/dashboard/overview');
 
     // Vérifier que les cartes résumé sont affichées
