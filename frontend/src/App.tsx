@@ -20,6 +20,7 @@ const DashboardIncome = lazy(() => import('./pages/dashboard/Income'));
 const DashboardFlows = lazy(() => import('./pages/dashboard/Flows'));
 const DashboardProjects = lazy(() => import('./pages/dashboard/Projects'));
 const DashboardTriage = lazy(() => import('./pages/dashboard/Triage'));
+const Agenda = lazy(() => import('./pages/Agenda'));
 const Transactions = lazy(() => import('./pages/Transactions'));
 const Categories = lazy(() => import('./pages/Categories'));
 const Envelopes = lazy(() => import('./pages/Envelopes'));
@@ -57,7 +58,8 @@ const App = () => {
                     </ProtectedRoute>
                   }
                 >
-                  <Route path="/" element={<Navigate to="/dashboard/overview" replace />} />
+                  <Route path="/" element={<Navigate to="/agenda" replace />} />
+                  <Route path="/agenda" element={<Agenda />} />
                   <Route path="/dashboard" element={<Dashboard />}>
                     <Route index element={<Navigate to="overview" replace />} />
                     <Route path="overview" element={<DashboardOverview />} />
@@ -78,7 +80,7 @@ const App = () => {
                   <Route path="/dashboard-settings" element={<DashboardSettings />} />
                   <Route path="/recurring" element={<RecurringTransactions />} />
                 </Route>
-                <Route path="*" element={<Navigate to="/dashboard/overview" replace />} />
+                <Route path="*" element={<Navigate to="/agenda" replace />} />
               </Routes>
             </Suspense>
           </BrowserRouter>
