@@ -79,7 +79,7 @@ public class CalendarSyncServiceTests : IDisposable
         // y est, l'anniversaire d'août aussi, et tout est rattaché au dashboard.
         using var check = NewContext();
         var occurrences = await check.CalendarOccurrences.Where(o => o.DashboardId == h.DashboardId).ToListAsync();
-        Assert.Equal(27, occurrences.Count);
+        Assert.Equal(35,occurrences.Count);
         Assert.Contains(occurrences, o => o.Uid == "feu-artifice-0004@test.invalid");
         Assert.DoesNotContain(JsonSerializer.Serialize(occurrences.Select(o => new { o.Summary, o.Location, o.Uid })), "SECRETDESCRIPTION");
     }
@@ -95,11 +95,11 @@ public class CalendarSyncServiceTests : IDisposable
             await AgendaTestSupport.AddSourceAsync(ctx, h.DashboardId, AgendaTestSupport.Protect(protection, SecretUrl));
 
         await sync.SyncDashboardAsync(h.DashboardId, CancellationToken.None);
-        Assert.Equal(27, await OccurrencesAsync(h.DashboardId));
+        Assert.Equal(35,await OccurrencesAsync(h.DashboardId));
 
-        // Le même flux une deuxième fois : même compte, pas 54.
+        // Le même flux une deuxième fois : même compte, pas 70.
         await sync.SyncDashboardAsync(h.DashboardId, CancellationToken.None);
-        Assert.Equal(27, await OccurrencesAsync(h.DashboardId));
+        Assert.Equal(35,await OccurrencesAsync(h.DashboardId));
 
         // Un flux réduit à un événement : tout le reste disparaît.
         reponse = """
@@ -139,7 +139,7 @@ public class CalendarSyncServiceTests : IDisposable
 
         Assert.Equal(2, fetcher.Calls.Count);
         Assert.Equal(CalendarSyncStatus.Ok, (await SourceAsync(a.DashboardId)).LastSyncStatus);
-        Assert.Equal(27, await OccurrencesAsync(a.DashboardId));
+        Assert.Equal(35,await OccurrencesAsync(a.DashboardId));
         // La source malade garde son état : rien n'a été écrit dans le doute.
         Assert.Equal(CalendarSyncStatus.Pending, (await SourceAsync(b.DashboardId)).LastSyncStatus);
         Assert.Equal(0, await OccurrencesAsync(b.DashboardId));
@@ -156,7 +156,7 @@ public class CalendarSyncServiceTests : IDisposable
             await AgendaTestSupport.AddSourceAsync(ctx, h.DashboardId, AgendaTestSupport.Protect(protection, SecretUrl));
 
         await sync.SyncDashboardAsync(h.DashboardId, CancellationToken.None);
-        Assert.Equal(27, await OccurrencesAsync(h.DashboardId));
+        Assert.Equal(35,await OccurrencesAsync(h.DashboardId));
 
         reponse = IcsFetchResult.Fail(CalendarSyncStatus.HttpError, "HTTP 404.");
         await sync.SyncDashboardAsync(h.DashboardId, CancellationToken.None);
@@ -164,13 +164,13 @@ public class CalendarSyncServiceTests : IDisposable
         Assert.Equal(CalendarSyncStatus.HttpError, source.LastSyncStatus);
         Assert.Equal("HTTP 404.", source.LastError);
         Assert.Equal("Famille", source.CalendarName);
-        Assert.Equal(27, await OccurrencesAsync(h.DashboardId));
+        Assert.Equal(35,await OccurrencesAsync(h.DashboardId));
         AssertNoSecret(source);
 
         reponse = IcsFetchResult.Fail(CalendarSyncStatus.Invalid, "Le contenu n'est pas un flux iCalendar.");
         await sync.SyncDashboardAsync(h.DashboardId, CancellationToken.None);
         Assert.Equal(CalendarSyncStatus.Invalid, (await SourceAsync(h.DashboardId)).LastSyncStatus);
-        Assert.Equal(27, await OccurrencesAsync(h.DashboardId));
+        Assert.Equal(35,await OccurrencesAsync(h.DashboardId));
     }
 
     [Fact]

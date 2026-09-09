@@ -111,7 +111,7 @@ public class CalendarAgendaControllerTests : IDisposable
         Assert.NotEqual(SecretUrl, source.EncryptedUrl);
         Assert.DoesNotContain("SECRET", source.EncryptedUrl);
         Assert.Equal(SecretUrl, _protection.CreateProtector(CalendarSyncService.ProtectorPurpose).Unprotect(source.EncryptedUrl));
-        Assert.Equal(27, await check.CalendarOccurrences.CountAsync(o => o.DashboardId == _a.DashboardId));
+        Assert.Equal(35,await check.CalendarOccurrences.CountAsync(o => o.DashboardId == _a.DashboardId));
         Assert.Single(_fetcher.Calls);
     }
 
@@ -125,7 +125,7 @@ public class CalendarAgendaControllerTests : IDisposable
 
         using var check = NewContext();
         Assert.Equal(1, await check.CalendarSources.CountAsync());
-        Assert.Equal(27, await check.CalendarOccurrences.CountAsync());
+        Assert.Equal(35,await check.CalendarOccurrences.CountAsync());
         Assert.Equal(new[] { SecretPath, "/calendar/ical/autre/basic.ics" }, _fetcher.Calls);
     }
 
@@ -171,7 +171,7 @@ public class CalendarAgendaControllerTests : IDisposable
 
         // B a toujours sa source et ses occurrences.
         Assert.Equal(1, await ctx.CalendarSources.CountAsync(s => s.DashboardId == _b.DashboardId));
-        Assert.Equal(27, await ctx.CalendarOccurrences.CountAsync(o => o.DashboardId == _b.DashboardId));
+        Assert.Equal(35,await ctx.CalendarOccurrences.CountAsync(o => o.DashboardId == _b.DashboardId));
     }
 
     [Fact]

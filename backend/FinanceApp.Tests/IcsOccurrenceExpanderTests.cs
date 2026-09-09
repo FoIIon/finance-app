@@ -21,6 +21,7 @@ public class IcsOccurrenceExpanderTests
     private const string Reunion = "reunion-parents-0005@test.invalid";
     private const string Anniversaire = "anniv-emma-0006@test.invalid";
     private const string Flottant = "flottant-0007@test.invalid";
+    private const string Kine = "kine-quinzaine-0008@test.invalid";
 
     private static readonly Lazy<IcsExpansion> Expanded = new(() =>
         IcsOccurrenceExpander.Expand(AgendaTestSupport.FamilleIcs(), FromUtc, ToUtc, AgendaTestSupport.Brussels, AgendaTestSupport.Options()));
@@ -147,7 +148,32 @@ public class IcsOccurrenceExpanderTests
     {
         Assert.Null(Of(Piscine)[0].Location);
         Assert.Equal("Salle des fêtes", Of(Danse)[0].Location);
-        Assert.Equal(27, Expanded.Value.Occurrences.Count);
+        Assert.Equal(35, Expanded.Value.Occurrences.Count);
+    }
+
+    [Fact]
+    public void SerieUneSemaineSurDeux_RecurrenceNone_NiRoutineNiManquant()
+    {
+        // FREQ=WEEKLY;INTERVAL=2 : huit mercredis du 4 novembre au 10 février, un sur deux. Ce n'est pas de
+        // la routine hebdomadaire, et le builder ne doit pas produire « Pas de Kiné » les mercredis creux.
+        var kine = Of(Kine);
+        Assert.Equal(8, kine.Count);
+        Assert.All(kine, o => Assert.Equal(CalendarRecurrence.None, o.Recurrence));
+        Assert.Equal(new DateOnly(2026, 11, 4), kine[0].LocalDate);
+        Assert.Equal(new DateOnly(2026, 11, 18), kine[1].LocalDate);
+        Assert.Equal(new DateOnly(2027, 2, 10), kine[7].LocalDate);
+
+        var items = FinanceApp.API.Services.Reporting.AgendaProjectors.FromCalendar(kine);
+        var today = new DateOnly(2027, 1, 20); // cinq séances passées, assez pour qu'une série hebdomadaire déclenche les manquants
+        var semaineAvec = FinanceApp.API.Services.Reporting.AgendaBuilder.Build(new DateOnly(2026, 11, 4), new DateOnly(2026, 11, 10), today, FinanceApp.API.Services.Reporting.AgendaView.Week, items);
+        var mercredi4 = Assert.Single(semaineAvec.Days, d => d.Date == new DateOnly(2026, 11, 4));
+        Assert.Equal("Kiné Hugo", Assert.Single(mercredi4.Items).Title);
+        Assert.False(mercredi4.Items[0].IsRoutine);
+        Assert.Empty(mercredi4.Routine);
+
+        var semaineCreuse = FinanceApp.API.Services.Reporting.AgendaBuilder.Build(new DateOnly(2026, 11, 11), new DateOnly(2026, 11, 17), today, FinanceApp.API.Services.Reporting.AgendaView.Week, items);
+        Assert.All(semaineCreuse.Days, d => Assert.Empty(d.Routine));
+        Assert.DoesNotContain(semaineCreuse.Days.SelectMany(d => d.Items.Concat(d.Routine)), i => i.Kind == "missing");
     }
 
     [Fact]
