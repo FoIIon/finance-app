@@ -10,8 +10,13 @@ public sealed class CalendarOptions
 {
     public const string SectionName = "Calendar";
 
-    /// <summary>Hôtes acceptés pour l'adresse ICS, égalité stricte insensible à la casse.</summary>
-    public string[] AllowedHosts { get; set; } = { "calendar.google.com" };
+    /// <summary>
+    /// Hôtes acceptés pour l'adresse ICS, égalité stricte insensible à la casse. Sans valeur par défaut
+    /// ici : la liaison de configuration concatène un tableau d'appsettings à celui de la classe, un hôte
+    /// configuré ne pouvait jamais retirer le défaut (et le message de refus listait l'hôte deux fois). Le
+    /// défaut vit dans appsettings.json, et la validation au démarrage refuse une liste vide.
+    /// </summary>
+    public string[] AllowedHosts { get; set; } = Array.Empty<string>();
     public long MaxBytes { get; set; } = 10 * 1024 * 1024;
     public int MaxOccurrencesPerEvent { get; set; } = 400;
     public int MaxOccurrences { get; set; } = 20_000;
