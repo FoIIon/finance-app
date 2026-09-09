@@ -1,7 +1,7 @@
 {
-  "name": "Finance",
-  "short_name": "Finance",
-  "description": "Suivi des finances de la famille",
+  "name": "Foyer",
+  "short_name": "Foyer",
+  "description": "L'agenda, les échéances et les papiers du ménage",
   "lang": "fr",
   "start_url": "/",
   "scope": "/",
