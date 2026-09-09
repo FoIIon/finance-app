@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { categoriesApi } from '../api/categories';
 import { useContext } from 'react';
 import { transactionsApi } from '../api/transactions';
@@ -7,6 +7,9 @@ import { projectEnvelopesApi } from '../api/projectEnvelopes';
 import { shoppingItemsApi } from '../api/shoppingItems';
 import { investmentsApi } from '../api/investments';
 import { loansApi } from '../api/loans';
+import { agendaApi, echeancesApi } from '../api/agenda';
+import { calendarApi } from '../api/calendar';
+import type { AgendaView } from '../types/agenda';
 import type { Period } from '../utils/periods';
 import { periodToRange } from '../utils/periods';
 import { PeriodContext } from '../context/period-context';
@@ -205,6 +208,46 @@ export const useLoanScheduleQuery = (loanId: number | undefined, months?: number
     enabled: !!loanId,
     queryFn: async () => {
       const res = await loansApi.getSchedule(loanId!, months);
+      return res.data;
+    },
+  });
+
+// ---------------------------------------------------------------------------------------------
+// Lot 2 Agenda. Clés ['agenda', dashboardId, …] et ['calendar-source', dashboardId] : une
+// mutation d'échéance ou de calendrier invalide par préfixe.
+// ---------------------------------------------------------------------------------------------
+
+/** L'agenda d'un dashboard. anchor absent : le serveur prend aujourd'hui. staleTime court, l'écran vit dans la journée. */
+export const useAgendaQuery = (dashboardId: number | undefined, view: AgendaView, anchor: string | undefined) =>
+  useQuery({
+    queryKey: ['agenda', dashboardId, view, anchor],
+    enabled: !!dashboardId,
+    staleTime: 60 * 1000,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const res = await agendaApi.get(dashboardId!, view, anchor);
+      return res.data;
+    },
+  });
+
+/** État de la source de calendrier, sans l'adresse. */
+export const useCalendarSourceQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['calendar-source', dashboardId],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      const res = await calendarApi.getSource(dashboardId!);
+      return res.data;
+    },
+  });
+
+/** Une échéance complète, chargée quand la feuille basse s'ouvre. */
+export const useEcheanceQuery = (id: number | undefined) =>
+  useQuery({
+    queryKey: ['echeance', id],
+    enabled: !!id,
+    queryFn: async () => {
+      const res = await echeancesApi.getById(id!);
       return res.data;
     },
   });
