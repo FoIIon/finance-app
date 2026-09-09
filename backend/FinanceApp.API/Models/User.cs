@@ -9,6 +9,8 @@ public class User
     public string? EmailConfirmationToken { get; set; }
     public DateTime? EmailConfirmationTokenExpiry { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>Dernière requête authentifiée, UTC, écrite au plus une fois toutes les cinq minutes (LastSeenMiddleware).</summary>
+    public DateTime? LastSeenAt { get; set; }
 
     public ICollection<Account> Accounts { get; set; } = new List<Account>();
     public ICollection<Category> Categories { get; set; } = new List<Category>();

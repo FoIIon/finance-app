@@ -30,6 +30,8 @@ public class AppDbContext : DbContext
     public DbSet<Loan> Loans => Set<Loan>();
     public DbSet<Echeance> Echeances => Set<Echeance>();
     public DbSet<Document> Documents => Set<Document>();
+    public DbSet<CalendarSource> CalendarSources => Set<CalendarSource>();
+    public DbSet<CalendarOccurrence> CalendarOccurrences => Set<CalendarOccurrence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -570,6 +572,63 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<Document>()
             .HasIndex(d => new { d.DashboardId, d.FiscalYear });
+
+        // CalendarSource : l'adresse ICS d'un dashboard, chiffrée, une par dashboard (index unique), dans sa
+        // propre table. LastError est borné : il ne porte jamais l'adresse.
+        modelBuilder.Entity<CalendarSource>()
+            .Property(s => s.LastSyncStatus)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+        modelBuilder.Entity<CalendarSource>()
+            .Property(s => s.CalendarName)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CalendarSource>()
+            .Property(s => s.LastError)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CalendarSource>()
+            .HasOne(s => s.Dashboard)
+            .WithMany()
+            .HasForeignKey(s => s.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<CalendarSource>()
+            .HasIndex(s => s.DashboardId)
+            .IsUnique();
+
+        // CalendarOccurrence : remplacées en bloc à chaque synchronisation. Une occurrence par instant et
+        // par série (index unique), lecture par jour local.
+        modelBuilder.Entity<CalendarOccurrence>()
+            .Property(o => o.Uid)
+            .HasMaxLength(300);
+
+        modelBuilder.Entity<CalendarOccurrence>()
+            .Property(o => o.Summary)
+            .HasMaxLength(300);
+
+        modelBuilder.Entity<CalendarOccurrence>()
+            .Property(o => o.Location)
+            .HasMaxLength(300);
+
+        modelBuilder.Entity<CalendarOccurrence>()
+            .Property(o => o.Recurrence)
+            .HasConversion<string>()
+            .HasMaxLength(10);
+
+        modelBuilder.Entity<CalendarOccurrence>()
+            .HasOne(o => o.Dashboard)
+            .WithMany()
+            .HasForeignKey(o => o.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<CalendarOccurrence>()
+            .HasIndex(o => new { o.DashboardId, o.Uid, o.OccurrenceStart })
+            .IsUnique();
+
+        modelBuilder.Entity<CalendarOccurrence>()
+            .HasIndex(o => new { o.DashboardId, o.LocalDate });
 
         modelBuilder.Entity<Category>().HasData(
             new Category { Id = 1, Name = "Alimentation", Icon = "\uD83C\uDF55", Color = "#FF6384", IsDefault = true },
