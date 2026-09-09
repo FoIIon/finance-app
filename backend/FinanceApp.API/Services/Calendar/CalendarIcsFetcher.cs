@@ -72,6 +72,12 @@ public sealed class CalendarIcsFetcher : ICalendarIcsFetcher
             return IcsFetchResult.Fail(CalendarSyncStatus.HttpError,
                 ex.StatusCode.HasValue ? $"HTTP {(int)ex.StatusCode.Value}." : "Serveur injoignable.");
         }
+        catch (IOException)
+        {
+            // Le corps s'est coupé pendant la lecture : un échec de téléchargement comme un autre, pas un
+            // 500 sur PUT ni une source laissée en Ok obsolète par le service de fond.
+            return IcsFetchResult.Fail(CalendarSyncStatus.HttpError, "Connexion interrompue.");
+        }
     }
 
     /// <summary>Lit au plus <paramref name="maxBytes"/> octets. Null si le flux en contient davantage.</summary>

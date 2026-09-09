@@ -94,6 +94,42 @@ public class CalendarIcsFetcherTests
         Assert.Equal("Serveur injoignable.", result.Error);
     }
 
+    /// <summary>Un corps qui se coupe pendant la lecture, après des en-têtes 200 corrects.</summary>
+    private sealed class FluxCoupe : Stream
+    {
+        private bool _first = true;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_first)
+            {
+                _first = false;
+                var head = "BEGIN:VCALENDAR\r\n"u8;
+                head.CopyTo(buffer.AsSpan(offset));
+                return head.Length;
+            }
+            throw new IOException("The response ended prematurely (private-SECRET).");
+        }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task FluxCoupePendantLaLecture_EstHttpError_SansMessageDException()
+    {
+        var (fetcher, _) = Build(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new FluxCoupe()) });
+        var result = await fetcher.FetchAsync(Url, CancellationToken.None);
+        Assert.Equal(CalendarSyncStatus.HttpError, result.Status);
+        Assert.Equal("Connexion interrompue.", result.Error);
+        Assert.Null(result.Ics);
+    }
+
     [Fact]
     public async Task DelaiDepasse_EstHttpError()
     {
