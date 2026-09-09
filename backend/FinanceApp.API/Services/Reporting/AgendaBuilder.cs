@@ -7,8 +7,8 @@ namespace FinanceApp.API.Services.Reporting;
 /// contrôleur charge et projette, ce builder applique les règles. Toutes vivent ici et sont testées,
 /// aucune n'est en React.
 ///
-/// Règles : la routine est un événement d'une série hebdomadaire hors exception. Un impayé antérieur à
-/// la fenêtre est porté dans le jour courant avec sa date d'origine, et le jour courant est ajouté en
+/// Règles : la routine est un événement d'une série hebdomadaire hors exception. Un impayé hors de la
+/// fenêtre est porté dans le jour courant avec sa date d'origine, et le jour courant est ajouté en
 /// tête s'il est hors fenêtre. Une série hebdomadaire d'au moins trois occurrences passées qui manque
 /// un jour de sa semaine produit « Pas de … » (entre sa première et sa dernière occurrence connues).
 /// En vue mois, les jours consécutifs sans rien, passés ou futurs, sont repliés en plages vides, jamais
@@ -29,9 +29,11 @@ public static class AgendaBuilder
 
         var missing = MissingOccurrences(all, from, to, today);
 
-        // Retards portés : un impayé antérieur à la fenêtre ne sort jamais de l'écran avec la période.
-        var carried = CarryLate(all, i => i.Date < from, today);
-        var placed = all.Where(i => !(i.Status == AgendaStatuses.Late && i.Date < from)).Concat(missing).ToLookup(i => i.Date);
+        // Retards portés : un impayé hors de la fenêtre, avant ou après, ne sort jamais de l'écran avec la
+        // période. En regardant un mois passé, un retard daté entre ce mois et aujourd'hui ne serait sinon
+        // sur aucun écran.
+        var carried = CarryLate(all, i => i.Date < from || i.Date > to, today);
+        var placed = all.Where(i => !(i.Status == AgendaStatuses.Late && (i.Date < from || i.Date > to))).Concat(missing).ToLookup(i => i.Date);
 
         var days = new List<AgendaDay>();
         var emptyRanges = new List<AgendaEmptyRange>();
