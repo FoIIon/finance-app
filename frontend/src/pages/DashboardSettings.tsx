@@ -5,6 +5,7 @@ import { dashboardsApi } from '../api/dashboards';
 import { accountsApi } from '../api/accounts';
 import { invitationsApi } from '../api/invitations';
 import type { DashboardDetail, Account, Invitation } from '../types/dashboard';
+import { CalendarSourceSection } from '../components/agenda/CalendarSourceSection';
 
 const DashboardSettings = () => {
   const { currentDashboard, refreshDashboards, setCurrentDashboard, dashboards } = useDashboards();
@@ -143,15 +144,15 @@ const DashboardSettings = () => {
 
   return (
     <div className="space-y-8 animate-[fadeIn_0.5s_ease-out] max-w-3xl">
-      <h2 className="text-3xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+      <h2 className="text-2xl md:text-3xl font-bold text-white break-words" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
         Paramètres — {detail?.name}
       </h2>
 
       {/* Renommer */}
-      <section className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6">
+      <section className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4 sm:p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Nom du dashboard</h3>
         {isEditingName ? (
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <input
               type="text"
               value={editName}
@@ -176,11 +177,11 @@ const DashboardSettings = () => {
       </section>
 
       {/* Comptes liés */}
-      <section className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6">
+      <section className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4 sm:p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Comptes liés</h3>
         <div className="space-y-2 mb-4">
           {detail?.accounts.map((a) => (
-            <div key={a.id} className="flex items-center justify-between py-2 px-3 rounded-xl bg-white/5">
+            <div key={a.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 px-3 rounded-xl bg-white/5">
               <span className="text-white/70">{a.name}</span>
               <button
                 onClick={() => handleRemoveAccount(a.id)}
@@ -214,7 +215,7 @@ const DashboardSettings = () => {
 
         {/* Créer un nouveau compte */}
         <div className="border-t border-white/10 pt-4 mt-4">
-          <form onSubmit={handleCreateAccount} className="flex gap-2">
+          <form onSubmit={handleCreateAccount} className="flex flex-col sm:flex-row gap-2">
             <input
               type="text"
               value={newAccountName}
@@ -234,12 +235,12 @@ const DashboardSettings = () => {
       </section>
 
       {/* Membres */}
-      <section className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6">
+      <section className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4 sm:p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Membres</h3>
         <div className="space-y-2 mb-4">
           {detail?.members.map((m) => (
-            <div key={m.userId} className="flex items-center justify-between py-2 px-3 rounded-xl bg-white/5">
-              <span className="text-white/70">{m.email}</span>
+            <div key={m.userId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 px-3 rounded-xl bg-white/5">
+              <span className="text-white/70 break-all">{m.email}</span>
               <span className="text-white/30 text-sm">
                 Membre depuis {new Date(m.joinedAt).toLocaleDateString('fr-FR')}
               </span>
@@ -255,7 +256,7 @@ const DashboardSettings = () => {
               {inviteMessage}
             </div>
           )}
-          <form onSubmit={handleInvite} className="flex gap-2">
+          <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-2">
             <input
               type="email"
               value={inviteEmail}
@@ -280,7 +281,7 @@ const DashboardSettings = () => {
             <p className="text-white/40 text-sm mb-2">Invitations en attente :</p>
             <div className="space-y-2">
               {invitations.map((inv) => (
-                <div key={inv.id} className="flex items-center justify-between py-2 px-3 rounded-xl bg-white/5">
+                <div key={inv.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 px-3 rounded-xl bg-white/5">
                   <div>
                     <span className="text-white/70 text-sm">{inv.invitedEmail}</span>
                     <span className="text-white/30 text-xs ml-2">
@@ -300,15 +301,18 @@ const DashboardSettings = () => {
         )}
       </section>
 
+      {/* Calendrier familial : la source ICS, jamais réaffichée */}
+      <CalendarSourceSection dashboardId={currentDashboard.id} />
+
       {/* Supprimer */}
       {detail?.isCreator && (
-        <section className="bg-red-500/5 backdrop-blur-xl rounded-2xl border border-red-500/20 p-6">
+        <section className="bg-red-500/5 backdrop-blur-xl rounded-2xl border border-red-500/20 p-4 sm:p-6">
           <h3 className="text-lg font-semibold text-red-400 mb-2">Zone dangereuse</h3>
           <p className="text-white/40 text-sm mb-4">
             La suppression du dashboard est irréversible.
           </p>
           {deleteConfirm ? (
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <button
                 onClick={handleDelete}
                 className="px-4 py-2 rounded-xl bg-red-500 text-white font-medium hover:bg-red-600 transition-colors"
