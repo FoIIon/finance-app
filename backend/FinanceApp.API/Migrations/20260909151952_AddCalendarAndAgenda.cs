@@ -57,6 +57,7 @@ namespace FinanceApp.API.Migrations
                     EncryptedUrl = table.Column<string>(type: "TEXT", nullable: false),
                     CalendarName = table.Column<string>(type: "TEXT", maxLength: 200, nullable: true),
                     LastSyncAt = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    LastAttemptAt = table.Column<DateTime>(type: "TEXT", nullable: true),
                     LastSyncStatus = table.Column<string>(type: "TEXT", maxLength: 20, nullable: false),
                     LastError = table.Column<string>(type: "TEXT", maxLength: 200, nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)

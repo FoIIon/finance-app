@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FinanceApp.API.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260909113637_AddCalendarAndAgenda")]
+    [Migration("20260909151952_AddCalendarAndAgenda")]
     partial class AddCalendarAndAgenda
     {
         /// <inheritdoc />
@@ -310,6 +310,9 @@ namespace FinanceApp.API.Migrations
 
                     b.Property<string>("EncryptedUrl")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastAttemptAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("LastError")

@@ -87,7 +87,10 @@ public sealed class AgendaCalendarStatus
 {
     public bool Connected { get; set; }
     public string? CalendarName { get; set; }
+    /// <summary>Dernière synchronisation réussie. Null tant qu'aucune n'a abouti.</summary>
     public DateTime? LastSyncAt { get; set; }
+    /// <summary>Dernière tentative, réussie ou non.</summary>
+    public DateTime? LastAttemptAt { get; set; }
     public string? LastSyncStatus { get; set; }
     public string? LastError { get; set; }
 
@@ -97,10 +100,13 @@ public sealed class AgendaCalendarStatus
         {
             Connected = true,
             CalendarName = source.CalendarName,
-            LastSyncAt = source.LastSyncAt.HasValue ? DateTime.SpecifyKind(source.LastSyncAt.Value, DateTimeKind.Utc) : null,
+            LastSyncAt = Utc(source.LastSyncAt),
+            LastAttemptAt = Utc(source.LastAttemptAt),
             LastSyncStatus = source.LastSyncStatus.ToString(),
             LastError = source.LastError,
         };
+
+    private static DateTime? Utc(DateTime? value) => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : null;
 }
 
 public sealed class AgendaResult

@@ -13,7 +13,10 @@ public class CalendarSource
     public string EncryptedUrl { get; set; } = string.Empty;
     /// <summary>X-WR-CALNAME du flux, relu à chaque synchronisation.</summary>
     public string? CalendarName { get; set; }
+    /// <summary>Dernière synchronisation réussie (UTC). Ne bouge pas sur un échec.</summary>
     public DateTime? LastSyncAt { get; set; }
+    /// <summary>Dernière tentative (UTC), réussie ou non. C'est elle qui dit « vu il y a 10 min ».</summary>
+    public DateTime? LastAttemptAt { get; set; }
     public CalendarSyncStatus LastSyncStatus { get; set; } = CalendarSyncStatus.Pending;
     /// <summary>Raison courte de la dernière anomalie. Jamais une URL, jamais un fragment de l'URL.</summary>
     public string? LastError { get; set; }
