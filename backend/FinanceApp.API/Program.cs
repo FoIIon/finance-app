@@ -3,9 +3,11 @@ using System.Text;
 using System.Threading.RateLimiting;
 using FinanceApp.API.Data;
 using FinanceApp.API.Services;
+using FinanceApp.API.Services.Calendar;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -91,6 +93,30 @@ builder.Services.AddSingleton<TradeRepublicAuthStore>();
 builder.Services.AddSingleton<BankSyncService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BankSyncService>());
 
+// Lot 2 Agenda. Fuseau du ménage et bornes du calendrier, validés au démarrage. Le client HTTP du flux
+// ICS n'a aucun logger (RemoveAllLoggers) : l'adresse est un secret, elle ne doit apparaître dans aucun
+// journal, pas même en Debug. Pas de redirection suivie. La synchronisation de fond est un service
+// distinct de BankSyncService, avec son propre rythme. TimeProvider pour des tests à date fixe.
+builder.Services.AddOptions<HouseholdOptions>()
+    .Bind(builder.Configuration.GetSection(HouseholdOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<HouseholdOptions>, HouseholdOptionsValidator>();
+builder.Services.AddOptions<CalendarOptions>()
+    .Bind(builder.Configuration.GetSection(CalendarOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<CalendarOptions>, CalendarOptionsValidator>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddHttpClient(CalendarIcsFetcher.HttpClientName, client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("FinanceApp/1.0");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+    .RemoveAllLoggers();
+builder.Services.AddSingleton<ICalendarIcsFetcher, CalendarIcsFetcher>();
+builder.Services.AddSingleton<CalendarSyncService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<CalendarSyncService>());
+
 builder.Services.AddRateLimiter(options =>
 {
     // Les routes d'authentification sont anonymes : la seule clé disponible est l'adresse
@@ -148,6 +174,18 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             }));
 
+    // Rafraîchissement manuel du calendrier : un téléchargement chez Google à chaque appel, même
+    // budget serré que tr-login, par utilisateur.
+    options.AddPolicy("calendar-refresh", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ParUtilisateur(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -188,6 +226,9 @@ app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// APRÈS l'authentification : pose User.LastSeenAt, au plus une écriture toutes les cinq minutes par utilisateur.
+app.UseMiddleware<LastSeenMiddleware>();
 
 // APRÈS l'authentification : les policies partitionnées par utilisateur lisent
 // HttpContext.User, qui est encore vide tant que UseAuthentication n'a pas tourné.
