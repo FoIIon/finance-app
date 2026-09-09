@@ -73,6 +73,7 @@ public class CalendarSyncServiceTests : IDisposable
         Assert.Equal("Famille", source.CalendarName);
         Assert.Null(source.LastError);
         Assert.Equal(clock.Now.UtcDateTime, source.LastSyncAt);
+        Assert.Equal(clock.Now.UtcDateTime, source.LastAttemptAt);
         AssertNoSecret(source);
 
         // La fenêtre part du 9 juin 2026 (aujourd'hui moins trois mois) : le feu d'artifice du 14 juillet
@@ -171,6 +172,41 @@ public class CalendarSyncServiceTests : IDisposable
         await sync.SyncDashboardAsync(h.DashboardId, CancellationToken.None);
         Assert.Equal(CalendarSyncStatus.Invalid, (await SourceAsync(h.DashboardId)).LastSyncStatus);
         Assert.Equal(35,await OccurrencesAsync(h.DashboardId));
+    }
+
+    [Fact]
+    public async Task EchecApresSucces_GardeLastSyncAt_AvanceLastAttemptAt()
+    {
+        var h = await SeedHouseholdAsync("attempt@test.local");
+        var (sync, protection, fetcher, clock) = AgendaTestSupport.SyncService(_connection);
+        var reponse = IcsFetchResult.Ok(AgendaTestSupport.FamilleIcs());
+        fetcher.On(SecretPath, () => reponse);
+        using (var ctx = NewContext())
+            await AgendaTestSupport.AddSourceAsync(ctx, h.DashboardId, AgendaTestSupport.Protect(protection, SecretUrl));
+
+        var succes = clock.Now.UtcDateTime;
+        await sync.SyncDashboardAsync(h.DashboardId, CancellationToken.None);
+
+        // Trois jours de panne : la tentative avance, le dernier succès reste au 9 septembre.
+        clock.Now = AgendaTestSupport.Now.AddDays(3);
+        reponse = IcsFetchResult.Fail(CalendarSyncStatus.HttpError, "HTTP 503.");
+        await sync.SyncDashboardAsync(h.DashboardId, CancellationToken.None);
+
+        var source = await SourceAsync(h.DashboardId);
+        Assert.Equal(CalendarSyncStatus.HttpError, source.LastSyncStatus);
+        Assert.Equal(succes, source.LastSyncAt);
+        Assert.Equal(AgendaTestSupport.Now.AddDays(3).UtcDateTime, source.LastAttemptAt);
+        Assert.Equal(35, await OccurrencesAsync(h.DashboardId));
+
+        // Une source jamais synchronisée avec succès n'a pas de LastSyncAt du tout.
+        var autre = await SeedHouseholdAsync("attempt2@test.local");
+        fetcher.On("/calendar/ical/panne/basic.ics", () => IcsFetchResult.Fail(CalendarSyncStatus.HttpError, "HTTP 404."));
+        using (var ctx = NewContext())
+            await AgendaTestSupport.AddSourceAsync(ctx, autre.DashboardId, AgendaTestSupport.Protect(protection, "https://calendar.google.com/calendar/ical/panne/basic.ics"));
+        await sync.SyncDashboardAsync(autre.DashboardId, CancellationToken.None);
+        var jamais = await SourceAsync(autre.DashboardId);
+        Assert.Null(jamais.LastSyncAt);
+        Assert.Equal(AgendaTestSupport.Now.AddDays(3).UtcDateTime, jamais.LastAttemptAt);
     }
 
     [Fact]

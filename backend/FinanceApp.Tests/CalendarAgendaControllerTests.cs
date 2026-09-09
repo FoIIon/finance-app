@@ -103,8 +103,11 @@ public class CalendarAgendaControllerTests : IDisposable
         Assert.Equal("Ok", status.LastSyncStatus);
         Assert.Null(status.LastError);
         Assert.Equal(AgendaTestSupport.Now.UtcDateTime, status.LastSyncAt);
+        Assert.Equal(AgendaTestSupport.Now.UtcDateTime, status.LastAttemptAt);
         Assert.Equal(DateTimeKind.Utc, status.LastSyncAt!.Value.Kind);
+        Assert.Equal(DateTimeKind.Utc, status.LastAttemptAt!.Value.Kind);
         AssertNoSecret(Serialized(status));
+        Assert.Contains("\"lastAttemptAt\":\"2026-09-09T06:00:00Z\"", Serialized(status));
 
         using var check = NewContext();
         var source = await check.CalendarSources.SingleAsync();
@@ -153,7 +156,19 @@ public class CalendarAgendaControllerTests : IDisposable
         _clock.Now = AgendaTestSupport.Now.AddHours(1);
         var status = Ok(await Calendar(ctx, _a.UserId).Refresh(_a.DashboardId, CancellationToken.None));
         Assert.Equal(AgendaTestSupport.Now.AddHours(1).UtcDateTime, status.LastSyncAt);
+        Assert.Equal(AgendaTestSupport.Now.AddHours(1).UtcDateTime, status.LastAttemptAt);
         Assert.Equal(2, _fetcher.Calls.Count);
+
+        // Un rafraîchissement en échec : la tentative avance, le succès reste, et l'agenda expose les deux.
+        _fetcher.On(SecretPath, () => IcsFetchResult.Fail(CalendarSyncStatus.HttpError, "HTTP 503."));
+        _clock.Now = AgendaTestSupport.Now.AddHours(2);
+        var echec = Ok(await Calendar(ctx, _a.UserId).Refresh(_a.DashboardId, CancellationToken.None));
+        Assert.Equal("HttpError", echec.LastSyncStatus);
+        Assert.Equal(AgendaTestSupport.Now.AddHours(1).UtcDateTime, echec.LastSyncAt);
+        Assert.Equal(AgendaTestSupport.Now.AddHours(2).UtcDateTime, echec.LastAttemptAt);
+        var agenda = Ok(await Agenda(ctx, _a.UserId).Get(_a.DashboardId, null, null, CancellationToken.None));
+        Assert.Equal(AgendaTestSupport.Now.AddHours(1).UtcDateTime, agenda.Calendar.LastSyncAt);
+        Assert.Equal(AgendaTestSupport.Now.AddHours(2).UtcDateTime, agenda.Calendar.LastAttemptAt);
     }
 
     [Fact]

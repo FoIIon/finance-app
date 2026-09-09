@@ -309,6 +309,9 @@ namespace FinanceApp.API.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("LastError")
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");

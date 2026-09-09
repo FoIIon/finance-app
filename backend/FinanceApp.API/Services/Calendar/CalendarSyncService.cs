@@ -17,7 +17,7 @@ namespace FinanceApp.API.Services.Calendar;
 /// valide. Le contrôleur partage le sémaphore par dashboard pour la synchronisation immédiate.
 ///
 /// Rien de ce qui est journalisé ne contient l'adresse : ni l'exception (son message pourrait la
-/// porter), ni LastError. LastSyncAt est l'instant de la dernière tentative, réussie ou non.
+/// porter), ni LastError. LastSyncAt est le dernier succès, LastAttemptAt la dernière tentative.
 /// </summary>
 public class CalendarSyncService : BackgroundService
 {
@@ -183,16 +183,20 @@ public class CalendarSyncService : BackgroundService
         context.CalendarOccurrences.AddRange(expansion.Occurrences);
         source.CalendarName = expansion.CalendarName ?? source.CalendarName;
         source.LastSyncAt = nowUtc;
+        source.LastAttemptAt = nowUtc;
         source.LastSyncStatus = CalendarSyncStatus.Ok;
         source.LastError = Truncate(expansion.Warning);
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
-    /// <summary>Pose l'issue d'une tentative sans toucher aux occurrences existantes.</summary>
+    /// <summary>
+    /// Pose l'issue d'une tentative en échec sans toucher aux occurrences ni à LastSyncAt : un calendrier
+    /// en panne depuis trois jours ne s'affiche pas « vu il y a 10 min ».
+    /// </summary>
     private static async Task MarkAsync(AppDbContext context, CalendarSource source, CalendarSyncStatus status, string error, DateTime nowUtc, CancellationToken cancellationToken)
     {
-        source.LastSyncAt = nowUtc;
+        source.LastAttemptAt = nowUtc;
         source.LastSyncStatus = status;
         source.LastError = Truncate(error);
         await context.SaveChangesAsync(cancellationToken);
