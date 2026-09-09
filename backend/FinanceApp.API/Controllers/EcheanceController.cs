@@ -2,9 +2,11 @@ using FinanceApp.API.Data;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
+using FinanceApp.API.Services.Calendar;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace FinanceApp.API.Controllers;
 
@@ -19,13 +21,16 @@ namespace FinanceApp.API.Controllers;
 public class EcheanceController : ApiControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly TimeZoneInfo _householdTz;
 
-    public EcheanceController(AppDbContext context)
+    public EcheanceController(AppDbContext context, IOptions<HouseholdOptions> household)
     {
         _context = context;
+        _householdTz = household.Value.Zone;
     }
 
-    private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+    /// <summary>La date du jour dans le fuseau du ménage, jamais l'UTC nu : le Pi tourne en UTC.</summary>
+    private DateOnly Today => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _householdTz));
 
     private Task<bool> IsMemberAsync(int dashboardId, int userId) =>
         _context.Dashboards.AnyAsync(d => d.Id == dashboardId && d.Members.Any(m => m.UserId == userId));

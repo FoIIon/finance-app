@@ -1,0 +1,105 @@
+using FinanceApp.API.Models;
+
+namespace FinanceApp.API.Services.Reporting;
+
+/// <summary>
+/// Trois projections indépendantes vers <see cref="AgendaItem"/>, chacune ignorante des deux autres.
+/// Pures, statiques, testées seules. Rien ici ne touche au bilan : une échéance, une occurrence de
+/// calendrier ou une récurrente projetée reste hors de BilanClassifier.
+/// </summary>
+public static class AgendaProjectors
+{
+    /// <summary>Au-delà, une journée entière de plusieurs jours n'est plus répétée jour par jour.</summary>
+    public const int MaxAllDaySpanDays = 31;
+
+    /// <summary>
+    /// Une occurrence de calendrier par jour couvert : une journée entière de plusieurs jours apparaît
+    /// chaque jour, sous le même id (l'id désigne l'occurrence, la date le jour).
+    /// </summary>
+    public static List<AgendaItem> FromCalendar(IEnumerable<CalendarOccurrence> occurrences)
+    {
+        var result = new List<AgendaItem>();
+        foreach (var o in occurrences)
+        {
+            var id = $"event:{o.Uid}:{DateTime.SpecifyKind(o.OccurrenceStart, DateTimeKind.Utc):yyyy-MM-dd'T'HH:mm:ss'Z'}";
+            var lastDay = o.IsAllDay && o.LocalEndDate > o.LocalDate
+                ? Min(o.LocalEndDate, o.LocalDate.AddDays(MaxAllDaySpanDays - 1))
+                : o.LocalDate;
+            for (var day = o.LocalDate; day <= lastDay; day = day.AddDays(1))
+            {
+                result.Add(new AgendaItem
+                {
+                    Id = id,
+                    Kind = AgendaKinds.Event,
+                    Date = day,
+                    Start = o.IsAllDay ? null : o.LocalStart?.ToString("HH:mm"),
+                    End = o.IsAllDay ? null : o.LocalEnd?.ToString("HH:mm"),
+                    IsAllDay = o.IsAllDay,
+                    Title = o.Summary,
+                    Location = o.Location,
+                    SeriesKey = o.Uid,
+                    Recurrence = o.Recurrence,
+                    IsException = o.IsException,
+                });
+            }
+        }
+        return result;
+    }
+
+    /// <summary>Le statut vient d'EcheanceStatusRules, calculé pour la date du jour du ménage.</summary>
+    public static List<AgendaItem> FromEcheances(IEnumerable<Echeance> echeances, DateOnly today) =>
+        echeances.Select(e => new AgendaItem
+        {
+            Id = $"echeance:{e.Id}",
+            Kind = AgendaKinds.Echeance,
+            Date = e.DueDate,
+            Title = e.Label,
+            Amount = e.Amount,
+            Status = Services.EcheanceStatusRules.Of(e, today) switch
+            {
+                EcheanceStatus.Payee => AgendaStatuses.Paid,
+                EcheanceStatus.EnRetard => AgendaStatuses.Late,
+                _ => AgendaStatuses.Due,
+            },
+            EcheanceId = e.Id,
+            TransactionId = e.TransactionId,
+        }).ToList();
+
+    /// <summary>
+    /// Une occurrence par jour rendu par BurndownBuilder.RecurringOccurrenceDays, mois par mois sur la
+    /// fenêtre. Lecture seule : ce sont les prêts, l'énergie, les assurances déjà en base.
+    /// </summary>
+    public static List<AgendaItem> FromRecurring(IEnumerable<RecurringTransaction> actives, DateOnly from, DateOnly to)
+    {
+        var result = new List<AgendaItem>();
+        if (to < from) return result;
+        var recurrings = actives.Where(r => r.IsActive).ToList();
+        if (recurrings.Count == 0) return result;
+
+        for (var month = new DateOnly(from.Year, from.Month, 1); month <= to; month = month.AddMonths(1))
+        {
+            var lastDay = DateTime.DaysInMonth(month.Year, month.Month);
+            var fromDay = month.Year == from.Year && month.Month == from.Month ? from.Day : 1;
+            var toDay = month.Year == to.Year && month.Month == to.Month ? to.Day : lastDay;
+            foreach (var r in recurrings)
+            {
+                foreach (var day in BurndownBuilder.RecurringOccurrenceDays(r, month.Year, month.Month, fromDay, toDay))
+                {
+                    var date = new DateOnly(month.Year, month.Month, day);
+                    result.Add(new AgendaItem
+                    {
+                        Id = $"recurring:{r.Id}:{date:yyyy-MM-dd}",
+                        Kind = AgendaKinds.Recurring,
+                        Date = date,
+                        Title = r.Description,
+                        Amount = r.Amount,
+                        Status = AgendaStatuses.Planned,
+                    });
+                }
+            }
+        }
+        return result;
+    }
+
+    private static DateOnly Min(DateOnly a, DateOnly b) => a < b ? a : b;
+}
