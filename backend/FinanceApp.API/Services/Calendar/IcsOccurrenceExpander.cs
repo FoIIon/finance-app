@@ -49,7 +49,7 @@ public static class IcsOccurrenceExpander
             if (totalTruncated) break;
             var master = group.FirstOrDefault(e => e.RecurrenceIdentifier == null);
             var exceptions = group.Where(e => e.RecurrenceIdentifier != null).ToList();
-            var recurrence = MapRecurrence(master?.RecurrenceRule?.Frequency);
+            var recurrence = MapRecurrence(master?.RecurrenceRule);
 
             var uidOccurrences = new List<CalendarOccurrence>();
             if (master != null)
@@ -166,14 +166,23 @@ public static class IcsOccurrenceExpander
 
     private static DateTime AsUtcKind(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
-    private static CalendarRecurrence MapRecurrence(FrequencyType? frequency) => frequency switch
+    /// <summary>
+    /// La cadence d'une série telle que l'agenda la comprend. Un INTERVAL supérieur à 1 (une semaine sur
+    /// deux, tous les trois mois) rend None : ce n'est ni de la routine, ni une série où une occurrence
+    /// peut « manquer » chaque semaine. Sinon le builder produirait « Pas de … » une semaine sur deux.
+    /// </summary>
+    private static CalendarRecurrence MapRecurrence(RecurrenceRule? rule)
     {
-        FrequencyType.Daily => CalendarRecurrence.Daily,
-        FrequencyType.Weekly => CalendarRecurrence.Weekly,
-        FrequencyType.Monthly => CalendarRecurrence.Monthly,
-        FrequencyType.Yearly => CalendarRecurrence.Yearly,
-        _ => CalendarRecurrence.None,
-    };
+        if (rule == null || rule.Interval > 1) return CalendarRecurrence.None;
+        return rule.Frequency switch
+        {
+            FrequencyType.Daily => CalendarRecurrence.Daily,
+            FrequencyType.Weekly => CalendarRecurrence.Weekly,
+            FrequencyType.Monthly => CalendarRecurrence.Monthly,
+            FrequencyType.Yearly => CalendarRecurrence.Yearly,
+            _ => CalendarRecurrence.None,
+        };
+    }
 
     private static string Warn(CalendarEvent ev, string what) =>
         $"Série « {Truncate(ev.Summary, 40) ?? "sans titre"} » {what}.";
