@@ -88,13 +88,20 @@ public static class AgendaBuilder
             })
             .ToList();
 
-    /// <summary>Trente jours glissants depuis aujourd'hui, sans routine ni manquant, retards antérieurs portés en tête.</summary>
+    /// <summary>
+    /// Trente jours glissants depuis aujourd'hui, sans routine ni manquant, retards antérieurs portés en
+    /// tête. Une journée entière de plusieurs jours a un item par jour dans <c>days</c> mais un seul ici,
+    /// son premier jour : une semaine de vacances ne sort pas sept fois de l'à venir.
+    /// </summary>
     private static AgendaUpcoming BuildUpcoming(List<AgendaItem> all, DateOnly today)
     {
         var to = today.AddDays(UpcomingDays - 1);
         var carried = CarryLate(all, i => i.Date < today, today);
         var window = all.Where(i => i.Kind != AgendaKinds.Missing && !i.IsRoutine && i.Date >= today && i.Date <= to);
-        var items = carried.Concat(window.OrderBy(i => i.Date).ThenBy(SortGroup).ThenBy(i => i.Start, StringComparer.Ordinal).ThenBy(i => i.Title, StringComparer.Ordinal)).ToList();
+        var items = carried
+            .Concat(window.OrderBy(i => i.Date).ThenBy(SortGroup).ThenBy(i => i.Start, StringComparer.Ordinal).ThenBy(i => i.Title, StringComparer.Ordinal))
+            .DistinctBy(i => i.Id)
+            .ToList();
         return new AgendaUpcoming { From = today, To = to, Items = items };
     }
 

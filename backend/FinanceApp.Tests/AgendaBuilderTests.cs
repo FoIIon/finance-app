@@ -138,6 +138,27 @@ public class AgendaBuilderTests
     }
 
     [Fact]
+    public void JourneeEntiereDePlusieursJours_UnItemParJourDansDays_UnSeulDansUpcoming()
+    {
+        // Trois jours de vacances : le projecteur rend trois items au même id, un par jour.
+        var vacances = new[] { 10, 11, 12 }.Select(day => new AgendaItem
+        {
+            Id = "event:vacances@test:2026-09-09T22:00:00Z", Kind = AgendaKinds.Event, Date = new DateOnly(2026, 9, day),
+            IsAllDay = true, Title = "Vacances", SeriesKey = "vacances@test",
+        }).ToList();
+        var r = AgendaBuilder.Build(WeekFrom, WeekTo, Today, AgendaView.Week, vacances);
+
+        Assert.Equal("Vacances", Assert.Single(Day(r, new DateOnly(2026, 9, 10)).Items).Title);
+        Assert.Equal("Vacances", Assert.Single(Day(r, new DateOnly(2026, 9, 11)).Items).Title);
+        Assert.Equal("Vacances", Assert.Single(Day(r, new DateOnly(2026, 9, 12)).Items).Title);
+        Assert.Equal(3, r.Days.Sum(d => d.Items.Count));
+
+        var seul = Assert.Single(r.Upcoming.Items);
+        Assert.Equal("event:vacances@test:2026-09-09T22:00:00Z", seul.Id);
+        Assert.Equal(new DateOnly(2026, 9, 10), seul.Date);
+    }
+
+    [Fact]
     public void AujourdhuiHorsFenetre_SansRetard_PasDeJourAjoute()
     {
         var r = AgendaBuilder.Build(new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31), Today, AgendaView.Month, Array.Empty<AgendaItem>());
