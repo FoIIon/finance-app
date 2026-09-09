@@ -138,6 +138,32 @@ public class AgendaBuilderTests
     }
 
     [Fact]
+    public void RetardEntreLaFenetreEtAujourdhui_EstPorteDansAujourdhui()
+    {
+        // On regarde juillet, on est le 9 septembre : un retard d'août n'est ni dans le mois affiché ni
+        // dans le futur, il serait sur aucun écran. Il est porté dans le jour d'aujourd'hui.
+        var from = new DateOnly(2026, 7, 1);
+        var to = new DateOnly(2026, 7, 31);
+        var items = new List<AgendaItem>
+        {
+            Echeance(1, new DateOnly(2026, 8, 12), AgendaStatuses.Late, title: "Retard d'août"),
+            Echeance(2, new DateOnly(2026, 7, 20), AgendaStatuses.Late, title: "Retard de juillet, reste à sa date"),
+        };
+        var r = AgendaBuilder.Build(from, to, Today, AgendaView.Month, items);
+
+        Assert.Equal(Today, r.Days[0].Date);
+        Assert.True(r.Days[0].IsToday);
+        var porte = Assert.Single(r.Days[0].Items);
+        Assert.Equal("echeance:1", porte.Id);
+        Assert.Equal(new DateOnly(2026, 8, 12), porte.OriginalDate);
+        Assert.Equal(Today, porte.Date);
+        var juillet = Day(r, new DateOnly(2026, 7, 20));
+        Assert.Equal("echeance:2", Assert.Single(juillet.Items).Id);
+        Assert.Null(juillet.Items[0].OriginalDate);
+        Assert.DoesNotContain(r.Days.Skip(1).SelectMany(d => d.Items), i => i.Id == "echeance:1");
+    }
+
+    [Fact]
     public void JourneeEntiereDePlusieursJours_UnItemParJourDansDays_UnSeulDansUpcoming()
     {
         // Trois jours de vacances : le projecteur rend trois items au même id, un par jour.
