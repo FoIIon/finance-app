@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import DashboardSelector from './DashboardSelector';
 
 const navItems = [
+  { path: '/agenda', label: 'Agenda', icon: '📅' },
   { path: '/dashboard/overview', label: 'Tableau de bord', icon: '📊' },
   { path: '/transactions', label: 'Transactions', icon: '💳' },
   { path: '/envelopes', label: 'Enveloppes', icon: '✉️' },
@@ -96,7 +97,7 @@ const Layout = () => {
       />
 
       {/* Sidebar desktop (md+) */}
-      <nav className="hidden md:flex fixed left-0 top-0 h-full w-64 bg-white/5 backdrop-blur-xl border-r border-white/10 z-50 flex-col">
+      <nav className="hidden md:flex fixed left-0 top-0 h-full w-64 bg-white/5 backdrop-blur-xl border-r border-white/10 z-50 flex-col overflow-y-auto pb-[env(safe-area-inset-bottom)]">
         <SidebarContent
           email={email}
           pathname={location.pathname}
@@ -116,7 +117,7 @@ const Layout = () => {
 
       {/* Sidebar mobile (overlay coulissant) */}
       <nav
-        className={`fixed left-0 top-0 h-full w-72 bg-[#1a1a3e] border-r border-white/10 z-50 flex flex-col md:hidden transition-transform duration-300 ease-in-out ${
+        className={`fixed left-0 top-0 h-full w-72 bg-[#1a1a3e] border-r border-white/10 z-50 flex flex-col md:hidden overflow-y-auto pb-[env(safe-area-inset-bottom)] transition-transform duration-300 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         aria-label="Navigation principale"
