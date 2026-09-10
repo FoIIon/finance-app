@@ -1,6 +1,7 @@
 // Lecture des champs du formulaire d'échéance et des refus du serveur. Aucune règle métier : le serveur
 // valide (longueur, plage), on ne fait que lire ce qu'il répond et l'écrire sous le bon champ.
 import { isAxiosError } from 'axios';
+import { toIso } from '../agenda/agendaFormat';
 
 export interface FieldErrors {
   label?: string;
@@ -10,10 +11,7 @@ export interface FieldErrors {
 }
 
 /** yyyy-MM-dd du jour, dans le fuseau du navigateur. */
-export const todayIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+export const todayIso = () => toIso(new Date());
 
 /** « 12,50 » ou « 12.50 » → 12.5 ; vide → null ; autre chose → 'invalid'. La virgule est convertie avant envoi. */
 export const parseAmount = (raw: string): number | null | 'invalid' => {

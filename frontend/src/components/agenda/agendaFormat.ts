@@ -91,8 +91,8 @@ export const statusLabel = (item: AgendaItem): string => {
   }
 };
 
-/** Arithmétique de navigation sur yyyy-MM-dd. */
-const toIso = (d: Date) =>
+/** Une Date locale → yyyy-MM-dd, sans passage par l'UTC. Base de l'arithmétique de navigation. */
+export const toIso = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 export const addDays = (iso: string, n: number) => {
