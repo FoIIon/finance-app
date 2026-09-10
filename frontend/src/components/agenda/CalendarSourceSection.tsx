@@ -58,10 +58,14 @@ export const CalendarSourceSection = ({ dashboardId }: Props) => {
   };
 
   // Synchronise dans la requête, jusqu'à 30 s : le bouton porte l'attente.
+  // L'adresse est la variable de la mutation : gcTime à zéro et reset une fois réglée, pour qu'elle ne
+  // reste pas dans le cache react-query après l'envoi. La mutation de rafraîchissement ne la reçoit pas.
   const connect = useMutation({
     mutationFn: (value: string) => calendarApi.putSource(dashboardId, value),
+    gcTime: 0,
     onSuccess: () => { setFormError(null); return invalidate(); },
     onError: (err) => setFormError(refusalOf(err)),
+    onSettled: () => { connect.reset(); },
   });
 
   const refresh = useMutation({
