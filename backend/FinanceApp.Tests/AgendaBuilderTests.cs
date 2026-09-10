@@ -180,8 +180,10 @@ public class AgendaBuilderTests
     }
 
     [Fact]
-    public void AVenir_RetardDansLaFenetre_PorteUneSeuleFois()
+    public void AVenir_RetardDansLaFenetre_PorteUneSeuleFois_DansLesJours_PasDansLAVenir()
     {
+        // Le mois affiché contient aujourd'hui : le retard est porté dans Aujourd'hui, l'échéance du 12 est
+        // sur son jour. L'à venir ne répète ni l'un ni l'autre, chaque item n'apparaît qu'une fois à l'écran.
         var from = new DateOnly(2026, 9, 1);
         var to = new DateOnly(2026, 9, 30);
         var items = new List<AgendaItem>
@@ -191,10 +193,9 @@ public class AgendaBuilderTests
         };
         var r = AgendaBuilder.Build(from, to, Today, AgendaView.Month, items);
 
-        Assert.Equal(new[] { "echeance:1", "echeance:2" }, r.Upcoming.Items.Select(i => i.Id).ToArray());
-        Assert.Equal(new DateOnly(2026, 9, 4), r.Upcoming.Items[0].OriginalDate);
-        Assert.Equal(Today, r.Upcoming.Items[0].Date);
+        Assert.Empty(r.Upcoming.Items);
         Assert.Equal(1, r.Days.SelectMany(d => d.Items).Count(i => i.Id == "echeance:1"));
+        Assert.Equal(1, r.Days.SelectMany(d => d.Items).Count(i => i.Id == "echeance:2"));
     }
 
     [Fact]
@@ -261,7 +262,9 @@ public class AgendaBuilderTests
         Assert.Equal("Vacances", Assert.Single(Day(r, new DateOnly(2026, 9, 12)).Items).Title);
         Assert.Equal(3, r.Days.Sum(d => d.Items.Count));
 
-        var seul = Assert.Single(r.Upcoming.Items);
+        // Vus depuis une autre semaine, les trois jours ne donnent qu'une ligne d'à venir, datée du premier.
+        var ailleurs = AgendaBuilder.Build(new DateOnly(2026, 9, 21), new DateOnly(2026, 9, 27), Today, AgendaView.Week, vacances);
+        var seul = Assert.Single(ailleurs.Upcoming.Items);
         Assert.Equal("event:vacances@test:2026-09-09T22:00:00Z", seul.Id);
         Assert.Equal(new DateOnly(2026, 9, 10), seul.Date);
     }
@@ -386,6 +389,73 @@ public class AgendaBuilderTests
     }
 
     [Fact]
+    public void AVenir_SemaineCourante_RienDeLaSemaine_LesJoursSuivantsRestent_RetardPorteAbsent()
+    {
+        // Semaine du 9 au 15, aujourd'hui le 9. Ce que la semaine montre déjà ne revient pas en bas.
+        var items = new List<AgendaItem>
+        {
+            Echeance(1, new DateOnly(2026, 8, 12), AgendaStatuses.Late, title: "Retard porté dans Aujourd'hui"),
+            Echeance(2, Today, AgendaStatuses.Due, title: "Du jour"),
+            Echeance(3, new DateOnly(2026, 9, 12), AgendaStatuses.Due, title: "Dans la semaine"),
+            Event("dentiste", new DateOnly(2026, 9, 15), title: "Dernier jour de la semaine"),
+            Recurring(1, new DateOnly(2026, 9, 16), title: "J+7, premier jour hors semaine"),
+            Echeance(4, Today.AddDays(29), AgendaStatuses.Due, title: "J+29"),
+            Echeance(5, Today.AddDays(30), AgendaStatuses.Due, title: "J+30, hors fenêtre"),
+        };
+        var r = AgendaBuilder.Build(WeekFrom, WeekTo, Today, AgendaView.Week, items);
+
+        Assert.Equal(new[] { "recurring:1:2026-09-16", "echeance:4" }, r.Upcoming.Items.Select(i => i.Id).ToArray());
+        Assert.Equal(Today, r.Upcoming.From);
+        Assert.Equal(Today.AddDays(29), r.Upcoming.To);
+        // Le retard porté est dans Aujourd'hui, une seule fois, et nulle part ailleurs.
+        Assert.Equal("echeance:1", Day(r, Today).Items[0].Id);
+        Assert.DoesNotContain(r.Upcoming.Items, i => i.Id == "echeance:1");
+    }
+
+    [Fact]
+    public void AVenir_MoisSuivant_LesItemsDuMoisAbsents_CeuxDIciLaFinDuMoisPresents_RetardPortePresent()
+    {
+        // On regarde octobre le 9 septembre : Aujourd'hui n'est pas dans la fenêtre, l'à venir garde donc le
+        // retard porté et tout ce qui reste de septembre, et perd ce qu'octobre affiche déjà.
+        var from = new DateOnly(2026, 10, 1);
+        var to = new DateOnly(2026, 10, 31);
+        var items = new List<AgendaItem>
+        {
+            Echeance(1, new DateOnly(2026, 9, 2), AgendaStatuses.Late, title: "Retard porté"),
+            Echeance(2, Today, AgendaStatuses.Due, title: "Du jour"),
+            Echeance(3, new DateOnly(2026, 9, 27), AgendaStatuses.Due, title: "Fin septembre"),
+            Recurring(1, new DateOnly(2026, 10, 1), title: "Loyer, dans le mois affiché"),
+            Echeance(4, new DateOnly(2026, 10, 8), AgendaStatuses.Due, title: "J+29, dans le mois affiché"),
+        };
+        var r = AgendaBuilder.Build(from, to, Today, AgendaView.Month, items);
+
+        Assert.Equal(new[] { "echeance:1", "echeance:2", "echeance:3" }, r.Upcoming.Items.Select(i => i.Id).ToArray());
+        Assert.Equal(new DateOnly(2026, 9, 2), r.Upcoming.Items[0].OriginalDate);
+        Assert.Equal(Today, r.Upcoming.Items[0].Date);
+        Assert.Equal(Today, r.Upcoming.From);
+        Assert.Equal(Today.AddDays(29), r.Upcoming.To);
+    }
+
+    [Fact]
+    public void AVenir_MoisCourant_SeulsLesItemsDuMoisSuivantJusquAJPlus29Restent()
+    {
+        var from = new DateOnly(2026, 9, 1);
+        var to = new DateOnly(2026, 9, 30);
+        var items = new List<AgendaItem>
+        {
+            Echeance(1, new DateOnly(2026, 9, 2), AgendaStatuses.Late, title: "Retard porté, déjà dans Aujourd'hui"),
+            Echeance(2, new DateOnly(2026, 9, 27), AgendaStatuses.Due, title: "Dans le mois"),
+            Recurring(1, new DateOnly(2026, 10, 1), title: "Loyer"),
+            Echeance(3, new DateOnly(2026, 10, 8), AgendaStatuses.Due, title: "J+29"),
+            Echeance(4, new DateOnly(2026, 10, 9), AgendaStatuses.Due, title: "J+30, hors fenêtre"),
+        };
+        var r = AgendaBuilder.Build(from, to, Today, AgendaView.Month, items);
+
+        Assert.Equal(new[] { "recurring:1:2026-10-01", "echeance:3" }, r.Upcoming.Items.Select(i => i.Id).ToArray());
+        Assert.Equal(new DateOnly(2026, 10, 8), r.Upcoming.To);
+    }
+
+    [Fact]
     public void PasDeDoubleComptage_UneRecurrenteEtUneEcheance_MemeJourMemeMontant_DeuxItemsDistincts()
     {
         var jour = new DateOnly(2026, 9, 11);
@@ -401,7 +471,8 @@ public class AgendaBuilderTests
         Assert.Equal(new[] { "echeance:12", "recurring:7:2026-09-11" }, day.Items.Select(i => i.Id).ToArray());
         Assert.Equal(new[] { "echeance", "recurring" }, day.Items.Select(i => i.Kind).ToArray());
         Assert.All(day.Items, i => Assert.Equal(1250m, i.Amount));
-        Assert.Equal(2, r.Upcoming.Items.Count);
+        // Tous deux sont dans la semaine affichée : l'à venir ne les répète pas.
+        Assert.Empty(r.Upcoming.Items);
     }
 
     [Fact]
