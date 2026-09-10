@@ -261,12 +261,32 @@ public class AgendaBuilderTests
         Assert.Equal("Vacances", Assert.Single(Day(r, new DateOnly(2026, 9, 11)).Items).Title);
         Assert.Equal("Vacances", Assert.Single(Day(r, new DateOnly(2026, 9, 12)).Items).Title);
         Assert.Equal(3, r.Days.Sum(d => d.Items.Count));
+        // Les trois jours sont dans la semaine : l'à venir n'en répète aucun.
+        Assert.Empty(r.Upcoming.Items);
 
         // Vus depuis une autre semaine, les trois jours ne donnent qu'une ligne d'à venir, datée du premier.
         var ailleurs = AgendaBuilder.Build(new DateOnly(2026, 9, 21), new DateOnly(2026, 9, 27), Today, AgendaView.Week, vacances);
         var seul = Assert.Single(ailleurs.Upcoming.Items);
         Assert.Equal("event:vacances@test:2026-09-09T22:00:00Z", seul.Id);
         Assert.Equal(new DateOnly(2026, 9, 10), seul.Date);
+    }
+
+    [Fact]
+    public void JourneeEntiereQuiChevaucheLaFinDeLaFenetre_RenduesDansLesJours_AbsenteDeLAVenir()
+    {
+        // Vacances du 26 au 29 septembre, semaine du 21 au 27 : les 26 et 27 sont dans la semaine, l'événement
+        // se poursuit à l'écran, il ne recommence pas en bas daté du 28.
+        var vacances = new[] { 26, 27, 28, 29 }.Select(day => new AgendaItem
+        {
+            Id = "event:vacances@test:2026-09-25T22:00:00Z", Kind = AgendaKinds.Event, Date = new DateOnly(2026, 9, day),
+            IsAllDay = true, Title = "Vacances", SeriesKey = "vacances@test",
+        }).ToList();
+        var r = AgendaBuilder.Build(new DateOnly(2026, 9, 21), new DateOnly(2026, 9, 27), Today, AgendaView.Week, vacances);
+
+        Assert.Equal("Vacances", Assert.Single(Day(r, new DateOnly(2026, 9, 26)).Items).Title);
+        Assert.Equal("Vacances", Assert.Single(Day(r, new DateOnly(2026, 9, 27)).Items).Title);
+        Assert.Equal(2, r.Days.Sum(d => d.Items.Count));
+        Assert.Empty(r.Upcoming.Items);
     }
 
     [Fact]
@@ -368,7 +388,7 @@ public class AgendaBuilderTests
     }
 
     [Fact]
-    public void AVenir_TrenteJoursGlissantsDepuisAujourdhui_SansRoutineNiManquant_IndependantDeLaVue()
+    public void AVenir_TrenteJoursGlissantsDepuisAujourdhui_SansRoutineNiManquantNiRetard_IndependantDeLaVue()
     {
         var items = DanseAvecTrou();
         items.Add(Echeance(1, Today.AddDays(29), AgendaStatuses.Due, title: "Dans la fenêtre"));
@@ -382,10 +402,15 @@ public class AgendaBuilderTests
         Assert.Equal(Today, r.Upcoming.From);
         Assert.Equal(Today.AddDays(29), r.Upcoming.To);
         var ids = r.Upcoming.Items.Select(i => i.Id).ToList();
-        Assert.Equal(new[] { "echeance:3", "event:dentiste:2026-09-12T00:00:00Z", $"recurring:1:{Today.AddDays(10):yyyy-MM-dd}", "echeance:1" }, ids);
-        Assert.Equal(new DateOnly(2026, 8, 12), r.Upcoming.Items[0].OriginalDate);
-        Assert.Equal(Today, r.Upcoming.Items[0].Date);
-        Assert.DoesNotContain(r.Upcoming.Items, i => i.IsRoutine || i.Kind == "missing" || i.Id == "echeance:2");
+        Assert.Equal(new[] { "event:dentiste:2026-09-12T00:00:00Z", $"recurring:1:{Today.AddDays(10):yyyy-MM-dd}", "echeance:1" }, ids);
+        Assert.DoesNotContain(r.Upcoming.Items, i => i.IsRoutine || i.Kind == "missing" || i.Id == "echeance:2" || i.Status == AgendaStatuses.Late);
+
+        // Le retard n'est pas dans l'à venir : il est porté dans le jour Aujourd'hui ajouté en tête, avec sa date d'origine.
+        var aujourdhui = r.Days[0];
+        Assert.True(aujourdhui.IsToday);
+        var porte = Assert.Single(aujourdhui.Items, i => i.Id == "echeance:3");
+        Assert.Equal(new DateOnly(2026, 8, 12), porte.OriginalDate);
+        Assert.Equal(Today, porte.Date);
     }
 
     [Fact]
@@ -413,10 +438,11 @@ public class AgendaBuilderTests
     }
 
     [Fact]
-    public void AVenir_MoisSuivant_LesItemsDuMoisAbsents_CeuxDIciLaFinDuMoisPresents_RetardPortePresent()
+    public void AVenir_MoisSuivant_LesItemsDuMoisAbsents_CeuxDIciLaFinDuMoisPresents_RetardPorteAbsent()
     {
-        // On regarde octobre le 9 septembre : Aujourd'hui n'est pas dans la fenêtre, l'à venir garde donc le
-        // retard porté et tout ce qui reste de septembre, et perd ce qu'octobre affiche déjà.
+        // On regarde octobre le 9 septembre : Aujourd'hui n'est pas dans la fenêtre, il est ajouté en tête de
+        // days avec le retard porté. L'à venir garde ce qui reste de septembre, perd ce qu'octobre affiche déjà,
+        // et ne porte jamais un retard : Aujourd'hui est le seul endroit où un impayé apparaît.
         var from = new DateOnly(2026, 10, 1);
         var to = new DateOnly(2026, 10, 31);
         var items = new List<AgendaItem>
@@ -429,11 +455,16 @@ public class AgendaBuilderTests
         };
         var r = AgendaBuilder.Build(from, to, Today, AgendaView.Month, items);
 
-        Assert.Equal(new[] { "echeance:1", "echeance:2", "echeance:3" }, r.Upcoming.Items.Select(i => i.Id).ToArray());
-        Assert.Equal(new DateOnly(2026, 9, 2), r.Upcoming.Items[0].OriginalDate);
-        Assert.Equal(Today, r.Upcoming.Items[0].Date);
+        Assert.Equal(new[] { "echeance:2", "echeance:3" }, r.Upcoming.Items.Select(i => i.Id).ToArray());
         Assert.Equal(Today, r.Upcoming.From);
         Assert.Equal(Today.AddDays(29), r.Upcoming.To);
+
+        var aujourdhui = r.Days[0];
+        Assert.True(aujourdhui.IsToday);
+        var porte = Assert.Single(aujourdhui.Items);
+        Assert.Equal("echeance:1", porte.Id);
+        Assert.Equal(new DateOnly(2026, 9, 2), porte.OriginalDate);
+        Assert.Equal(Today, porte.Date);
     }
 
     [Fact]
