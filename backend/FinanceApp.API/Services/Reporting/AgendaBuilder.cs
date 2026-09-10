@@ -7,10 +7,11 @@ namespace FinanceApp.API.Services.Reporting;
 /// contrôleur charge et projette, ce builder applique les règles. Toutes vivent ici et sont testées,
 /// aucune n'est en React.
 ///
-/// Règles : la routine est un événement d'une série hebdomadaire hors exception. Un impayé hors de la
-/// fenêtre est porté dans le jour courant avec sa date d'origine, et le jour courant est ajouté en
-/// tête s'il est hors fenêtre. Une série hebdomadaire d'au moins trois occurrences passées qui manque
-/// un jour de sa semaine produit « Pas de … » (entre sa première et sa dernière occurrence connues).
+/// Règles : la routine est un événement d'une série hebdomadaire hors exception. Tout impayé, dans la
+/// fenêtre ou non, est porté dans le jour courant avec sa date d'origine et ne figure plus sur son jour
+/// d'origine, et le jour courant est ajouté en tête s'il est hors fenêtre. Une série hebdomadaire d'au
+/// moins trois occurrences passées qui manque un jour de sa semaine produit « Pas de … » (entre sa
+/// première et sa dernière occurrence connues).
 /// En vue mois, les jours consécutifs sans rien, passés ou futurs, sont repliés en plages vides, jamais
 /// le jour courant. L'à venir couvre trente jours glissants depuis aujourd'hui, sans routine ni manquant.
 /// </summary>
@@ -29,11 +30,11 @@ public static class AgendaBuilder
 
         var missing = MissingOccurrences(all, from, to, today);
 
-        // Retards portés : un impayé hors de la fenêtre, avant ou après, ne sort jamais de l'écran avec la
-        // période. En regardant un mois passé, un retard daté entre ce mois et aujourd'hui ne serait sinon
-        // sur aucun écran.
-        var carried = CarryLate(all, i => i.Date < from || i.Date > to, today);
-        var placed = all.Where(i => !(i.Status == AgendaStatuses.Late && (i.Date < from || i.Date > to))).Concat(missing).ToLookup(i => i.Date);
+        // Retards portés : tout impayé est porté dans le jour courant, que sa date soit dans la fenêtre ou
+        // non. Un parent qui ouvre le mois voit dans Aujourd'hui ce qu'il doit payer, comme en semaine, et
+        // une échéance n'apparaît qu'une fois dans les jours : son jour d'origine ne la garde pas.
+        var carried = CarryLate(all, _ => true, today);
+        var placed = all.Where(i => i.Status != AgendaStatuses.Late).Concat(missing).ToLookup(i => i.Date);
 
         var days = new List<AgendaDay>();
         var emptyRanges = new List<AgendaEmptyRange>();
@@ -78,8 +79,8 @@ public static class AgendaBuilder
         };
     }
 
-    private static List<AgendaItem> CarryLate(IEnumerable<AgendaItem> all, Func<AgendaItem, bool> before, DateOnly today) =>
-        all.Where(i => i.Status == AgendaStatuses.Late && before(i))
+    private static List<AgendaItem> CarryLate(IEnumerable<AgendaItem> all, Func<AgendaItem, bool> where, DateOnly today) =>
+        all.Where(i => i.Status == AgendaStatuses.Late && where(i))
             .OrderBy(i => i.Date).ThenBy(i => i.Title, StringComparer.Ordinal).ThenBy(i => i.Id, StringComparer.Ordinal)
             .Select(i =>
             {

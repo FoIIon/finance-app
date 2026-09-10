@@ -104,16 +104,97 @@ public class AgendaBuilderTests
     }
 
     [Fact]
-    public void RetardDansLaFenetre_ResteASaDate_NEstPasPorte()
+    public void VueMois_RetardDansLaFenetreAvantAujourdhui_PorteDansAujourdhui_AbsentDeSonJourDOrigine()
+    {
+        // Le 4 septembre est dans le mois affiché et avant aujourd'hui. En semaine il serait porté, en mois
+        // il restait à sa date : deux comportements pour la même échéance. Il est porté dans les deux vues.
+        var from = new DateOnly(2026, 9, 1);
+        var to = new DateOnly(2026, 9, 30);
+        var items = new List<AgendaItem>
+        {
+            Echeance(1, new DateOnly(2026, 9, 4), AgendaStatuses.Late, title: "Taxe déchets"),
+            Echeance(2, new DateOnly(2026, 9, 4), AgendaStatuses.Paid, title: "Payée, reste à sa date"),
+            Event("dentiste", new DateOnly(2026, 9, 15), title: "Dentiste"),
+        };
+        var r = AgendaBuilder.Build(from, to, Today, AgendaView.Month, items);
+
+        var today = Day(r, Today);
+        var porte = Assert.Single(today.Items);
+        Assert.Equal("echeance:1", porte.Id);
+        Assert.Equal("late", porte.Status);
+        Assert.Equal(new DateOnly(2026, 9, 4), porte.OriginalDate);
+        Assert.Equal(Today, porte.Date);
+
+        var le4 = Day(r, new DateOnly(2026, 9, 4));
+        Assert.Equal("echeance:2", Assert.Single(le4.Items).Id);
+        Assert.Null(le4.Items[0].OriginalDate);
+        Assert.Equal(1, r.Days.SelectMany(d => d.Items).Count(i => i.Id == "echeance:1"));
+    }
+
+    [Fact]
+    public void VueMois_JourPasseQuiNAvaitQueLeRetard_DevientVide_RejointLesPlagesVides()
     {
         var from = new DateOnly(2026, 9, 1);
         var to = new DateOnly(2026, 9, 30);
-        var items = new List<AgendaItem> { Echeance(1, new DateOnly(2026, 9, 3), AgendaStatuses.Late) };
+        var items = new List<AgendaItem> { Echeance(1, new DateOnly(2026, 9, 4), AgendaStatuses.Late) };
         var r = AgendaBuilder.Build(from, to, Today, AgendaView.Month, items);
 
-        var le3 = Day(r, new DateOnly(2026, 9, 3));
-        Assert.Null(Assert.Single(le3.Items).OriginalDate);
-        Assert.Empty(Day(r, Today).Items);
+        Assert.Equal(new[] { Today }, r.Days.Select(d => d.Date).ToArray());
+        Assert.Equal("echeance:1", Assert.Single(r.Days[0].Items).Id);
+        Assert.Equal(new[] { (1, 8), (10, 30) }, r.EmptyRanges.Select(e => (e.From.Day, e.To.Day)).ToArray());
+        Assert.Contains(r.EmptyRanges, e => e.From <= new DateOnly(2026, 9, 4) && new DateOnly(2026, 9, 4) <= e.To);
+    }
+
+    [Fact]
+    public void VueMois_JourPasseAvecRetardEtEvenement_GardeLEvenement_PerdLeRetard()
+    {
+        var from = new DateOnly(2026, 9, 1);
+        var to = new DateOnly(2026, 9, 30);
+        var items = new List<AgendaItem>
+        {
+            Echeance(1, new DateOnly(2026, 9, 4), AgendaStatuses.Late),
+            Event("dentiste", new DateOnly(2026, 9, 4), title: "Dentiste"),
+        };
+        var r = AgendaBuilder.Build(from, to, Today, AgendaView.Month, items);
+
+        var le4 = Day(r, new DateOnly(2026, 9, 4));
+        Assert.Equal("Dentiste", Assert.Single(le4.Items).Title);
+        Assert.Equal("echeance:1", Assert.Single(Day(r, Today).Items).Id);
+        Assert.DoesNotContain(r.EmptyRanges, e => e.From <= new DateOnly(2026, 9, 4) && new DateOnly(2026, 9, 4) <= e.To);
+    }
+
+    [Fact]
+    public void VueSemaine_RetardDansLaFenetreAvantAujourdhui_PorteCommeEnVueMois()
+    {
+        // Semaine du 7 au 13 septembre, aujourd'hui le 9 : le retard du 8 est dans la fenêtre. Même règle.
+        var from = new DateOnly(2026, 9, 7);
+        var to = new DateOnly(2026, 9, 13);
+        var items = new List<AgendaItem> { Echeance(1, new DateOnly(2026, 9, 8), AgendaStatuses.Late) };
+        var r = AgendaBuilder.Build(from, to, Today, AgendaView.Week, items);
+
+        Assert.Equal(7, r.Days.Count);
+        Assert.Empty(Day(r, new DateOnly(2026, 9, 8)).Items);
+        var porte = Assert.Single(Day(r, Today).Items);
+        Assert.Equal(new DateOnly(2026, 9, 8), porte.OriginalDate);
+        Assert.Equal(Today, porte.Date);
+    }
+
+    [Fact]
+    public void AVenir_RetardDansLaFenetre_PorteUneSeuleFois()
+    {
+        var from = new DateOnly(2026, 9, 1);
+        var to = new DateOnly(2026, 9, 30);
+        var items = new List<AgendaItem>
+        {
+            Echeance(1, new DateOnly(2026, 9, 4), AgendaStatuses.Late, title: "Retard"),
+            Echeance(2, new DateOnly(2026, 9, 12), AgendaStatuses.Due, title: "À venir"),
+        };
+        var r = AgendaBuilder.Build(from, to, Today, AgendaView.Month, items);
+
+        Assert.Equal(new[] { "echeance:1", "echeance:2" }, r.Upcoming.Items.Select(i => i.Id).ToArray());
+        Assert.Equal(new DateOnly(2026, 9, 4), r.Upcoming.Items[0].OriginalDate);
+        Assert.Equal(Today, r.Upcoming.Items[0].Date);
+        Assert.Equal(1, r.Days.SelectMany(d => d.Items).Count(i => i.Id == "echeance:1"));
     }
 
     [Fact]
@@ -141,26 +222,27 @@ public class AgendaBuilderTests
     public void RetardEntreLaFenetreEtAujourdhui_EstPorteDansAujourdhui()
     {
         // On regarde juillet, on est le 9 septembre : un retard d'août n'est ni dans le mois affiché ni
-        // dans le futur, il serait sur aucun écran. Il est porté dans le jour d'aujourd'hui.
+        // dans le futur, il serait sur aucun écran. Il est porté dans le jour d'aujourd'hui, ajouté en
+        // tête, et le retard de juillet l'y rejoint : un impayé est porté quelle que soit sa date.
         var from = new DateOnly(2026, 7, 1);
         var to = new DateOnly(2026, 7, 31);
         var items = new List<AgendaItem>
         {
             Echeance(1, new DateOnly(2026, 8, 12), AgendaStatuses.Late, title: "Retard d'août"),
-            Echeance(2, new DateOnly(2026, 7, 20), AgendaStatuses.Late, title: "Retard de juillet, reste à sa date"),
+            Echeance(2, new DateOnly(2026, 7, 20), AgendaStatuses.Late, title: "Retard de juillet"),
+            Echeance(3, new DateOnly(2026, 7, 20), AgendaStatuses.Paid, title: "Payée de juillet"),
         };
         var r = AgendaBuilder.Build(from, to, Today, AgendaView.Month, items);
 
         Assert.Equal(Today, r.Days[0].Date);
         Assert.True(r.Days[0].IsToday);
-        var porte = Assert.Single(r.Days[0].Items);
-        Assert.Equal("echeance:1", porte.Id);
-        Assert.Equal(new DateOnly(2026, 8, 12), porte.OriginalDate);
-        Assert.Equal(Today, porte.Date);
+        Assert.Equal(new[] { "echeance:2", "echeance:1" }, r.Days[0].Items.Select(i => i.Id).ToArray());
+        Assert.Equal(new DateOnly(2026, 7, 20), r.Days[0].Items[0].OriginalDate);
+        Assert.Equal(new DateOnly(2026, 8, 12), r.Days[0].Items[1].OriginalDate);
+        Assert.All(r.Days[0].Items, i => Assert.Equal(Today, i.Date));
         var juillet = Day(r, new DateOnly(2026, 7, 20));
-        Assert.Equal("echeance:2", Assert.Single(juillet.Items).Id);
-        Assert.Null(juillet.Items[0].OriginalDate);
-        Assert.DoesNotContain(r.Days.Skip(1).SelectMany(d => d.Items), i => i.Id == "echeance:1");
+        Assert.Equal("echeance:3", Assert.Single(juillet.Items).Id);
+        Assert.DoesNotContain(r.Days.Skip(1).SelectMany(d => d.Items), i => i.Status == AgendaStatuses.Late);
     }
 
     [Fact]
