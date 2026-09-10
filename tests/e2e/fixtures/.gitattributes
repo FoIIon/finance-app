@@ -1,0 +1,2 @@
+# Les PDF de fixture sont des octets : aucune conversion de fin de ligne, sinon les offsets xref cassent.
+*.pdf binary
