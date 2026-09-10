@@ -53,15 +53,6 @@ export const formatPeriodTitle = (view: AgendaView, from: string, to: string) =>
   return `${a.getDate()} au ${fmt(to, { day: 'numeric', month: 'long' })}`;
 };
 
-/** « Rien le 13 », « Rien du 13 au 15 », « Rien du 29 sept. au 2 oct. » */
-export const formatEmptyRange = (from: string, to: string) => {
-  if (from === to) return `Rien le ${parseDay(from).getDate()}`;
-  const a = parseDay(from);
-  const b = parseDay(to);
-  if (a.getMonth() === b.getMonth()) return `Rien du ${a.getDate()} au ${b.getDate()}`;
-  return `Rien du ${formatShortDate(from)} au ${formatShortDate(to)}`;
-};
-
 /** « 16:45 » → « 16h45 ». */
 export const formatTime = (hhmm: string) => hhmm.replace(':', 'h');
 
