@@ -14,7 +14,7 @@ namespace FinanceApp.API.Services.Reporting;
 /// première et sa dernière occurrence connues).
 /// En vue mois, les jours consécutifs sans rien, passés ou futurs, sont repliés en plages vides, jamais
 /// le jour courant. L'à venir couvre trente jours glissants depuis aujourd'hui, sans routine ni manquant,
-/// et sans rien de ce que la fenêtre affichée montre déjà.
+/// sans retard (ils sont dans Aujourd'hui) et sans rien de ce que la fenêtre affichée montre déjà.
 /// </summary>
 public static class AgendaBuilder
 {
@@ -93,23 +93,22 @@ public static class AgendaBuilder
             .ToList();
 
     /// <summary>
-    /// Trente jours glissants depuis aujourd'hui, sans routine ni manquant, retards antérieurs portés en
-    /// tête. Une journée entière de plusieurs jours a un item par jour dans <c>days</c> mais un seul ici,
-    /// son premier jour : une semaine de vacances ne sort pas sept fois de l'à venir.
+    /// Trente jours glissants depuis aujourd'hui, sans routine ni manquant, et sans aucun retard : tout
+    /// impayé est déjà porté dans le jour courant de <c>days</c>, toujours rendu, dans la fenêtre ou au-dessus.
     /// Rien de ce que la fenêtre affichée montre déjà n'y figure : un item daté dans [from, to] en sort, et
-    /// les retards portés dans aujourd'hui en sortent dès que la fenêtre contient aujourd'hui. La fenêtre
-    /// annoncée (<c>From</c>, <c>To</c>) reste aujourd'hui et aujourd'hui + 29, le filtre ne la change pas.
+    /// une journée entière de plusieurs jours dont au moins un jour est dans la fenêtre en sort tout entière
+    /// (elle se poursuit à l'écran, elle ne recommence pas en bas). Entièrement hors fenêtre, elle n'y figure
+    /// qu'une fois, datée de son premier jour. La fenêtre annoncée (<c>From</c>, <c>To</c>) reste aujourd'hui
+    /// et aujourd'hui + 29, le filtre ne la change pas.
     /// </summary>
     private static AgendaUpcoming BuildUpcoming(List<AgendaItem> all, DateOnly today, DateOnly from, DateOnly to)
     {
         var upTo = today.AddDays(UpcomingDays - 1);
-        var todayShown = from <= today && today <= to;
-        var carried = todayShown ? new List<AgendaItem>() : CarryLate(all, i => i.Date < today, today);
-        var window = all.Where(i => i.Kind != AgendaKinds.Missing && !i.IsRoutine
-            && i.Date >= today && i.Date <= upTo
-            && (i.Date < from || i.Date > to));
-        var items = carried
-            .Concat(window.OrderBy(i => i.Date).ThenBy(SortGroup).ThenBy(i => i.Start, StringComparer.Ordinal).ThenBy(i => i.Title, StringComparer.Ordinal))
+        var shownIds = all.Where(i => i.Date >= from && i.Date <= to).Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
+        var items = all
+            .Where(i => i.Kind != AgendaKinds.Missing && !i.IsRoutine && i.Status != AgendaStatuses.Late)
+            .Where(i => i.Date >= today && i.Date <= upTo && !shownIds.Contains(i.Id))
+            .OrderBy(i => i.Date).ThenBy(SortGroup).ThenBy(i => i.Start, StringComparer.Ordinal).ThenBy(i => i.Title, StringComparer.Ordinal)
             .DistinctBy(i => i.Id)
             .ToList();
         return new AgendaUpcoming { From = today, To = upTo, Items = items };
