@@ -391,7 +391,7 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.setViewportSize({ width: 1280, height: 1000 });
   });
 
-  test('Test 13 : Échéance créée, document déposé, paiement, suppression du document', async () => {
+  test('Test 13 : Échéance créée, document déposé, doublon refusé, paiement, modification, suppression du document', async () => {
     // Lot 1 (10/09/2026) : les trois gestes d'Audrey, depuis l'Agenda puis depuis /documents.
     await page.goto('/agenda');
     await page.waitForURL('**/agenda**');
@@ -436,6 +436,19 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(page.getByRole('button', { name: String(new Date().getFullYear()), pressed: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Créer une échéance à partir de ce document' })).toBeVisible();
 
+    // Second dépôt du même fichier : le serveur répond 409 (même SHA-256 dans le dashboard), son message
+    // s'affiche tel quel avec le geste vers l'existant, et aucune seconde carte n'apparaît.
+    await page.getByRole('button', { name: 'Déposer', exact: true }).click();
+    const again = page.getByRole('dialog', { name: 'Déposer un document' });
+    await expect(again).toBeVisible();
+    await again.locator('input[type="file"]').setInputFiles(join(__dirname, 'fixtures', 'facture-test.pdf'));
+    await again.getByRole('button', { name: 'Envoyer' }).click();
+    await expect(again).toContainText('déjà rangé', { timeout: 10000 });
+    await expect(again.getByRole('button', { name: 'Ouvrir le document existant' })).toBeVisible();
+    await again.getByRole('button', { name: 'Fermer' }).click();
+    await expect(again).not.toBeVisible();
+    await expect(page.locator('li', { hasText: 'facture-test.pdf' })).toHaveCount(1);
+
     // Paiement depuis la feuille Échéance, ouverte depuis l'agenda. « Payée » est écrit par le serveur.
     await page.goto('/agenda');
     await page.waitForURL('**/agenda**');
@@ -445,8 +458,21 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(sheet.getByRole('heading', { name: 'Documents' })).toBeVisible();
     await sheet.getByRole('button', { name: "Je l'ai payée" }).click();
     await expect(sheet).toContainText(/Payée/, { timeout: 10000 });
-    await sheet.getByRole('button', { name: 'Fermer' }).click();
-    await expect(sheet).not.toBeVisible();
+
+    // « Modifier » : la feuille de saisie prend la place de la feuille Échéance, pré-remplie, puis la rend
+    // avec le nouveau libellé. L'agenda le reprend après invalidation.
+    await sheet.getByRole('button', { name: 'Modifier' }).click();
+    const edit = page.getByRole('dialog', { name: "Modifier l'échéance" });
+    await expect(edit).toBeVisible();
+    await expect(edit.getByLabel('Libellé')).toHaveValue('Test E2E facture');
+    await edit.getByLabel('Libellé').fill('Test E2E facture modifiée');
+    await edit.getByRole('button', { name: 'Enregistrer' }).click();
+    await expect(edit).not.toBeVisible({ timeout: 5000 });
+    const renamed = page.getByRole('dialog', { name: 'Test E2E facture modifiée' });
+    await expect(renamed).toBeVisible({ timeout: 10000 });
+    await renamed.getByRole('button', { name: 'Fermer' }).click();
+    await expect(renamed).not.toBeVisible();
+    await expect(page.getByRole('button', { name: /Test E2E facture modifiée/ })).toBeVisible({ timeout: 10000 });
 
     // Suppression du document en deux gestes : le bouton, puis « Oui ».
     await page.goto('/documents');
