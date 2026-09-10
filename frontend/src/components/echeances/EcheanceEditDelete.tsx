@@ -29,9 +29,10 @@ export const EcheanceEditDelete = ({ echeanceId, dashboardId, onEdit, onDeleted 
         queryClient.invalidateQueries({ queryKey: ['echeances', dashboardId] }),
         queryClient.invalidateQueries({ queryKey: ['documents', dashboardId] }),
       ]);
-      queryClient.removeQueries({ queryKey: ['echeance', echeanceId] });
       showToast('Échéance supprimée', 'success');
+      // La feuille se ferme d'abord : retirer la clé pendant qu'elle l'observe encore relançait un GET en 404.
       onDeleted();
+      queryClient.removeQueries({ queryKey: ['echeance', echeanceId] });
     },
     onError: () => setError('Suppression impossible, réessaie.'),
   });
