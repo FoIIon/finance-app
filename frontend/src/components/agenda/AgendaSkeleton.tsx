@@ -1,13 +1,16 @@
-/** Squelette gris de trois jours pendant le premier chargement. Pas de spinner plein écran. */
+/** Squelette gris de sept jours compacts pendant le premier chargement, à la hauteur des vrais. Pas de spinner plein écran. */
 export const AgendaSkeleton = () => (
-  <div className="space-y-3" aria-busy="true" aria-label="Chargement de l'agenda">
-    {[0, 1, 2].map((i) => (
-      <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-4 animate-pulse">
-        <div className="h-4 w-40 rounded bg-white/10" />
-        <div className="mt-3 space-y-2">
-          <div className="h-3 w-3/4 rounded bg-white/5" />
-          <div className="h-3 w-1/2 rounded bg-white/5" />
+  <div className="-mx-2 animate-pulse" aria-busy="true" aria-label="Chargement de l'agenda">
+    {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+      <div key={i} className="border-b border-white/5 border-l-2 border-l-transparent px-1.5">
+        <div className="h-7 flex items-center">
+          <div className="h-3 w-28 rounded bg-white/10" />
         </div>
+        {i % 3 === 0 && (
+          <div className="min-h-10 flex items-center">
+            <div className="ml-15 h-3 w-2/3 rounded bg-white/5" />
+          </div>
+        )}
       </div>
     ))}
   </div>
