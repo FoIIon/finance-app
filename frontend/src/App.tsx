@@ -21,6 +21,7 @@ const DashboardFlows = lazy(() => import('./pages/dashboard/Flows'));
 const DashboardProjects = lazy(() => import('./pages/dashboard/Projects'));
 const DashboardTriage = lazy(() => import('./pages/dashboard/Triage'));
 const Agenda = lazy(() => import('./pages/Agenda'));
+const Documents = lazy(() => import('./pages/Documents'));
 const Transactions = lazy(() => import('./pages/Transactions'));
 const Categories = lazy(() => import('./pages/Categories'));
 const Envelopes = lazy(() => import('./pages/Envelopes'));
@@ -60,6 +61,7 @@ const App = () => {
                 >
                   <Route path="/" element={<Navigate to="/agenda" replace />} />
                   <Route path="/agenda" element={<Agenda />} />
+                  <Route path="/documents" element={<Documents />} />
                   <Route path="/dashboard" element={<Dashboard />}>
                     <Route index element={<Navigate to="overview" replace />} />
                     <Route path="overview" element={<DashboardOverview />} />
