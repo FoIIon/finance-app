@@ -139,6 +139,29 @@ public class EcheanceDocumentAuthorizationTests : IDisposable
     }
 
     [Fact]
+    public async Task PaidAt_RelueDeLaBase_SeSerialiseEnUtc_AvecLeSuffixeZ()
+    {
+        // Le paiement se pose dans un contexte, la relecture se fait dans un autre : c'est le trajet SQLite
+        // qui perd le Kind, pas l'écriture. Le DTO doit ressortir en UTC explicite dans les deux cas.
+        using (var ctx = NewContext())
+        {
+            var paid = (EcheanceDto)((OkObjectResult)(await Echeances(ctx, _b.UserId).Pay(_echeanceB)).Result!).Value!;
+            Assert.Equal(DateTimeKind.Utc, paid.PaidAt!.Value.Kind);
+        }
+
+        using var fresh = NewContext();
+        var dto = (EcheanceDto)((OkObjectResult)(await Echeances(fresh, _b.UserId).GetById(_echeanceB)).Result!).Value!;
+        Assert.Equal(DateTimeKind.Utc, dto.PaidAt!.Value.Kind);
+        Assert.Equal(DateTimeKind.Utc, dto.CreatedAt.Kind);
+        Assert.Equal(DateTimeKind.Utc, dto.UpdatedAt.Kind);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(dto, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Matches("\"paidAt\":\"[^\"]+Z\"", json);
+        Assert.Matches("\"createdAt\":\"[^\"]+Z\"", json);
+        Assert.Matches("\"updatedAt\":\"[^\"]+Z\"", json);
+    }
+
+    [Fact]
     public async Task LeFiltreStatut_SAppliqueApresCalcul()
     {
         using var ctx = NewContext();

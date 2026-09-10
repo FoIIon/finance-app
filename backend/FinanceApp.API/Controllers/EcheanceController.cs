@@ -51,12 +51,15 @@ public class EcheanceController : ApiControllerBase
         IsAmountKnown = e.Amount.HasValue,
         Notes = e.Notes,
         Status = EcheanceStatusRules.Of(e, today).ToString(),
-        PaidAt = e.PaidAt,
+        // Relu de SQLite, un DateTime sort en Kind Unspecified et se sérialise sans « Z » : le navigateur
+        // le lirait en heure locale et « Payée le » glisserait d'un jour entre 22 h et minuit. Même procédé
+        // qu'AgendaCalendarStatus.From pour LastSyncAt.
+        PaidAt = e.PaidAt.HasValue ? DateTime.SpecifyKind(e.PaidAt.Value, DateTimeKind.Utc) : null,
         TransactionId = e.TransactionId,
         DocumentIds = e.Documents.Select(d => d.Id).OrderBy(id => id).ToList(),
         CreatedByUserId = e.CreatedByUserId,
-        CreatedAt = e.CreatedAt,
-        UpdatedAt = e.UpdatedAt,
+        CreatedAt = DateTime.SpecifyKind(e.CreatedAt, DateTimeKind.Utc),
+        UpdatedAt = DateTime.SpecifyKind(e.UpdatedAt, DateTimeKind.Utc),
     };
 
     /// <summary>Le statut étant dérivé, son filtre s'applique côté client après projection.</summary>
