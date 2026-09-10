@@ -1,5 +1,5 @@
 import type { AgendaDay, AgendaItem } from '../../types/agenda';
-import { WEEKDAY_SHORT_LABELS, addDays, formatDayHeading, parseDay, weekdayMondayFirst } from './agendaFormat';
+import { WEEKDAY_SHORT_LABELS, addDays, formatDayMonth, parseDay, weekdayMondayFirst } from './agendaFormat';
 
 interface Props {
   from: string;
@@ -15,6 +15,21 @@ interface Props {
 const MAX_PER_CELL = 3;
 
 const dotClass = (item: AgendaItem) => (item.status === 'late' ? 'bg-red-400' : 'bg-white/50');
+
+/**
+ * Ce qu'un lecteur d'écran lit sur une case, en mots : « 13 septembre, 2 items », « 10 septembre, aujourd'hui,
+ * 1 en retard », « 14 septembre, rien ». Le statut vient du serveur, on le compte, on ne le déduit pas.
+ */
+const cellLabel = (iso: string, isToday: boolean, items: AgendaItem[]) => {
+  const parts = [formatDayMonth(iso)];
+  if (isToday) parts.push("aujourd'hui");
+  const late = items.filter((i) => i.status === 'late').length;
+  const others = items.length - late;
+  if (items.length === 0) parts.push('rien');
+  if (others > 0) parts.push(`${others} item${others > 1 ? 's' : ''}`);
+  if (late > 0) parts.push(`${late} en retard`);
+  return parts.join(', ');
+};
 
 /**
  * Les cases de la grille : les blancs avant le premier du mois, chaque jour de `from` à `to`, les blancs
@@ -62,7 +77,7 @@ export const AgendaMonthGrid = ({ from, to, days, selected, onSelect }: Props) =
               type="button"
               onClick={() => onSelect(iso)}
               aria-pressed={isSelected}
-              aria-label={formatDayHeading(iso, isToday, true)}
+              aria-label={cellLabel(iso, isToday, items)}
               className={`min-w-0 min-h-11 lg:min-h-24 flex flex-col items-start p-1 lg:p-1.5 rounded-md border text-left transition-colors hover:bg-white/5 ${
                 isSelected ? 'border-amber-400/70' : 'border-transparent'
               } ${isToday ? 'bg-amber-500/5' : ''}`}

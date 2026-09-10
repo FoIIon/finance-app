@@ -16,6 +16,9 @@ const fmt = (iso: string, options: Intl.DateTimeFormatOptions) =>
 /** « 8 sept. » */
 export const formatShortDate = (iso: string) => fmt(iso, { day: 'numeric', month: 'short' });
 
+/** « 13 septembre » */
+export const formatDayMonth = (iso: string) => fmt(iso, { day: 'numeric', month: 'long' });
+
 /** « 15 septembre 2026 » */
 export const formatLongDate = (iso: string) => fmt(iso, { day: 'numeric', month: 'long', year: 'numeric' });
 
