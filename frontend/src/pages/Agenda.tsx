@@ -65,13 +65,14 @@ const Agenda = () => {
 
   const [openEcheanceId, setOpenEcheanceId] = useState<number | null>(null);
 
-  // L'écran s'ouvre sur aujourd'hui, une seule fois, et seulement si le bloc n'est pas déjà visible.
-  const todayRef = useRef<HTMLElement>(null);
+  // L'écran s'ouvre une seule fois sur le bloc d'arrivée (aujourd'hui en semaine, le détail du jour sous la
+  // grille en mois), et seulement si ce bloc n'est pas déjà visible.
+  const landingRef = useRef<HTMLElement>(null);
   const scrolledOnce = useRef(false);
   useEffect(() => {
     if (!data || scrolledOnce.current) return;
     scrolledOnce.current = true;
-    const el = todayRef.current;
+    const el = landingRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     if (rect.bottom > window.innerHeight) el.scrollIntoView({ block: 'start' });
@@ -119,12 +120,12 @@ const Agenda = () => {
         <>
           <AgendaMonthGrid from={d.from} to={d.to} days={windowDays} selected={selected} onSelect={(iso) => update({ day: iso })} />
           <div className="mt-3 -mx-2">
-            <AgendaDayBlock day={selectedDay} onOpenEcheance={setOpenEcheanceId} />
+            <AgendaDayBlock day={selectedDay} ref={landingRef} onOpenEcheance={setOpenEcheanceId} />
           </div>
         </>
       );
     }
-    return <AgendaWeekGrid days={windowDays} from={d.from} to={d.to} todayRef={todayRef} onOpenEcheance={setOpenEcheanceId} />;
+    return <AgendaWeekGrid days={windowDays} from={d.from} to={d.to} todayRef={landingRef} onOpenEcheance={setOpenEcheanceId} />;
   };
 
   return (
