@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { AgendaView, CalendarStatus } from '../../types/agenda';
+import { CreateEcheanceButton } from '../echeances/CreateEcheanceButton';
 import { formatInstantDay, formatRelative } from './agendaFormat';
 
 interface Props {
@@ -70,8 +71,8 @@ const VIEWS: { key: AgendaView; label: string }[] = [
 
 /**
  * Bandeau collant en deux lignes. Ligne 1 : la pilule Semaine | Mois (même famille que PeriodSelector),
- * « Aujourd'hui » hors période courante, les flèches en cible tactile de 44 px. Ligne 2 : le titre de la
- * période et l'état du calendrier. Le fond reprend celui de l'en-tête mobile pour que le contenu passe
+ * « Aujourd'hui » hors période courante, les flèches en cible tactile de 44 px, « + Échéance » à droite
+ * (lot 1). Ligne 2 : le titre de la période et l'état du calendrier. Le fond reprend celui de l'en-tête mobile pour que le contenu passe
  * dessous sans transparaître.
  */
 export const AgendaHeader = ({ view, onViewChange, onPrev, onNext, onToday, showToday, navDisabled, title, calendar }: Props) => (
@@ -123,6 +124,7 @@ export const AgendaHeader = ({ view, onViewChange, onPrev, onNext, onToday, show
         >
           ›
         </button>
+        <CreateEcheanceButton />
       </div>
     </div>
 
