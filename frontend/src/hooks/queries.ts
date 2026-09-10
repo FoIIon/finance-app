@@ -7,7 +7,9 @@ import { projectEnvelopesApi } from '../api/projectEnvelopes';
 import { shoppingItemsApi } from '../api/shoppingItems';
 import { investmentsApi } from '../api/investments';
 import { loansApi } from '../api/loans';
-import { agendaApi, echeancesApi } from '../api/agenda';
+import { agendaApi } from '../api/agenda';
+import { echeancesApi } from '../api/echeances';
+import { documentsApi, type DocumentFilters } from '../api/documents';
 import { calendarApi } from '../api/calendar';
 import type { AgendaView } from '../types/agenda';
 import type { Period } from '../utils/periods';
@@ -248,6 +250,33 @@ export const useEcheanceQuery = (id: number | undefined) =>
     enabled: !!id,
     queryFn: async () => {
       const res = await echeancesApi.getById(id!);
+      return res.data;
+    },
+  });
+
+// ---------------------------------------------------------------------------------------------
+// Lot 1 Échéances et documents. Clés ['documents', dashboardId, …] et ['echeances', dashboardId] :
+// un envoi, une modification ou une suppression invalide par préfixe.
+// ---------------------------------------------------------------------------------------------
+
+/** Les documents d'un dashboard, filtrés par le serveur (année fiscale, nature, échéance). Ordre du serveur. */
+export const useDocumentsQuery = (dashboardId: number | undefined, filters: DocumentFilters = {}) =>
+  useQuery({
+    queryKey: ['documents', dashboardId, filters.fiscalYear ?? null, filters.kind ?? null, filters.echeanceId ?? null],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      const res = await documentsApi.getAll(dashboardId!, filters);
+      return res.data;
+    },
+  });
+
+/** Toutes les échéances du dashboard, pour écrire le libellé sous un document rattaché. */
+export const useEcheancesQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['echeances', dashboardId],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      const res = await echeancesApi.getAll(dashboardId!);
       return res.data;
     },
   });
