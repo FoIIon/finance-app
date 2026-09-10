@@ -5,6 +5,7 @@ import DashboardSelector from './DashboardSelector';
 
 const navItems = [
   { path: '/agenda', label: 'Agenda', icon: '📅' },
+  { path: '/documents', label: 'Documents', icon: '📄' },
   { path: '/dashboard/overview', label: 'Tableau de bord', icon: '📊' },
   { path: '/transactions', label: 'Transactions', icon: '💳' },
   { path: '/envelopes', label: 'Enveloppes', icon: '✉️' },
