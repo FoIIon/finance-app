@@ -19,12 +19,25 @@ export const formatShortDate = (iso: string) => fmt(iso, { day: 'numeric', month
 /** « 15 septembre 2026 » */
 export const formatLongDate = (iso: string) => fmt(iso, { day: 'numeric', month: 'long', year: 'numeric' });
 
-/** « Mercredi 9 septembre », ou « Aujourd'hui 9 septembre » pour le jour courant. */
-export const formatDayHeading = (iso: string, isToday: boolean) => {
-  const dayMonth = fmt(iso, { day: 'numeric', month: 'long' });
-  if (isToday) return `Aujourd'hui ${dayMonth}`;
-  return capitalize(`${fmt(iso, { weekday: 'long' })} ${dayMonth}`);
+/**
+ * En-tête compact d'un jour : « Vendredi 11 », « Vendredi 11 septembre » quand le bandeau ne porte pas le
+ * mois de ce jour, « Aujourd'hui · jeudi 10 » pour le jour courant.
+ */
+export const formatDayHeading = (iso: string, isToday: boolean, withMonth = false) => {
+  const body = withMonth
+    ? fmt(iso, { weekday: 'long', day: 'numeric', month: 'long' })
+    : fmt(iso, { weekday: 'long', day: 'numeric' });
+  return isToday ? `Aujourd'hui · ${body}` : capitalize(body);
 };
+
+/** « jeu. 10 », en tête d'une colonne de la semaine. */
+export const formatColumnHeading = (iso: string) => fmt(iso, { weekday: 'short', day: 'numeric' });
+
+/** Vrai si les deux dates yyyy-MM-dd sont dans le même mois : le titre du bandeau suffit alors. */
+export const sameMonth = (a: string, b: string) => a.slice(0, 7) === b.slice(0, 7);
+
+/** Lundi = 0 … dimanche = 6, pour placer une date dans une grille qui commence le lundi. Mise en page, rien d'autre. */
+export const weekdayMondayFirst = (iso: string) => (parseDay(iso).getDay() + 6) % 7;
 
 /** Titre du bandeau : « 9 au 15 septembre », « 28 septembre au 4 octobre », « Septembre 2026 ». */
 export const formatPeriodTitle = (view: AgendaView, from: string, to: string) => {
@@ -98,3 +111,6 @@ export const addMonthsFirstDay = (iso: string, n: number) => {
   const d = parseDay(iso);
   return toIso(new Date(d.getFullYear(), d.getMonth() + n, 1, 12));
 };
+
+/** Les sept en-têtes de colonne d'une grille, du lundi au dimanche : « lun. », « mar. », … Le 1er janvier 2024 était un lundi. */
+export const WEEKDAY_SHORT_LABELS: readonly string[] = [0, 1, 2, 3, 4, 5, 6].map((i) => fmt(addDays('2024-01-01', i), { weekday: 'short' }));
