@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
-import { echeancesApi } from '../../api/agenda';
+import { echeancesApi } from '../../api/echeances';
 import { useEcheanceQuery } from '../../hooks/queries';
 import type { AgendaItem, AgendaStatus } from '../../types/agenda';
 import { formatCurrency } from '../../utils/format';
