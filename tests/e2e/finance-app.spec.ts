@@ -390,4 +390,77 @@ test.describe.serial('FinanceApp E2E', () => {
     await page.getByRole('button', { name: 'Fermer le menu' }).click();
     await page.setViewportSize({ width: 1280, height: 1000 });
   });
+
+  test('Test 13 : Échéance créée, document déposé, paiement, suppression du document', async () => {
+    // Lot 1 (10/09/2026) : les trois gestes d'Audrey, depuis l'Agenda puis depuis /documents.
+    await page.goto('/agenda');
+    await page.waitForURL('**/agenda**');
+    await expect(page.getByRole('heading', { name: /^Aujourd'hui/ })).toBeVisible({ timeout: 10000 });
+
+    // Création : libellé, date limite à J+3, montant saisi à la française. La virgule part en point.
+    const due = new Date();
+    due.setDate(due.getDate() + 3);
+    const dueIso = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`;
+
+    await page.getByRole('button', { name: '+ Échéance' }).click();
+    const form = page.getByRole('dialog', { name: 'Nouvelle échéance' });
+    await expect(form).toBeVisible();
+    await form.getByLabel('Libellé').fill('Test E2E facture');
+    await form.getByLabel('Date limite').fill(dueIso);
+    await form.getByLabel(/Montant/).fill('12,50');
+    await form.getByRole('button', { name: 'Enregistrer' }).click();
+    await expect(form).not.toBeVisible({ timeout: 5000 });
+
+    // À J+3 l'échéance est dans la semaine affichée ou dans « Et ensuite » : dans les deux cas une ligne
+    // touchable, avec le montant en notation française. Le statut vient du serveur, on ne le vérifie pas ici.
+    const row = page.getByRole('button', { name: /Test E2E facture/ });
+    await expect(row).toBeVisible({ timeout: 10000 });
+    await expect(row).toContainText(/12,50\s€/);
+
+    // Dépôt d'un PDF généré (aucune donnée réelle) depuis /documents, sans échéance.
+    await page.goto('/documents');
+    await page.waitForURL('**/documents**');
+    await expect(page.getByRole('heading', { name: 'Documents' })).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: 'Déposer', exact: true }).click();
+    const upload = page.getByRole('dialog', { name: 'Déposer un document' });
+    await expect(upload).toBeVisible();
+    await upload.locator('input[type="file"]').setInputFiles(join(__dirname, 'fixtures', 'facture-test.pdf'));
+    await expect(upload).toContainText('facture-test.pdf');
+    await upload.getByRole('button', { name: 'Envoyer' }).click();
+    await expect(upload).not.toBeVisible({ timeout: 10000 });
+
+    // La carte est là, sous la pastille de l'année en cours (année fiscale par défaut du dépôt).
+    const card = page.locator('li', { hasText: 'facture-test.pdf' });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card).toContainText('Facture');
+    await expect(page.getByRole('button', { name: String(new Date().getFullYear()), pressed: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Créer une échéance à partir de ce document' })).toBeVisible();
+
+    // Paiement depuis la feuille Échéance, ouverte depuis l'agenda. « Payée » est écrit par le serveur.
+    await page.goto('/agenda');
+    await page.waitForURL('**/agenda**');
+    await page.getByRole('button', { name: /Test E2E facture/ }).click();
+    const sheet = page.getByRole('dialog', { name: 'Test E2E facture' });
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole('heading', { name: 'Documents' })).toBeVisible();
+    await sheet.getByRole('button', { name: "Je l'ai payée" }).click();
+    await expect(sheet).toContainText(/Payée/, { timeout: 10000 });
+    await sheet.getByRole('button', { name: 'Fermer' }).click();
+    await expect(sheet).not.toBeVisible();
+
+    // Suppression du document en deux gestes : le bouton, puis « Oui ».
+    await page.goto('/documents');
+    await page.waitForURL('**/documents**');
+    const cardAgain = page.locator('li', { hasText: 'facture-test.pdf' });
+    await expect(cardAgain).toBeVisible({ timeout: 10000 });
+    await cardAgain.getByRole('button', { name: 'Supprimer' }).click();
+    await cardAgain.getByRole('button', { name: 'Oui' }).click();
+    await expect(cardAgain).not.toBeVisible({ timeout: 5000 });
+
+    // Aucun défilement horizontal à 390 px sur /documents non plus.
+    await page.setViewportSize({ width: 390, height: 664 });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    await page.setViewportSize({ width: 1280, height: 1000 });
+  });
 });
