@@ -7,6 +7,9 @@ import { useEcheanceQuery } from '../../hooks/queries';
 import type { AgendaItem, AgendaStatus } from '../../types/agenda';
 import { formatCurrency } from '../../utils/format';
 import { formatInstantDay, formatLongDate, statusLabel } from './agendaFormat';
+import { EcheanceDocumentsSection } from '../echeances/EcheanceDocumentsSection';
+import { EcheanceEditDelete } from '../echeances/EcheanceEditDelete';
+import { EcheanceFormSheet } from '../echeances/EcheanceFormSheet';
 
 interface Props {
   echeanceId: number;
@@ -39,19 +42,23 @@ const statusFromDto = (status: string | undefined): AgendaStatus | null => {
 /**
  * Feuille basse sur le patron de CategoryDetailModal. Titre, montant, date limite, statut en texte, puis
  * les gestes : « Je l'ai payée », réversible au même endroit par « Finalement non », et « Détacher la
- * transaction » en deux gestes. Chaque geste invalide l'agenda, le serveur recalcule le statut.
+ * transaction » en deux gestes. Chaque geste invalide l'agenda, le serveur recalcule le statut. Lot 1 :
+ * une section Documents, puis « Modifier » (la feuille de saisie prend la place de celle-ci) et « Supprimer ».
  */
 export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props) => {
   const queryClient = useQueryClient();
   const { data: echeance, isLoading } = useEcheanceQuery(echeanceId);
   const [detachAsked, setDetachAsked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
+  // Pendant la modification, la feuille de saisie tient Échap : sinon les deux se fermeraient d'un coup.
   useEffect(() => {
+    if (editing) return;
     const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onEsc);
     return () => document.removeEventListener('keydown', onEsc);
-  }, [onClose]);
+  }, [onClose, editing]);
 
   const invalidate = async () => {
     await Promise.all([
@@ -109,6 +116,10 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
     if (status === 'due') return 'À payer';
     return '';
   })();
+
+  if (editing && echeance) {
+    return <EcheanceFormSheet dashboardId={dashboardId} initial={echeance} onClose={() => setEditing(false)} />;
+  }
 
   const sheet = (
     <div
@@ -203,6 +214,12 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
             )
           )}
         </div>
+
+        <EcheanceDocumentsSection echeanceId={echeanceId} dashboardId={dashboardId} />
+
+        {echeance && (
+          <EcheanceEditDelete echeanceId={echeanceId} dashboardId={dashboardId} onEdit={() => setEditing(true)} onDeleted={onClose} />
+        )}
       </div>
     </div>
   );
