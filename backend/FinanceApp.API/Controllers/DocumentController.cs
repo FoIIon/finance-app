@@ -51,7 +51,9 @@ public class DocumentController : ApiControllerBase
         SizeBytes = d.SizeBytes,
         Sha256 = d.Sha256,
         UploadedByUserId = d.UploadedByUserId,
-        CreatedAt = d.CreatedAt,
+        // Relu de SQLite, le DateTime sort en Kind Unspecified, donc sans « Z » : « déposé le » glisserait d'un
+        // jour entre 22 h et minuit. Même procédé qu'EcheanceController et AgendaCalendarStatus.From.
+        CreatedAt = DateTime.SpecifyKind(d.CreatedAt, DateTimeKind.Utc),
     };
 
     /// <summary>Nom d'affichage : la dernière composante de ce que le client a envoyé, tronquée. Jamais un chemin.</summary>

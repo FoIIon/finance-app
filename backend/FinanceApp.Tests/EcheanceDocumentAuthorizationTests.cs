@@ -195,6 +195,23 @@ public class EcheanceDocumentAuthorizationTests : IDisposable
     // ----- Documents -----
 
     [Fact]
+    public async Task CreatedAt_DuDocument_RelueDeLaBase_SeSerialiseEnUtc_AvecLeSuffixeZ()
+    {
+        // Le document a été posé dans le contexte du seed ; relu ici dans un autre, c'est le trajet SQLite qui
+        // perd le Kind. La réponse du GET doit sortir en UTC explicite comme celle du POST.
+        using var ctx = NewContext();
+        var dto = (DocumentDto)((OkObjectResult)(await Documents(ctx, _b.UserId).GetById(_documentB)).Result!).Value!;
+        Assert.Equal(DateTimeKind.Utc, dto.CreatedAt.Kind);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(dto, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Matches("\"createdAt\":\"[^\"]+Z\"", json);
+
+        var listed = (List<DocumentDto>)((OkObjectResult)(await Documents(ctx, _b.UserId).GetAll(_b.DashboardId, null, null, null)).Result!).Value!;
+        Assert.NotEmpty(listed);
+        Assert.All(listed, d => Assert.Equal(DateTimeKind.Utc, d.CreatedAt.Kind));
+    }
+
+    [Fact]
     public async Task A_NeListePas_NeLitPas_LesDocumentsDeB()
     {
         using var ctx = NewContext();
