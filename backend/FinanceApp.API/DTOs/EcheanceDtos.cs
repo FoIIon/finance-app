@@ -57,8 +57,8 @@ public class CreateEcheanceDto
     [MaxLength(1000)]
     public string? Notes { get; set; }
 
-    /// <summary>Saisie brute, espaces tolérés : le contrôleur normalise.</summary>
-    [MaxLength(34)]
+    /// <summary>Saisie brute, espaces tolérés (34 caractères plus huit espaces de groupes) : le contrôleur normalise.</summary>
+    [MaxLength(42)]
     public string? CounterpartyIban { get; set; }
 
     /// <summary>Saisie brute (« +++123/4567/89012+++ » accepté) : le contrôleur normalise et refuse un contrôle 97 faux.</summary>
@@ -84,7 +84,7 @@ public class UpdateEcheanceDto
     /// <summary>Transaction qui règle l'échéance, sur un compte du dashboard. Null : détachée.</summary>
     public int? TransactionId { get; set; }
 
-    [MaxLength(34)]
+    [MaxLength(42)]
     public string? CounterpartyIban { get; set; }
 
     [MaxLength(20)]
