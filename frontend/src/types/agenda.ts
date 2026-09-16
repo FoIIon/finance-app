@@ -102,6 +102,8 @@ export interface Echeance {
   structuredCommunication: string | null;
   /** Instant ISO UTC du rapprochement automatique. Null quand le lien est manuel ou absent. */
   matchedAt: string | null;
+  /** Instant ISO UTC où un rapprochement automatique a été défait : le serveur ne redevine plus tant qu'une clé ne change pas. */
+  autoMatchRefusedAt: string | null;
   /** La transaction liée, pour l'affichage. Null sans lien. */
   payment: EcheancePayment | null;
   documentIds: number[];

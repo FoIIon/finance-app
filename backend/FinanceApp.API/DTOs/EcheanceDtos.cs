@@ -22,6 +22,9 @@ public class EcheanceDto
     public string? StructuredCommunication { get; set; }
     /// <summary>Instant UTC du rapprochement automatique. Null quand le lien est manuel ou absent.</summary>
     public DateTime? MatchedAt { get; set; }
+    /// <summary>Instant UTC où l'utilisateur a défait un rapprochement automatique. Posé : le rapprocheur ignore
+    /// cette échéance jusqu'à ce que l'IBAN ou la communication change.</summary>
+    public DateTime? AutoMatchRefusedAt { get; set; }
     /// <summary>La transaction qui règle l'échéance, pour l'écran. Null sans lien.</summary>
     public EcheancePaymentDto? Payment { get; set; }
     public List<int> DocumentIds { get; set; } = new();

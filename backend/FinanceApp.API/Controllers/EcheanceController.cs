@@ -21,16 +21,16 @@ namespace FinanceApp.API.Controllers;
 public class EcheanceController : ApiControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly TimeZoneInfo _householdTz;
+    private readonly HouseholdOptions _household;
 
     public EcheanceController(AppDbContext context, IOptions<HouseholdOptions> household)
     {
         _context = context;
-        _householdTz = household.Value.Zone;
+        _household = household.Value;
     }
 
     /// <summary>La date du jour dans le fuseau du ménage, jamais l'UTC nu : le Pi tourne en UTC.</summary>
-    private DateOnly Today => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _householdTz));
+    private DateOnly Today => _household.TodayLocal(DateTime.UtcNow);
 
     private Task<bool> IsMemberAsync(int dashboardId, int userId) =>
         _context.Dashboards.AnyAsync(d => d.Id == dashboardId && d.Members.Any(m => m.UserId == userId));
@@ -69,10 +69,6 @@ public class EcheanceController : ApiControllerBase
         return (iban, communication, null);
     }
 
-    /// <summary>La date d'une transaction dans le fuseau du ménage. Relue de SQLite en Kind Unspecified, elle est UTC.</summary>
-    private DateOnly LocalDateOf(DateTime utc) =>
-        DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), _householdTz));
-
     private EcheancePaymentDto? PaymentOf(Echeance e)
     {
         if (e.Transaction == null) return null;
@@ -80,7 +76,8 @@ public class EcheanceController : ApiControllerBase
         return new EcheancePaymentDto
         {
             TransactionId = t.Id,
-            Date = LocalDateOf(t.Date),
+            // Relue de SQLite en Kind Unspecified, la date d'une transaction est UTC : le jour du ménage en découle.
+            Date = _household.TodayLocal(t.Date),
             Amount = t.Amount,
             Description = t.Description.Length > 200 ? t.Description[..200] : t.Description,
             CounterpartyName = t.CounterpartyName,
@@ -105,6 +102,7 @@ public class EcheanceController : ApiControllerBase
         CounterpartyIban = e.CounterpartyIban,
         StructuredCommunication = e.StructuredCommunication,
         MatchedAt = e.MatchedAt.HasValue ? DateTime.SpecifyKind(e.MatchedAt.Value, DateTimeKind.Utc) : null,
+        AutoMatchRefusedAt = e.AutoMatchRefusedAt.HasValue ? DateTime.SpecifyKind(e.AutoMatchRefusedAt.Value, DateTimeKind.Utc) : null,
         Payment = PaymentOf(e),
         DocumentIds = e.Documents.Select(d => d.Id).OrderBy(id => id).ToList(),
         CreatedByUserId = e.CreatedByUserId,
@@ -203,15 +201,21 @@ public class EcheanceController : ApiControllerBase
             if (alreadyProves) return Conflict("Cette transaction règle déjà une autre échéance.");
         }
 
+        var now = DateTime.UtcNow;
         if (dto.TransactionId != echeance.TransactionId)
         {
             // Le lien change de la main de l'utilisateur : ce n'est plus le rapprocheur qui l'a posé. Détacher
             // une transaction rapprochée automatiquement vaut refus, sinon la passe suivante la remettrait.
             if (echeance.MatchedAt.HasValue && echeance.TransactionId.HasValue)
-                echeance.RejectedTransactionId = echeance.TransactionId;
+                echeance.AutoMatchRefusedAt = now;
             echeance.MatchedAt = null;
             echeance.Transaction = null;
         }
+
+        // Une clé corrigée lève le refus : l'utilisateur a changé ce sur quoi on devinait. Après le détachement
+        // ci-dessus, pour qu'une correction faite dans le même geste laisse redeviner.
+        if (iban != echeance.CounterpartyIban || communication != echeance.StructuredCommunication)
+            echeance.AutoMatchRefusedAt = null;
 
         echeance.Label = dto.Label.Trim();
         echeance.DueDate = dto.DueDate;
@@ -220,7 +224,7 @@ public class EcheanceController : ApiControllerBase
         echeance.TransactionId = dto.TransactionId;
         echeance.CounterpartyIban = iban;
         echeance.StructuredCommunication = communication;
-        echeance.UpdatedAt = DateTime.UtcNow;
+        echeance.UpdatedAt = now;
 
         try
         {
@@ -254,8 +258,8 @@ public class EcheanceController : ApiControllerBase
 
     /// <summary>
     /// Annule le paiement, manuel ou prouvé par transaction : l'échéance redevient à payer. Si c'est le
-    /// rapprocheur qui avait lié la transaction, elle est refusée pour cette échéance et ne sera plus
-    /// jamais reproposée. Un lien manuel qu'on défait n'est pas un refus.
+    /// rapprocheur qui avait lié la transaction, le geste vaut « arrête de deviner pour celle-ci » : le
+    /// rapprocheur l'ignore jusqu'à ce qu'une clé soit corrigée. Un lien manuel qu'on défait n'est pas un refus.
     /// </summary>
     [HttpPost("{id}/unpay")]
     public async Task<ActionResult<EcheanceDto>> Unpay(int id)
@@ -263,13 +267,14 @@ public class EcheanceController : ApiControllerBase
         var echeance = await FindOwnedAsync(id, GetUserId());
         if (echeance == null) return NotFound();
 
+        var now = DateTime.UtcNow;
         if (echeance.MatchedAt.HasValue && echeance.TransactionId.HasValue)
-            echeance.RejectedTransactionId = echeance.TransactionId;
+            echeance.AutoMatchRefusedAt = now;
         echeance.PaidAt = null;
         echeance.TransactionId = null;
         echeance.MatchedAt = null;
         echeance.Transaction = null;
-        echeance.UpdatedAt = DateTime.UtcNow;
+        echeance.UpdatedAt = now;
         await _context.SaveChangesAsync();
         return Ok(Map(echeance, Today));
     }

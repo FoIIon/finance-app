@@ -15,7 +15,7 @@ export interface FieldErrors {
 /** L'exemple passe le contrôle 97 (1234567890 mod 97 = 2) : recopié tel quel, il est accepté. */
 export const STRUCTURED_COMMUNICATION_HINT = 'Douze chiffres, par exemple +++123/4567/89002+++.';
 
-/** Une saisie de communication structurée ramenée à ses chiffres : « +++123/4567/89012+++ » → « 123456789012 ». */
+/** Une saisie de communication structurée ramenée à ses chiffres : « +++123/4567/89002+++ » → « 123456789002 ». */
 export const stripStructuredCommunication = (raw: string) => raw.replace(/[+*/\s]/g, '');
 
 /**
@@ -28,7 +28,7 @@ export const isValidStructuredCommunication = (twelveDigits: string) => {
   return Number(twelveDigits.slice(10)) === expected;
 };
 
-/** Douze chiffres → « +++123/4567/89012+++ », pour l'affichage. Autre chose : tel quel. */
+/** Douze chiffres → « +++123/4567/89002+++ », pour l'affichage. Autre chose : tel quel. */
 export const formatStructuredCommunication = (digits: string) =>
   digits.length === 12 ? `+++${digits.slice(0, 3)}/${digits.slice(3, 7)}/${digits.slice(7)}+++` : digits;
 

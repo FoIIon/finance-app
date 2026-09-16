@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FinanceApp.API.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260916103432_AddEcheanceReconciliation")]
+    [Migration("20260916115556_AddEcheanceReconciliation")]
     partial class AddEcheanceReconciliation
     {
         /// <inheritdoc />
@@ -683,6 +683,9 @@ namespace FinanceApp.API.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("AutoMatchRefusedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("CounterpartyIban")
                         .HasMaxLength(34)
                         .HasColumnType("TEXT");
@@ -714,9 +717,6 @@ namespace FinanceApp.API.Migrations
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("RejectedTransactionId")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("StructuredCommunication")
                         .HasMaxLength(12)
                         .HasColumnType("TEXT");
@@ -730,8 +730,6 @@ namespace FinanceApp.API.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("RejectedTransactionId");
 
                     b.HasIndex("TransactionId")
                         .IsUnique()
@@ -1248,8 +1246,6 @@ namespace FinanceApp.API.Migrations
 
                     b.HasIndex("RecurringTransactionId");
 
-                    b.HasIndex("StructuredCommunication");
-
                     b.ToTable("Transactions");
                 });
 
@@ -1525,11 +1521,6 @@ namespace FinanceApp.API.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("FinanceApp.API.Models.Transaction", "RejectedTransaction")
-                        .WithMany()
-                        .HasForeignKey("RejectedTransactionId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("FinanceApp.API.Models.Transaction", "Transaction")
                         .WithMany()
                         .HasForeignKey("TransactionId")
@@ -1538,8 +1529,6 @@ namespace FinanceApp.API.Migrations
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("Dashboard");
-
-                    b.Navigation("RejectedTransaction");
 
                     b.Navigation("Transaction");
                 });

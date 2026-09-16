@@ -34,10 +34,11 @@ public class Echeance
     /// <see cref="Services.EcheanceStatusRules"/>.</summary>
     public DateTime? MatchedAt { get; set; }
 
-    /// <summary>Transaction refusée par « Finalement non » après un rapprochement automatique. Le
-    /// rapprocheur ne la propose plus jamais pour cette échéance, une autre transaction peut encore la
-    /// rapprocher. Supprimer la transaction efface le refus (SetNull).</summary>
-    public int? RejectedTransactionId { get; set; }
+    /// <summary>Instant UTC où l'utilisateur a défait un rapprochement automatique (« Finalement non » ou
+    /// « Détacher » sur un lien posé par le rapprocheur). Le geste veut dire « arrête de deviner pour
+    /// celle-ci » : le rapprocheur l'ignore tant que c'est posé. Corriger l'IBAN ou la communication
+    /// remet à null, la clé a changé, on peut redeviner. Un paiement ou un lien manuel n'y touchent pas.</summary>
+    public DateTime? AutoMatchRefusedAt { get; set; }
 
     public int CreatedByUserId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -45,7 +46,6 @@ public class Echeance
 
     public Dashboard Dashboard { get; set; } = null!;
     public Transaction? Transaction { get; set; }
-    public Transaction? RejectedTransaction { get; set; }
     public User CreatedByUser { get; set; } = null!;
     public ICollection<Document> Documents { get; set; } = new List<Document>();
 }

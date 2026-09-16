@@ -52,12 +52,12 @@ public class EcheanceReconciliationControllerTests : IDisposable
         return tx.Id;
     }
 
-    private async Task<int> EcheanceAsync(AppDbContext ctx, int? transactionId = null, DateTime? matchedAt = null)
+    private async Task<int> EcheanceAsync(AppDbContext ctx, int? transactionId = null, DateTime? matchedAt = null, DateTime? refusedAt = null)
     {
         var e = new Echeance
         {
             DashboardId = _h.DashboardId, Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, CounterpartyIban = Ecole,
-            TransactionId = transactionId, MatchedAt = matchedAt, CreatedByUserId = _h.UserId,
+            TransactionId = transactionId, MatchedAt = matchedAt, AutoMatchRefusedAt = refusedAt, CreatedByUserId = _h.UserId,
         };
         ctx.Echeances.Add(e);
         await ctx.SaveChangesAsync();
@@ -65,7 +65,7 @@ public class EcheanceReconciliationControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task Unpay_DUnRapprochementAutomatique_PoseRejectedTransactionId()
+    public async Task Unpay_DUnRapprochementAutomatique_PoseAutoMatchRefusedAt()
     {
         using var ctx = NewContext();
         var txId = await TransactionAsync(ctx, 2.60m, new DateTime(2026, 8, 28));
@@ -77,16 +77,18 @@ public class EcheanceReconciliationControllerTests : IDisposable
         Assert.Null(dto.TransactionId);
         Assert.Null(dto.MatchedAt);
         Assert.Null(dto.Payment);
+        Assert.NotNull(dto.AutoMatchRefusedAt);
+        Assert.Equal(DateTimeKind.Utc, dto.AutoMatchRefusedAt!.Value.Kind);
 
         using var check = NewContext();
         var e = await check.Echeances.SingleAsync(x => x.Id == id);
-        Assert.Equal(txId, e.RejectedTransactionId);
+        Assert.NotNull(e.AutoMatchRefusedAt);
         Assert.Null(e.TransactionId);
         Assert.Null(e.MatchedAt);
     }
 
     [Fact]
-    public async Task Unpay_DUnLienManuel_NePosePasRejectedTransactionId()
+    public async Task Unpay_DUnLienManuel_NePosePasAutoMatchRefusedAt()
     {
         using var ctx = NewContext();
         var txId = await TransactionAsync(ctx, 2.60m, new DateTime(2026, 8, 28));
@@ -96,8 +98,19 @@ public class EcheanceReconciliationControllerTests : IDisposable
 
         using var check = NewContext();
         var e = await check.Echeances.SingleAsync(x => x.Id == id);
-        Assert.Null(e.RejectedTransactionId);
+        Assert.Null(e.AutoMatchRefusedAt);
         Assert.Null(e.TransactionId);
+    }
+
+    [Fact]
+    public async Task Pay_PuisUnpay_Manuels_NeTouchentPasAuRefus()
+    {
+        using var ctx = NewContext();
+        var id = await EcheanceAsync(ctx);
+        Dto(await Controller(ctx).Pay(id));
+        Dto(await Controller(ctx).Unpay(id));
+        using var check = NewContext();
+        Assert.Null((await check.Echeances.SingleAsync(x => x.Id == id)).AutoMatchRefusedAt);
     }
 
     [Fact]
@@ -177,7 +190,7 @@ public class EcheanceReconciliationControllerTests : IDisposable
 
         using var check = NewContext();
         var e = await check.Echeances.SingleAsync(x => x.Id == id);
-        Assert.Null(e.RejectedTransactionId);
+        Assert.Null(e.AutoMatchRefusedAt);
     }
 
     [Fact]
@@ -217,8 +230,33 @@ public class EcheanceReconciliationControllerTests : IDisposable
         Assert.Null(dto.TransactionId);
         Assert.Null(dto.MatchedAt);
         Assert.Null(dto.Payment);
+        Assert.NotNull(dto.AutoMatchRefusedAt);
         using var check = NewContext();
-        Assert.Equal(txId, (await check.Echeances.SingleAsync(x => x.Id == id)).RejectedTransactionId);
+        Assert.NotNull((await check.Echeances.SingleAsync(x => x.Id == id)).AutoMatchRefusedAt);
+    }
+
+    [Fact]
+    public async Task Update_QuiCorrigeUneCle_LeveLeRefus_UnUpdateSansChangementDeCle_LeGarde()
+    {
+        using var ctx = NewContext();
+        var refusedAt = new DateTime(2026, 9, 1, 8, 0, 0, DateTimeKind.Utc);
+        var id = await EcheanceAsync(ctx, refusedAt: refusedAt);
+        var ctl = Controller(ctx);
+
+        // Même IBAN, libellé changé : le refus reste.
+        var same = Dto(await ctl.Update(id, new UpdateEcheanceDto { Label = "Repas chauds", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, CounterpartyIban = "BE98 0682 4367 0693" }));
+        Assert.Equal(refusedAt, same.AutoMatchRefusedAt);
+
+        // Communication ajoutée : la clé a changé, le refus tombe.
+        var corrected = Dto(await ctl.Update(id, new UpdateEcheanceDto { Label = "Repas chauds", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, CounterpartyIban = Ecole, StructuredCommunication = Com }));
+        Assert.Null(corrected.AutoMatchRefusedAt);
+
+        // Détacher un lien automatique et corriger l'IBAN dans le même geste : la correction l'emporte, on redevine.
+        var txId = await TransactionAsync(ctx, 2.60m, new DateTime(2026, 8, 28));
+        var linked = await EcheanceAsync(ctx, transactionId: txId, matchedAt: DateTime.UtcNow);
+        var both = Dto(await ctl.Update(linked, new UpdateEcheanceDto { Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, TransactionId = null, CounterpartyIban = "BE71 0961 2345 6769" }));
+        Assert.Null(both.TransactionId);
+        Assert.Null(both.AutoMatchRefusedAt);
     }
 
     [Fact]

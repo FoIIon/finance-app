@@ -9,8 +9,6 @@ public class BankSyncService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<BankSyncService> _logger;
-    /// <summary>Le jeton d'arrêt de l'hôte, gardé pour la passe de rapprochement lancée depuis une sync manuelle aussi.</summary>
-    private CancellationToken _stoppingToken;
 
     public BankSyncService(IServiceScopeFactory scopeFactory, ILogger<BankSyncService> logger)
     {
@@ -20,12 +18,11 @@ public class BankSyncService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _stoppingToken = stoppingToken;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await SyncAllConnectionsAsync();
+                await SyncAllConnectionsAsync(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -36,7 +33,7 @@ public class BankSyncService : BackgroundService
         }
     }
 
-    private async Task SyncAllConnectionsAsync()
+    private async Task SyncAllConnectionsAsync(CancellationToken stoppingToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -78,6 +75,22 @@ public class BankSyncService : BackgroundService
         {
             _logger.LogError(ex, "Erreur lors de la réconciliation des provisions.");
         }
+
+        // Lot 3 : une passe de rapprochement des échéances par cycle, sur ce qui est en base, dans son propre
+        // try. Une banque qui a échoué au-dessus n'empêche pas la passe, une passe qui échoue ne marque rien.
+        await ReconcileEcheancesAsync(scope.ServiceProvider, stoppingToken);
+    }
+
+    private async Task ReconcileEcheancesAsync(IServiceProvider serviceProvider, CancellationToken ct)
+    {
+        try
+        {
+            await serviceProvider.GetRequiredService<EcheanceReconciliationService>().ReconcileAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erreur lors du rapprochement automatique des échéances.");
+        }
     }
 
     /// <summary>
@@ -101,6 +114,9 @@ public class BankSyncService : BackgroundService
         {
             _logger.LogError(ex, "Erreur lors de la réconciliation des provisions après sync manuelle.");
         }
+
+        // Et le virement d'une échéance aussi. Pas de jeton d'arrêt sur le chemin manuel.
+        await ReconcileEcheancesAsync(scope.ServiceProvider, CancellationToken.None);
     }
 
     private async Task SyncConnectionInternalAsync(int connectionId, IServiceProvider serviceProvider, bool rethrow = false, int? daysBack = null)
@@ -125,17 +141,6 @@ public class BankSyncService : BackgroundService
         else
         {
             await SyncGoCardlessAsync(connection, context, serviceProvider, rethrow, daysBack);
-        }
-
-        // Lot 3 : rapprochement des échéances sur ce qui est en base, dans son propre try. Une banque qui
-        // échoue n'empêche pas la passe, une passe qui échoue ne marque pas la synchro en erreur.
-        try
-        {
-            await serviceProvider.GetRequiredService<EcheanceReconciliationService>().ReconcileAsync(_stoppingToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Erreur lors du rapprochement automatique des échéances après la connexion {ConnectionId}.", connectionId);
         }
     }
 
@@ -333,7 +338,8 @@ public class BankSyncService : BackgroundService
                         IsImported = true,
                         CounterpartyName = counterparty,
                         CounterpartyIban = counterpartyIban,
-                        StructuredCommunication = StructuredCommunication.Extract(description),
+                        // Tri-état : la clé si le libellé en porte une, sinon la sentinelle « examiné, rien ».
+                        StructuredCommunication = StructuredCommunication.Extract(description) ?? StructuredCommunication.Examined,
                         IsFixed = isFixed,
                         BankAccountId = account.Id
                     };
