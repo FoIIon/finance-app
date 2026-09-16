@@ -19,12 +19,33 @@ public class Echeance
     /// <summary>La transaction qui règle l'échéance. Une transaction ne prouve qu'une échéance (index unique filtré).
     /// Supprimer la transaction détache l'échéance, elle redevient à payer.</summary>
     public int? TransactionId { get; set; }
+
+    /// <summary>Compte du bénéficiaire, normalisé (sans espaces, majuscules) comme
+    /// <see cref="Transaction.CounterpartyIban"/>. Saisi au formulaire. Avec le montant, c'est la clé
+    /// ordinaire du rapprochement automatique.</summary>
+    public string? CounterpartyIban { get; set; }
+
+    /// <summary>Communication structurée attendue, douze chiffres, même normalisation que sur
+    /// <see cref="Transaction.StructuredCommunication"/>. Clé forte : elle rapproche même sans montant.</summary>
+    public string? StructuredCommunication { get; set; }
+
+    /// <summary>Instant UTC où le rapprocheur a lié <see cref="TransactionId"/>. Null quand le lien est
+    /// manuel ou absent. Dit qui a lié, jamais si c'est payé : le statut reste dérivé par
+    /// <see cref="Services.EcheanceStatusRules"/>.</summary>
+    public DateTime? MatchedAt { get; set; }
+
+    /// <summary>Transaction refusée par « Finalement non » après un rapprochement automatique. Le
+    /// rapprocheur ne la propose plus jamais pour cette échéance, une autre transaction peut encore la
+    /// rapprocher. Supprimer la transaction efface le refus (SetNull).</summary>
+    public int? RejectedTransactionId { get; set; }
+
     public int CreatedByUserId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public Dashboard Dashboard { get; set; } = null!;
     public Transaction? Transaction { get; set; }
+    public Transaction? RejectedTransaction { get; set; }
     public User CreatedByUser { get; set; } = null!;
     public ICollection<Document> Documents { get; set; } = new List<Document>();
 }

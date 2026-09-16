@@ -76,6 +76,15 @@ public class AppDbContext : DbContext
             .IsUnique()
             .HasFilter("[ExternalId] IS NOT NULL");
 
+        // Lot 3 : la communication structurée du libellé, clé forte du rapprochement des échéances.
+        // Index non unique : la même communication peut revenir (un fournisseur qui la réutilise).
+        modelBuilder.Entity<Transaction>()
+            .Property(t => t.StructuredCommunication)
+            .HasMaxLength(12);
+
+        modelBuilder.Entity<Transaction>()
+            .HasIndex(t => t.StructuredCommunication);
+
         // Category
         modelBuilder.Entity<Category>()
             .HasOne(c => c.User)
@@ -522,6 +531,24 @@ public class AppDbContext : DbContext
             .HasIndex(e => e.TransactionId)
             .IsUnique()
             .HasFilter("[TransactionId] IS NOT NULL");
+
+        // Lot 3, rapprochement automatique : les clés saisies et la trace de qui a lié.
+        modelBuilder.Entity<Echeance>()
+            .Property(e => e.CounterpartyIban)
+            .HasMaxLength(34);
+
+        modelBuilder.Entity<Echeance>()
+            .Property(e => e.StructuredCommunication)
+            .HasMaxLength(12);
+
+        // La transaction refusée par « Finalement non ». Supprimer la transaction efface le refus, il
+        // n'a plus d'objet.
+        modelBuilder.Entity<Echeance>()
+            .HasOne(e => e.RejectedTransaction)
+            .WithMany()
+            .HasForeignKey(e => e.RejectedTransactionId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .IsRequired(false);
 
         // Document : le fichier vit sous Documents:Root, la ligne ne porte qu'un chemin relatif.
         modelBuilder.Entity<Document>()

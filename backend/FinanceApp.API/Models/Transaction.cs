@@ -19,6 +19,13 @@ public class Transaction
     /// « ADMINISTRATION COMMUNALE DE MARCHE- », avec un libellé de virement vide.</summary>
     public string? CounterpartyIban { get; set; }
 
+    /// <summary>Les douze chiffres de la communication structurée belge portée par le libellé, sans
+    /// <c>+</c>, <c>*</c>, <c>/</c> ni espace, contrôle mod 97 vérifié. Posée à l'import par
+    /// <see cref="Services.StructuredCommunication.Extract"/>, rattrapée sur l'historique par
+    /// <see cref="Services.EcheanceReconciliationService"/>. Null sans communication, donc sur tous les
+    /// paiements par carte. C'est la clé forte qui prouve une échéance sans dépendre du montant.</summary>
+    public string? StructuredCommunication { get; set; }
+
     public bool IsExceptional { get; set; }
 
     /// <summary>Remboursement d'une dépense (avance rendue, mutuelle, régularisation). Sur un revenu,
