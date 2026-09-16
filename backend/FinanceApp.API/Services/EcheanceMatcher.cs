@@ -32,15 +32,15 @@ public static class EcheanceMatcher
     /// <param name="amount">Montant attendu, null quand la facture n'est pas encore arrivée.</param>
     /// <param name="counterpartyIban">IBAN du bénéficiaire, normalisé, ou null.</param>
     /// <param name="structuredCommunication">Douze chiffres, ou null.</param>
-    /// <param name="rejectedTransactionId">Transaction refusée par « Finalement non », jamais reproposée.</param>
     /// <param name="candidates">Dépenses réelles du dashboard, non liées à une autre échéance.</param>
     /// <param name="alreadyClaimed">Ids déjà rapprochés dans cette passe : une transaction ne prouve qu'une échéance.</param>
+    /// <remarks>Une échéance dont l'utilisateur a refusé le rapprochement (AutoMatchRefusedAt) n'arrive
+    /// pas ici : l'exécuteur l'écarte avant de charger un candidat.</remarks>
     public static PaymentCandidate? FindPayment(
         DateOnly dueDate,
         decimal? amount,
         string? counterpartyIban,
         string? structuredCommunication,
-        int? rejectedTransactionId,
         IEnumerable<PaymentCandidate> candidates,
         ISet<int> alreadyClaimed)
     {
@@ -51,9 +51,8 @@ public static class EcheanceMatcher
         if (!hasIban && !hasCommunication) return null;
 
         return candidates
-            // Règle 2 : déjà pris dans la passe, ou refusé pour cette échéance.
+            // Règle 2 : déjà pris dans la passe, une transaction ne prouve qu'une échéance.
             .Where(c => !alreadyClaimed.Contains(c.Id))
-            .Where(c => c.Id != rejectedTransactionId)
             .Select(c => (Candidate: c, Strong: MatchesStrongKey(c, amount, structuredCommunication, dueDate)))
             .Where(x => x.Strong || MatchesOrdinaryKey(x.Candidate, amount, counterpartyIban, dueDate))
             // Règle 5 : la clé forte avant l'ordinaire, puis le plus proche de la date limite, puis le

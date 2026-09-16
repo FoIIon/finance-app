@@ -156,10 +156,10 @@ public class EcheanceReconciliationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ApresUnpay_NeReattachePasLaMemeTransaction_MaisUneAutreConforme()
+    public async Task ApresUnpay_LEcheanceNEstPlusDevinee_JusquACeQuUneCleChange()
     {
         Household h;
-        int refusee;
+        int tx1;
         using (var ctx = NewContext())
         {
             h = await TestHousehold.SeedAsync(ctx, "unpay@test.local");
@@ -167,7 +167,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
             ctx.Transactions.Add(tx);
             ctx.Echeances.Add(Facture(h, "Repas", 2.60m, new DateOnly(2026, 8, 31)));
             await ctx.SaveChangesAsync();
-            refusee = tx.Id;
+            tx1 = tx.Id;
         }
 
         Assert.Equal(1, await RunAsync());
@@ -176,34 +176,72 @@ public class EcheanceReconciliationServiceTests : IDisposable
         using (var ctx = NewContext())
         {
             echeanceId = (await ctx.Echeances.SingleAsync()).Id;
-            var result = await Controller(ctx, h.UserId).Unpay(echeanceId);
-            Assert.IsType<OkObjectResult>(result.Result);
+            Assert.IsType<OkObjectResult>((await Controller(ctx, h.UserId).Unpay(echeanceId)).Result);
         }
 
-        // La passe suivante ne la remet pas.
+        // La passe suivante ne remet rien, et une autre transaction conforme n'y change rien non plus :
+        // le geste veut dire « arrête de deviner pour celle-ci », pas « pas celle-là ».
+        Assert.Equal(0, await RunAsync());
+        int tx2;
+        using (var ctx = NewContext())
+        {
+            var tx = Depense(h, 2.60m, new DateTime(2026, 9, 2), "Ecole communale");
+            ctx.Transactions.Add(tx);
+            await ctx.SaveChangesAsync();
+            tx2 = tx.Id;
+        }
         Assert.Equal(0, await RunAsync());
         using (var ctx = NewContext())
         {
             var e = await ctx.Echeances.SingleAsync();
             Assert.Null(e.TransactionId);
             Assert.Null(e.MatchedAt);
-            Assert.Equal(refusee, e.RejectedTransactionId);
+            Assert.NotNull(e.AutoMatchRefusedAt);
         }
 
-        // Une autre transaction conforme arrive : elle, oui.
-        int autre;
+        // L'utilisateur corrige une clé (ajoute la communication) : le refus tombe, on redevine. Le plus
+        // proche de la date limite gagne : tx2 (2 jours) avant tx1 (3 jours).
         using (var ctx = NewContext())
         {
-            var tx = Depense(h, 2.60m, new DateTime(2026, 9, 2), "Ecole communale");
-            ctx.Transactions.Add(tx);
-            await ctx.SaveChangesAsync();
-            autre = tx.Id;
+            var result = await Controller(ctx, h.UserId).Update(echeanceId, new FinanceApp.API.DTOs.UpdateEcheanceDto
+            {
+                Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, CounterpartyIban = Ecole, StructuredCommunication = Com,
+            });
+            Assert.IsType<OkObjectResult>(result.Result);
         }
         Assert.Equal(1, await RunAsync());
         using var check = NewContext();
         var relue = await check.Echeances.SingleAsync();
-        Assert.Equal(autre, relue.TransactionId);
-        Assert.Equal(refusee, relue.RejectedTransactionId);
+        Assert.Equal(tx2, relue.TransactionId);
+        Assert.NotEqual(tx1, relue.TransactionId);
+        Assert.Null(relue.AutoMatchRefusedAt);
+    }
+
+    [Fact]
+    public async Task UneEcheanceTropAncienne_NEstNiRapprochee_NiChargee()
+    {
+        // Plus de 180 jours après sa date limite, aucun virement ne peut plus prouver l'échéance : elle reste
+        // manuelle, et surtout elle n'élargit pas la fenêtre des candidats aux années précédentes.
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "ancienne@test.local");
+            ctx.Transactions.AddRange(
+                Depense(h, 2.60m, new DateTime(2025, 7, 5), "Ecole communale"),
+                Depense(h, 1.40m, DateTime.UtcNow.Date.AddDays(-3), "Ecole communale"));
+            ctx.Echeances.AddRange(
+                Facture(h, "Repas juin 2025", 2.60m, new DateOnly(2025, 6, 30)),
+                Facture(h, "Repas ce mois", 1.40m, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2)));
+            await ctx.SaveChangesAsync();
+        }
+
+        Assert.Equal(1, await RunAsync());
+
+        using var check = NewContext();
+        var ancienne = await check.Echeances.SingleAsync(e => e.Label == "Repas juin 2025");
+        var recente = await check.Echeances.SingleAsync(e => e.Label == "Repas ce mois");
+        Assert.Null(ancienne.TransactionId);
+        Assert.NotNull(recente.TransactionId);
     }
 
     [Fact]
@@ -300,7 +338,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Rattrapage_PoseLaCommunicationSurLHistorique_SansToucherLeReste()
+    public async Task Rattrapage_PoseLaCommunicationOuLaSentinelle_SurToutLHistorique_SansToucherLeReste()
     {
         Household h;
         using (var ctx = NewContext())
@@ -318,9 +356,9 @@ public class EcheanceReconciliationServiceTests : IDisposable
         using var check = NewContext();
         var rows = await check.Transactions.OrderBy(t => t.Date).ToListAsync();
         Assert.Equal(Com, rows[0].StructuredCommunication);
-        // Séparateur mais contrôle faux : examinée, sentinelle vide. Sans séparateur : jamais prise, null.
-        Assert.Equal("", rows[1].StructuredCommunication);
-        Assert.Null(rows[2].StructuredCommunication);
+        // Contrôle faux ou aucun séparateur : examinées, sentinelle vide. Plus aucun null après la passe.
+        Assert.Equal(StructuredCommunication.Examined, rows[1].StructuredCommunication);
+        Assert.Equal(StructuredCommunication.Examined, rows[2].StructuredCommunication);
         Assert.Equal(3, rows.Count);
         Assert.All(rows, t => Assert.Equal(6, t.CategoryId));
     }
@@ -341,6 +379,8 @@ public class EcheanceReconciliationServiceTests : IDisposable
 
         var (_, first) = await RunCapturingAsync();
         Assert.Contains("1 communication(s) structurée(s) rattrapée(s), 2 libellé(s) examiné(s)", first);
+        using (var ctx = NewContext())
+            Assert.Equal(0, await ctx.Transactions.CountAsync(t => t.StructuredCommunication == null));
 
         using (var ctx = NewContext())
         {
@@ -540,7 +580,8 @@ public class EcheanceReconciliationServiceTests : IDisposable
         using (var ctx = NewContext())
         {
             Assert.Equal(3, await ctx.Echeances.CountAsync(e => e.TransactionId != null && e.MatchedAt != null));
-            Assert.Equal(1, await ctx.Transactions.CountAsync(t => t.StructuredCommunication != null));
+            Assert.Equal(1, await ctx.Transactions.CountAsync(t => t.StructuredCommunication == Com));
+            Assert.Equal(0, await ctx.Transactions.CountAsync(t => t.StructuredCommunication == null));
             var electricite = await ctx.Echeances.Include(e => e.Transaction).SingleAsync(e => e.Label == "Électricité");
             Assert.Equal(189.99m, electricite.Transaction!.Amount);
         }

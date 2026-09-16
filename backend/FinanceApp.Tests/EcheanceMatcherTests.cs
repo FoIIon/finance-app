@@ -22,8 +22,8 @@ public class EcheanceMatcherTests
 
     private static PaymentCandidate? Chercher(
         decimal? amount, string? iban, string? com, IEnumerable<PaymentCandidate> candidats,
-        int? rejected = null, ISet<int>? dejaPris = null) =>
-        EcheanceMatcher.FindPayment(Due, amount, iban, com, rejected, candidats, dejaPris ?? new HashSet<int>());
+        ISet<int>? dejaPris = null) =>
+        EcheanceMatcher.FindPayment(Due, amount, iban, com, candidats, dejaPris ?? new HashSet<int>());
 
     [Fact]
     public void CommunicationEgale_RapprocheSansMontant()
@@ -76,13 +76,6 @@ public class EcheanceMatcherTests
         Assert.Equal(1, Chercher(2.60m, Ecole, Com, [C(1, 2.60m, 120, com: Com)])?.Id);
         Assert.Null(Chercher(2.60m, Ecole, Com, [C(1, 2.60m, 181, com: Com)]));
         Assert.Null(Chercher(2.60m, Ecole, Com, [C(1, 2.60m, -91, com: Com)]));
-    }
-
-    [Fact]
-    public void Rejetee_EstEcartee_UneAutreConformePasse()
-    {
-        Assert.Null(Chercher(2.60m, Ecole, null, [C(1, 2.60m, 0)], rejected: 1));
-        Assert.Equal(2, Chercher(2.60m, Ecole, null, [C(1, 2.60m, 0), C(2, 2.60m, 5)], rejected: 1)?.Id);
     }
 
     [Fact]

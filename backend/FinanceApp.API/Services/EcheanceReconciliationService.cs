@@ -5,8 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace FinanceApp.API.Services;
 
 /// <summary>
-/// L'exécuteur du rapprochement automatique des échéances, lancé après chaque synchronisation bancaire.
-/// Il prépare les candidats et applique <see cref="EcheanceMatcher.FindPayment"/> ; il ne décide rien.
+/// L'exécuteur du rapprochement automatique des échéances, lancé une fois par cycle de synchronisation
+/// bancaire. Il prépare les candidats et applique <see cref="EcheanceMatcher.FindPayment"/> ; il ne décide rien.
 ///
 /// Ce qu'il écrit, et rien d'autre : <c>Echeance.TransactionId</c>, <c>MatchedAt</c>, <c>UpdatedAt</c>,
 /// et <c>Transaction.StructuredCommunication</c> en rattrapage des lignes importées avant que la colonne
@@ -17,13 +17,10 @@ namespace FinanceApp.API.Services;
 public class EcheanceReconciliationService
 {
     /// <summary>
-    /// Borne du rattrapage par passe : la passe reste courte même sur tout l'historique, et chaque ligne
-    /// examinée sort du filtre (clé posée, ou sentinelle vide), donc le lot avance à chaque passe.
+    /// Lot du rattrapage par passe. Chaque ligne prise sort du filtre (clé ou sentinelle), le rattrapage
+    /// converge : trois passes pour l'historique de prod, puis la requête est vide et immédiate.
     /// </summary>
-    public const int BackfillBatchSize = 500;
-
-    /// <summary>Sentinelle : libellé examiné, aucune communication valide. Voir <see cref="Transaction.StructuredCommunication"/>.</summary>
-    public const string Examined = "";
+    public const int BackfillBatchSize = 1000;
 
     private readonly AppDbContext _context;
     private readonly ILogger<EcheanceReconciliationService> _logger;
@@ -47,17 +44,14 @@ public class EcheanceReconciliationService
     }
 
     /// <summary>
-    /// Les transactions historiques dont le libellé porte un séparateur et dont la colonne n'a jamais été
-    /// examinée (null). Filtre en base, on ne charge pas tout l'historique. Chaque ligne prise sort du filtre :
-    /// la clé si le libellé en porte une valide, la sentinelle vide sinon, pour qu'une carte masquée
-    /// « ****1234 » ne réoccupe pas le lot à chaque passe. Seule écriture sur Transactions de tout le lot.
-    /// Sauvegardée avant le rapprochement pour que les candidats relus en base portent leur clé.
+    /// Les transactions jamais examinées (colonne null), par lots triés par Id. Chaque ligne reçoit sa clé ou la
+    /// sentinelle, et ne revient plus. Seule écriture sur Transactions de tout le lot. Sauvegardée avant le
+    /// rapprochement pour que les candidats relus en base portent leur clé.
     /// </summary>
     private async Task<(int Backfilled, int Examined)> BackfillStructuredCommunicationsAsync(CancellationToken ct)
     {
         var rows = await _context.Transactions
-            .Where(t => t.StructuredCommunication == null
-                     && (t.Description.Contains("+++") || t.Description.Contains("***")))
+            .Where(t => t.StructuredCommunication == null)
             .OrderBy(t => t.Id)
             .Take(BackfillBatchSize)
             .ToListAsync(ct);
@@ -66,7 +60,7 @@ public class EcheanceReconciliationService
         foreach (var t in rows)
         {
             var digits = StructuredCommunication.Extract(t.Description);
-            t.StructuredCommunication = digits ?? Examined;
+            t.StructuredCommunication = digits ?? StructuredCommunication.Examined;
             if (digits != null) backfilled++;
         }
 
@@ -76,9 +70,14 @@ public class EcheanceReconciliationService
 
     private async Task<int> MatchOpenEcheancesAsync(CancellationToken ct)
     {
+        // Au-delà de la fenêtre forte après la date limite, aucun virement ne peut plus prouver l'échéance :
+        // elle reste manuelle et n'élargit pas la fenêtre des candidats. Le jour UTC suffit à cette borne.
+        var oldestDueStillMatchable = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-EcheanceMatcher.StrongDaysAfter);
+
         var open = await _context.Echeances
-            .Where(e => e.PaidAt == null && e.TransactionId == null)
+            .Where(e => e.PaidAt == null && e.TransactionId == null && e.AutoMatchRefusedAt == null)
             .Where(e => e.CounterpartyIban != null || e.StructuredCommunication != null)
+            .Where(e => e.DueDate >= oldestDueStillMatchable)
             .OrderBy(e => e.DueDate).ThenBy(e => e.Id)
             .ToListAsync(ct);
         if (open.Count == 0) return 0;
@@ -92,8 +91,7 @@ public class EcheanceReconciliationService
             foreach (var e in group)
             {
                 var payment = EcheanceMatcher.FindPayment(
-                    e.DueDate, e.Amount, e.CounterpartyIban, e.StructuredCommunication,
-                    e.RejectedTransactionId, candidates, alreadyClaimed);
+                    e.DueDate, e.Amount, e.CounterpartyIban, e.StructuredCommunication, candidates, alreadyClaimed);
                 if (payment == null) continue;
 
                 var now = DateTime.UtcNow;
@@ -112,7 +110,7 @@ public class EcheanceReconciliationService
     /// <summary>
     /// Les dépenses réelles des comptes logiques du dashboard (même périmètre qu'EcheanceController.Update),
     /// hors provisions, pas déjà la preuve d'une autre échéance, dans la fenêtre la plus large que les
-    /// échéances du dashboard peuvent réclamer.
+    /// échéances du dashboard peuvent réclamer. Sans tri : le matcher trie lui-même.
     /// </summary>
     private async Task<List<PaymentCandidate>> LoadCandidatesAsync(int dashboardId, IEnumerable<Echeance> echeances, CancellationToken ct)
     {
@@ -125,10 +123,9 @@ public class EcheanceReconciliationService
             .Where(t => t.Account.DashboardAccounts.Any(da => da.DashboardId == dashboardId))
             .Where(t => t.Date >= from && t.Date < toExclusive)
             .Where(t => !_context.Echeances.Any(e => e.TransactionId == t.Id))
-            .OrderBy(t => t.Id)
             // La sentinelle vide n'est pas une clé : elle sort en null.
             .Select(t => new PaymentCandidate(t.Id, t.Amount, t.Date, t.CounterpartyIban,
-                t.StructuredCommunication == Examined ? null : t.StructuredCommunication))
+                t.StructuredCommunication == StructuredCommunication.Examined ? null : t.StructuredCommunication))
             .ToListAsync(ct);
     }
 

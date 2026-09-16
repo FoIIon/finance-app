@@ -23,10 +23,11 @@ public class Transaction
     /// <c>+</c>, <c>*</c>, <c>/</c> ni espace, contrôle mod 97 vérifié. Posée à l'import par
     /// <see cref="Services.StructuredCommunication.Extract"/>, rattrapée sur l'historique par
     /// <see cref="Services.EcheanceReconciliationService"/>. C'est la clé forte qui prouve une échéance sans
-    /// dépendre du montant. Trois états : null = libellé jamais examiné par le rattrapage, chaîne vide =
-    /// examiné, rien de valide dedans (carte masquée « ****1234 », contrôle 97 faux), douze chiffres =
-    /// une clé. Toute lecture comme clé traite le vide comme null (string.IsNullOrEmpty), jamais une
-    /// égalité sur "".</summary>
+    /// dépendre du montant. Trois états : null = libellé jamais examiné (historique d'avant la colonne),
+    /// chaîne vide (<see cref="Services.StructuredCommunication.Examined"/>) = examiné, rien de valide
+    /// dedans, l'état normal d'un paiement par carte, douze chiffres = une clé. Toute lecture comme clé
+    /// traite le vide comme null (string.IsNullOrEmpty), jamais une égalité sur "". Pas d'index : la
+    /// comparaison se fait en mémoire sur les candidats d'une fenêtre.</summary>
     public string? StructuredCommunication { get; set; }
 
     public bool IsExceptional { get; set; }

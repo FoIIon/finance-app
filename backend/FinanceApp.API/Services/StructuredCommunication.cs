@@ -14,6 +14,13 @@ public static partial class StructuredCommunication
 {
     public const int Length = 12;
 
+    /// <summary>
+    /// Sentinelle de <see cref="Models.Transaction.StructuredCommunication"/> : libellé examiné, aucune
+    /// communication valide. Distingue « jamais regardé » (null, historique) de « regardé, rien » (vide).
+    /// Toute lecture comme clé la traite comme null.
+    /// </summary>
+    public const string Examined = "";
+
     // Les trois signes d'ouverture, trois groupes de 3, 4 et 5 chiffres, barres et espaces facultatifs
     // entre les groupes, trois signes de fermeture. La fermeture n'a pas à répéter l'ouverture : les
     // banques mélangent parfois les deux formes sur un même libellé.
