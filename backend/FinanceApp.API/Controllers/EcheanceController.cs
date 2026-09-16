@@ -39,9 +39,55 @@ public class EcheanceController : ApiControllerBase
     private Task<Echeance?> FindOwnedAsync(int id, int userId) =>
         _context.Echeances
             .Include(e => e.Documents)
+            .Include(e => e.Transaction)
             .FirstOrDefaultAsync(e => e.Id == id && e.Dashboard.Members.Any(m => m.UserId == userId));
 
-    private static EcheanceDto Map(Echeance e, DateOnly today) => new()
+    private const string InvalidCommunicationMessage = "Communication structurée invalide, vérifiez les douze chiffres.";
+    private const string InvalidIbanMessage = "IBAN du bénéficiaire invalide, quinze à trente-quatre lettres et chiffres.";
+
+    /// <summary>
+    /// Les deux clés du rapprochement, normalisées depuis la saisie brute. Une communication qui échoue au
+    /// contrôle 97 ou un IBAN hors forme rendent un message, jamais la valeur saisie.
+    /// </summary>
+    private static (string? Iban, string? Communication, string? Error) NormalizeKeys(string? rawIban, string? rawCommunication)
+    {
+        string? iban = null;
+        if (!string.IsNullOrWhiteSpace(rawIban))
+        {
+            iban = GoCardlessTransactionFields.Normalize(rawIban);
+            // La forme seulement : la banque fait foi sur la validité du compte.
+            if (iban.Length is < 15 or > 34 || !iban.All(char.IsAsciiLetterOrDigit)) return (null, null, InvalidIbanMessage);
+        }
+
+        string? communication = null;
+        if (!string.IsNullOrWhiteSpace(rawCommunication))
+        {
+            communication = StructuredCommunication.Normalize(rawCommunication);
+            if (communication == null) return (null, null, InvalidCommunicationMessage);
+        }
+
+        return (iban, communication, null);
+    }
+
+    /// <summary>La date d'une transaction dans le fuseau du ménage. Relue de SQLite en Kind Unspecified, elle est UTC.</summary>
+    private DateOnly LocalDateOf(DateTime utc) =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), _householdTz));
+
+    private EcheancePaymentDto? PaymentOf(Echeance e)
+    {
+        if (e.Transaction == null) return null;
+        var t = e.Transaction;
+        return new EcheancePaymentDto
+        {
+            TransactionId = t.Id,
+            Date = LocalDateOf(t.Date),
+            Amount = t.Amount,
+            Description = t.Description.Length > 200 ? t.Description[..200] : t.Description,
+            CounterpartyName = t.CounterpartyName,
+        };
+    }
+
+    private EcheanceDto Map(Echeance e, DateOnly today) => new()
     {
         Id = e.Id,
         DashboardId = e.DashboardId,
@@ -56,6 +102,10 @@ public class EcheanceController : ApiControllerBase
         // qu'AgendaCalendarStatus.From pour LastSyncAt.
         PaidAt = e.PaidAt.HasValue ? DateTime.SpecifyKind(e.PaidAt.Value, DateTimeKind.Utc) : null,
         TransactionId = e.TransactionId,
+        CounterpartyIban = e.CounterpartyIban,
+        StructuredCommunication = e.StructuredCommunication,
+        MatchedAt = e.MatchedAt.HasValue ? DateTime.SpecifyKind(e.MatchedAt.Value, DateTimeKind.Utc) : null,
+        Payment = PaymentOf(e),
         DocumentIds = e.Documents.Select(d => d.Id).OrderBy(id => id).ToList(),
         CreatedByUserId = e.CreatedByUserId,
         CreatedAt = DateTime.SpecifyKind(e.CreatedAt, DateTimeKind.Utc),
@@ -75,6 +125,7 @@ public class EcheanceController : ApiControllerBase
 
         var query = _context.Echeances
             .Include(e => e.Documents)
+            .Include(e => e.Transaction)
             .Where(e => e.DashboardId == dashboardId);
         if (from.HasValue) query = query.Where(e => e.DueDate >= from.Value);
         if (to.HasValue) query = query.Where(e => e.DueDate <= to.Value);
@@ -101,6 +152,9 @@ public class EcheanceController : ApiControllerBase
         var userId = GetUserId();
         if (!await IsMemberAsync(dto.DashboardId, userId)) return NotFound();
 
+        var (iban, communication, keyError) = NormalizeKeys(dto.CounterpartyIban, dto.StructuredCommunication);
+        if (keyError != null) return BadRequest(keyError);
+
         var now = DateTime.UtcNow;
         var echeance = new Echeance
         {
@@ -109,6 +163,8 @@ public class EcheanceController : ApiControllerBase
             DueDate = dto.DueDate,
             Amount = dto.Amount,
             Notes = dto.Notes,
+            CounterpartyIban = iban,
+            StructuredCommunication = communication,
             CreatedByUserId = userId,
             CreatedAt = now,
             UpdatedAt = now,
@@ -127,6 +183,9 @@ public class EcheanceController : ApiControllerBase
         var echeance = await FindOwnedAsync(id, userId);
         if (echeance == null) return NotFound();
 
+        var (iban, communication, keyError) = NormalizeKeys(dto.CounterpartyIban, dto.StructuredCommunication);
+        if (keyError != null) return BadRequest(keyError);
+
         if (dto.TransactionId.HasValue && dto.TransactionId != echeance.TransactionId)
         {
             // La transaction doit vivre sur un compte du dashboard : on ne prouve pas une échéance
@@ -144,11 +203,23 @@ public class EcheanceController : ApiControllerBase
             if (alreadyProves) return Conflict("Cette transaction règle déjà une autre échéance.");
         }
 
+        if (dto.TransactionId != echeance.TransactionId)
+        {
+            // Le lien change de la main de l'utilisateur : ce n'est plus le rapprocheur qui l'a posé. Détacher
+            // une transaction rapprochée automatiquement vaut refus, sinon la passe suivante la remettrait.
+            if (echeance.MatchedAt.HasValue && echeance.TransactionId.HasValue)
+                echeance.RejectedTransactionId = echeance.TransactionId;
+            echeance.MatchedAt = null;
+            echeance.Transaction = null;
+        }
+
         echeance.Label = dto.Label.Trim();
         echeance.DueDate = dto.DueDate;
         echeance.Amount = dto.Amount;
         echeance.Notes = dto.Notes;
         echeance.TransactionId = dto.TransactionId;
+        echeance.CounterpartyIban = iban;
+        echeance.StructuredCommunication = communication;
         echeance.UpdatedAt = DateTime.UtcNow;
 
         try
@@ -160,6 +231,9 @@ public class EcheanceController : ApiControllerBase
             // Deux mises à jour concurrentes sur la même transaction : l'index unique tranche.
             return Conflict("Cette transaction règle déjà une autre échéance.");
         }
+        // Lien posé à la main : la transaction n'était pas chargée, l'écran attend son détail.
+        if (echeance.TransactionId.HasValue && echeance.Transaction == null)
+            await _context.Entry(echeance).Reference(e => e.Transaction).LoadAsync();
         return Ok(Map(echeance, Today));
     }
 
@@ -178,15 +252,23 @@ public class EcheanceController : ApiControllerBase
         return Ok(Map(echeance, Today));
     }
 
-    /// <summary>Annule le paiement, manuel ou prouvé par transaction : l'échéance redevient à payer.</summary>
+    /// <summary>
+    /// Annule le paiement, manuel ou prouvé par transaction : l'échéance redevient à payer. Si c'est le
+    /// rapprocheur qui avait lié la transaction, elle est refusée pour cette échéance et ne sera plus
+    /// jamais reproposée. Un lien manuel qu'on défait n'est pas un refus.
+    /// </summary>
     [HttpPost("{id}/unpay")]
     public async Task<ActionResult<EcheanceDto>> Unpay(int id)
     {
         var echeance = await FindOwnedAsync(id, GetUserId());
         if (echeance == null) return NotFound();
 
+        if (echeance.MatchedAt.HasValue && echeance.TransactionId.HasValue)
+            echeance.RejectedTransactionId = echeance.TransactionId;
         echeance.PaidAt = null;
         echeance.TransactionId = null;
+        echeance.MatchedAt = null;
+        echeance.Transaction = null;
         echeance.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
         return Ok(Map(echeance, Today));
