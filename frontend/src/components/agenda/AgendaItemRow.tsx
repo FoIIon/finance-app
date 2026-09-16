@@ -18,7 +18,7 @@ interface Props {
 
 /**
  * Deux gabarits, aucune légende, aucune icône de type. Le statut est écrit, la couleur ne porte rien
- * seule : le rouge n'apparaît que sur « en retard ». Un titre ne se tronque jamais, il passe à la ligne.
+ * seule : le rouge n'apparaît que sur « en retard », le vert que sur « payée ». Un titre ne se tronque jamais, il passe à la ligne.
  */
 export const AgendaItemRow = ({ item, onOpenEcheance, layout = 'row' }: Props) => {
   const column = layout === 'column';
@@ -55,7 +55,7 @@ export const AgendaItemRow = ({ item, onOpenEcheance, layout = 'row' }: Props) =
     ) : (
       <span className="whitespace-nowrap text-white/40">montant inconnu</span>
     );
-  const statusClass = `text-xs ${late ? 'text-red-400' : 'text-white/50'}`;
+  const statusClass = `text-xs ${late ? 'text-red-400' : item.status === 'paid' ? 'text-emerald-400' : 'text-white/50'}`;
 
   const content = column ? (
     <>

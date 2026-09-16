@@ -14,7 +14,8 @@ interface Props {
 /** Au plus trois pastilles ou titres par case, le reste en « +n ». */
 const MAX_PER_CELL = 3;
 
-const dotClass = (item: AgendaItem) => (item.status === 'late' ? 'bg-red-400' : 'bg-white/50');
+const dotClass = (item: AgendaItem) =>
+  item.status === 'late' ? 'bg-red-400' : item.status === 'paid' ? 'bg-emerald-400' : 'bg-white/50';
 
 /**
  * Ce qu'un lecteur d'écran lit sur une case, en mots : « 13 septembre, 2 items », « 10 septembre, aujourd'hui,
