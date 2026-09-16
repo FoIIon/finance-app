@@ -7,6 +7,8 @@ using FinanceApp.API.Services.Reporting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -46,6 +48,24 @@ public class EcheanceReconciliationServiceTests : IDisposable
     {
         using var ctx = NewContext();
         return await Service(ctx).ReconcileAsync(CancellationToken.None);
+    }
+
+    /// <summary>Garde les messages formatés : le compte de rattrapage n'est visible que par le journal.</summary>
+    private sealed class CapturingLogger : ILogger<EcheanceReconciliationService>
+    {
+        public List<(LogLevel Level, string Message)> Lines { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Lines.Add((logLevel, formatter(state, exception)));
+    }
+
+    private async Task<(int Matched, string Journal)> RunCapturingAsync()
+    {
+        using var ctx = NewContext();
+        var logger = new CapturingLogger();
+        var matched = await new EcheanceReconciliationService(ctx, logger).ReconcileAsync(CancellationToken.None);
+        return (matched, logger.Lines.Single(l => l.Level == LogLevel.Information).Message);
     }
 
     private static Transaction Depense(Household h, decimal amount, DateTime date, string desc, string? iban = Ecole, bool provisional = false, int? accountId = null, string? com = null) => new()
@@ -298,10 +318,143 @@ public class EcheanceReconciliationServiceTests : IDisposable
         using var check = NewContext();
         var rows = await check.Transactions.OrderBy(t => t.Date).ToListAsync();
         Assert.Equal(Com, rows[0].StructuredCommunication);
-        Assert.Null(rows[1].StructuredCommunication);
+        // Séparateur mais contrôle faux : examinée, sentinelle vide. Sans séparateur : jamais prise, null.
+        Assert.Equal("", rows[1].StructuredCommunication);
         Assert.Null(rows[2].StructuredCommunication);
         Assert.Equal(3, rows.Count);
         Assert.All(rows, t => Assert.Equal(6, t.CategoryId));
+    }
+
+    [Fact]
+    public async Task Rattrapage_UnLibelleSansCommunicationValide_RecoitLaSentinelle_EtNEstPlusRepris()
+    {
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "sentinelle@test.local");
+            ctx.Transactions.AddRange(
+                Depense(h, 45.00m, new DateTime(2026, 5, 5), "PAIEMENT CARTE ****1234 COLRUYT", iban: null),
+                Depense(h, 12.00m, new DateTime(2026, 5, 6), "+++123/4567/89012+++ contrôle faux", iban: null),
+                Depense(h, 61.20m, new DateTime(2026, 5, 7), $"+++{Com[..3]}/{Com[3..7]}/{Com[7..]}+++", iban: null));
+            await ctx.SaveChangesAsync();
+        }
+
+        var (_, first) = await RunCapturingAsync();
+        Assert.Contains("1 communication(s) structurée(s) rattrapée(s), 2 libellé(s) examiné(s)", first);
+
+        using (var ctx = NewContext())
+        {
+            var rows = await ctx.Transactions.OrderBy(t => t.Date).ToListAsync();
+            Assert.Equal("", rows[0].StructuredCommunication);
+            Assert.Equal("", rows[1].StructuredCommunication);
+            Assert.Equal(Com, rows[2].StructuredCommunication);
+        }
+
+        // Seconde passe : plus rien dans le filtre, ni rattrapage ni examen.
+        var (_, second) = await RunCapturingAsync();
+        Assert.Contains("0 communication(s) structurée(s) rattrapée(s), 0 libellé(s) examiné(s)", second);
+    }
+
+    [Fact]
+    public async Task UnCandidatALaSentinelle_NeRapprochePasUneEcheanceParCommunication()
+    {
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "sentinelle-cle@test.local");
+            ctx.Transactions.Add(Depense(h, 61.20m, new DateTime(2026, 8, 5), "PAIEMENT CARTE ****1234", iban: null, com: ""));
+            // Une échéance à communication vide en base (le contrôleur ne la produit pas, la base l'accepte).
+            ctx.Echeances.Add(Facture(h, "Ostéo", null, new DateOnly(2026, 8, 28), iban: null, com: ""));
+            await ctx.SaveChangesAsync();
+        }
+
+        Assert.Equal(0, await RunAsync());
+
+        using var check = NewContext();
+        Assert.Null((await check.Echeances.SingleAsync()).TransactionId);
+    }
+
+    // ----- Conflit sur l'index unique pendant la sauvegarde -----
+
+    /// <summary>
+    /// Entre la lecture des candidats et la sauvegarde de la passe, un autre contexte lie la transaction à une
+    /// troisième échéance : c'est l'écriture concurrente que SaveLinksAsync doit absorber.
+    /// </summary>
+    private sealed class ConcurrentLinkInterceptor : SaveChangesInterceptor
+    {
+        private readonly DbContextOptions<AppDbContext> _options;
+        private readonly int _echeanceId;
+        private readonly int _transactionId;
+        public bool Fired { get; private set; }
+
+        public ConcurrentLinkInterceptor(DbContextOptions<AppDbContext> options, int echeanceId, int transactionId)
+        {
+            _options = options;
+            _echeanceId = echeanceId;
+            _transactionId = transactionId;
+        }
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken ct = default)
+        {
+            var linksEcheances = eventData.Context!.ChangeTracker.Entries<Echeance>().Any(e => e.State == EntityState.Modified);
+            if (linksEcheances && !Fired)
+            {
+                Fired = true;
+                using var other = new AppDbContext(_options);
+                var c = await other.Echeances.SingleAsync(e => e.Id == _echeanceId, ct);
+                c.TransactionId = _transactionId;
+                await other.SaveChangesAsync(ct);
+            }
+            return result;
+        }
+    }
+
+    [Fact]
+    public async Task ConflitSurLIndexUnique_PendantLaSauvegarde_RetireLeLienEnConflit_SansLever()
+    {
+        Household h;
+        int t1, t2, echeanceC;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "conflit@test.local");
+            var tx1 = Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale");
+            var tx2 = Depense(h, 2.60m, new DateTime(2026, 9, 29), "Ecole communale");
+            ctx.Transactions.AddRange(tx1, tx2);
+            await ctx.SaveChangesAsync();
+            (t1, t2) = (tx1.Id, tx2.Id);
+
+            var c = Facture(h, "C, sans clé, liée à la main entre-temps", 2.60m, new DateOnly(2026, 9, 30), iban: null);
+            ctx.Echeances.AddRange(
+                Facture(h, "A", 2.60m, new DateOnly(2026, 8, 31)),
+                Facture(h, "B", 2.60m, new DateOnly(2026, 9, 30)),
+                c);
+            await ctx.SaveChangesAsync();
+            echeanceC = c.Id;
+        }
+
+        var interceptor = new ConcurrentLinkInterceptor(_options, echeanceC, t2);
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).AddInterceptors(interceptor).Options;
+        var logger = new CapturingLogger();
+
+        int matched;
+        using (var ctx = new AppDbContext(options))
+            matched = await new EcheanceReconciliationService(ctx, logger).ReconcileAsync(CancellationToken.None);
+
+        Assert.True(interceptor.Fired);
+        // Deux liens trouvés, un en conflit : le compte rendu est de un, sans exception.
+        Assert.Equal(1, matched);
+        Assert.Contains(logger.Lines, l => l.Level == LogLevel.Warning && l.Message.Contains("1 lien(s) en conflit"));
+
+        using var check = NewContext();
+        var a = await check.Echeances.SingleAsync(e => e.Label == "A");
+        var b = await check.Echeances.SingleAsync(e => e.Label == "B");
+        var c2 = await check.Echeances.SingleAsync(e => e.Id == echeanceC);
+        Assert.Equal(t1, a.TransactionId);
+        Assert.NotNull(a.MatchedAt);
+        Assert.Null(b.TransactionId);
+        Assert.Null(b.MatchedAt);
+        Assert.Equal(t2, c2.TransactionId);
+        Assert.Equal(2, await check.Transactions.CountAsync());
     }
 
     // ----- Invariance du bilan -----

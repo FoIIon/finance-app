@@ -17,11 +17,13 @@ namespace FinanceApp.API.Services;
 public class EcheanceReconciliationService
 {
     /// <summary>
-    /// Borne du rattrapage par passe. Les libellés qui portent un séparateur sans communication valide
-    /// (contrôle 97 faux, groupe tronqué) repassent dans le filtre à chaque passe : borner le lot garde
-    /// la passe courte, le journal en donne le compte pour qu'on sache s'il en reste.
+    /// Borne du rattrapage par passe : la passe reste courte même sur tout l'historique, et chaque ligne
+    /// examinée sort du filtre (clé posée, ou sentinelle vide), donc le lot avance à chaque passe.
     /// </summary>
     public const int BackfillBatchSize = 500;
+
+    /// <summary>Sentinelle : libellé examiné, aucune communication valide. Voir <see cref="Transaction.StructuredCommunication"/>.</summary>
+    public const string Examined = "";
 
     private readonly AppDbContext _context;
     private readonly ILogger<EcheanceReconciliationService> _logger;
@@ -35,21 +37,23 @@ public class EcheanceReconciliationService
     /// <summary>Une passe complète : rattrapage des communications, puis rapprochement. Rend le nombre d'échéances rapprochées.</summary>
     public async Task<int> ReconcileAsync(CancellationToken ct)
     {
-        var (backfilled, unresolved) = await BackfillStructuredCommunicationsAsync(ct);
+        var (backfilled, examined) = await BackfillStructuredCommunicationsAsync(ct);
         var matched = await MatchOpenEcheancesAsync(ct);
 
         _logger.LogInformation(
-            "Rapprochement des échéances : {Matched} rapprochée(s), {Backfilled} communication(s) structurée(s) rattrapée(s), {Unresolved} libellé(s) à séparateur sans communication valide.",
-            matched, backfilled, unresolved);
+            "Rapprochement des échéances : {Matched} rapprochée(s), {Backfilled} communication(s) structurée(s) rattrapée(s), {Examined} libellé(s) examiné(s) sans communication valide.",
+            matched, backfilled, examined);
         return matched;
     }
 
     /// <summary>
-    /// Les transactions historiques dont le libellé porte un séparateur et dont la colonne est encore vide.
-    /// Filtre en base, on ne charge pas tout l'historique. Seule écriture sur Transactions de tout le lot.
+    /// Les transactions historiques dont le libellé porte un séparateur et dont la colonne n'a jamais été
+    /// examinée (null). Filtre en base, on ne charge pas tout l'historique. Chaque ligne prise sort du filtre :
+    /// la clé si le libellé en porte une valide, la sentinelle vide sinon, pour qu'une carte masquée
+    /// « ****1234 » ne réoccupe pas le lot à chaque passe. Seule écriture sur Transactions de tout le lot.
     /// Sauvegardée avant le rapprochement pour que les candidats relus en base portent leur clé.
     /// </summary>
-    private async Task<(int Backfilled, int Unresolved)> BackfillStructuredCommunicationsAsync(CancellationToken ct)
+    private async Task<(int Backfilled, int Examined)> BackfillStructuredCommunicationsAsync(CancellationToken ct)
     {
         var rows = await _context.Transactions
             .Where(t => t.StructuredCommunication == null
@@ -62,12 +66,11 @@ public class EcheanceReconciliationService
         foreach (var t in rows)
         {
             var digits = StructuredCommunication.Extract(t.Description);
-            if (digits == null) continue;
-            t.StructuredCommunication = digits;
-            backfilled++;
+            t.StructuredCommunication = digits ?? Examined;
+            if (digits != null) backfilled++;
         }
 
-        if (backfilled > 0) await _context.SaveChangesAsync(ct);
+        if (rows.Count > 0) await _context.SaveChangesAsync(ct);
         return (backfilled, rows.Count - backfilled);
     }
 
@@ -123,7 +126,9 @@ public class EcheanceReconciliationService
             .Where(t => t.Date >= from && t.Date < toExclusive)
             .Where(t => !_context.Echeances.Any(e => e.TransactionId == t.Id))
             .OrderBy(t => t.Id)
-            .Select(t => new PaymentCandidate(t.Id, t.Amount, t.Date, t.CounterpartyIban, t.StructuredCommunication))
+            // La sentinelle vide n'est pas une clé : elle sort en null.
+            .Select(t => new PaymentCandidate(t.Id, t.Amount, t.Date, t.CounterpartyIban,
+                t.StructuredCommunication == Examined ? null : t.StructuredCommunication))
             .ToListAsync(ct);
     }
 

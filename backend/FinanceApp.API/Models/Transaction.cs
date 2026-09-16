@@ -22,8 +22,11 @@ public class Transaction
     /// <summary>Les douze chiffres de la communication structurée belge portée par le libellé, sans
     /// <c>+</c>, <c>*</c>, <c>/</c> ni espace, contrôle mod 97 vérifié. Posée à l'import par
     /// <see cref="Services.StructuredCommunication.Extract"/>, rattrapée sur l'historique par
-    /// <see cref="Services.EcheanceReconciliationService"/>. Null sans communication, donc sur tous les
-    /// paiements par carte. C'est la clé forte qui prouve une échéance sans dépendre du montant.</summary>
+    /// <see cref="Services.EcheanceReconciliationService"/>. C'est la clé forte qui prouve une échéance sans
+    /// dépendre du montant. Trois états : null = libellé jamais examiné par le rattrapage, chaîne vide =
+    /// examiné, rien de valide dedans (carte masquée « ****1234 », contrôle 97 faux), douze chiffres =
+    /// une clé. Toute lecture comme clé traite le vide comme null (string.IsNullOrEmpty), jamais une
+    /// égalité sur "".</summary>
     public string? StructuredCommunication { get; set; }
 
     public bool IsExceptional { get; set; }
