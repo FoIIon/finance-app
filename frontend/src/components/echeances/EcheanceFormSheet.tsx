@@ -188,7 +188,7 @@ export const EcheanceFormSheet = ({ dashboardId, initial, defaults, onClose, onS
             value={structuredCommunication}
             onChange={(e) => setStructuredCommunication(e.target.value)}
             disabled={save.isPending}
-            placeholder="+++123/4567/89012+++"
+            placeholder="+++123/4567/89002+++"
             aria-invalid={!!errors.structuredCommunication}
             className={`${inputClass} tabular-nums`}
           />

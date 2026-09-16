@@ -12,7 +12,8 @@ export interface FieldErrors {
   general?: string;
 }
 
-export const STRUCTURED_COMMUNICATION_HINT = 'Douze chiffres, par exemple +++123/4567/89012+++.';
+/** L'exemple passe le contrôle 97 (1234567890 mod 97 = 2) : recopié tel quel, il est accepté. */
+export const STRUCTURED_COMMUNICATION_HINT = 'Douze chiffres, par exemple +++123/4567/89002+++.';
 
 /** Une saisie de communication structurée ramenée à ses chiffres : « +++123/4567/89012+++ » → « 123456789012 ». */
 export const stripStructuredCommunication = (raw: string) => raw.replace(/[+*/\s]/g, '');

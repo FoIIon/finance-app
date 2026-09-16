@@ -492,7 +492,7 @@ test.describe.serial('FinanceApp E2E', () => {
 
   test('Test 14 : Échéance avec IBAN et communication structurée, affichés formatés, contrôle 97 refusé, suppression', async () => {
     // Lot 3 (16/09/2026) : les deux clés du rapprochement automatique se saisissent au formulaire et se relisent
-    // sur la fiche. 1234567890 mod 97 = 2 : « …89002 » passe le contrôle, « …89012 » (le placeholder) non.
+    // sur la fiche. 1234567890 mod 97 = 2 : « …89002 » (l'exemple du placeholder) passe le contrôle, « …89012 » non.
     await page.goto('/agenda');
     await page.waitForURL('**/agenda**');
     await expect(page.getByRole('heading', { name: /^Aujourd'hui/ })).toBeVisible({ timeout: 10000 });
@@ -531,7 +531,7 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(edit.getByLabel(/Communication structurée/)).toHaveValue('123456789002');
     await edit.getByLabel(/Communication structurée/).fill('+++123/4567/89012+++');
     await edit.getByRole('button', { name: 'Enregistrer' }).click();
-    await expect(edit).toContainText('Douze chiffres, par exemple +++123/4567/89012+++.');
+    await expect(edit).toContainText('Douze chiffres, par exemple +++123/4567/89002+++.');
     await expect(edit).toBeVisible();
     await edit.getByRole('button', { name: 'Fermer' }).click();
     await expect(edit).not.toBeVisible();
