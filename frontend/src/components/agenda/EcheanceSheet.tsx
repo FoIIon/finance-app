@@ -6,10 +6,11 @@ import { echeancesApi } from '../../api/echeances';
 import { useEcheanceQuery } from '../../hooks/queries';
 import type { AgendaItem, AgendaStatus } from '../../types/agenda';
 import { formatCurrency } from '../../utils/format';
-import { formatInstantDay, formatLongDate, statusLabel } from './agendaFormat';
+import { formatInstantDay, formatLongDate, formatShortDate, statusLabel } from './agendaFormat';
 import { EcheanceDocumentsSection } from '../echeances/EcheanceDocumentsSection';
 import { EcheanceEditDelete } from '../echeances/EcheanceEditDelete';
 import { EcheanceFormSheet } from '../echeances/EcheanceFormSheet';
+import { formatIban, formatStructuredCommunication } from '../echeances/echeanceForm';
 
 interface Props {
   echeanceId: number;
@@ -44,6 +45,8 @@ const statusFromDto = (status: string | undefined): AgendaStatus | null => {
  * les gestes : « Je l'ai payée », réversible au même endroit par « Finalement non », et « Détacher la
  * transaction » en deux gestes. Chaque geste invalide l'agenda, le serveur recalcule le statut. Lot 1 :
  * une section Documents, puis « Modifier » (la feuille de saisie prend la place de celle-ci) et « Supprimer ».
+ * Lot 3 : quand c'est le rapprocheur qui a lié la transaction (matchedAt), le statut dit « Vu sur le compte »
+ * et montre le virement ; les clés saisies (IBAN, communication) s'affichent formatées quand elles existent.
  */
 export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props) => {
   const queryClient = useQueryClient();
@@ -90,6 +93,8 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
         amount: echeance.amount,
         notes: echeance.notes,
         transactionId: null,
+        counterpartyIban: echeance.counterpartyIban,
+        structuredCommunication: echeance.structuredCommunication,
       });
     },
     onSuccess: () => { setError(null); setDetachAsked(false); return invalidate(); },
@@ -103,9 +108,12 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
   const dueDate = echeance?.dueDate ?? (item?.originalDate ?? item?.date);
   const transactionId = echeance?.transactionId ?? item?.transactionId ?? null;
 
+  const matched = !!echeance?.matchedAt && transactionId != null;
   const statusText = (() => {
     if (status === 'paid') {
       if (echeance?.paidAt) return `Payée le ${formatInstantDay(echeance.paidAt)}`;
+      // Le rapprocheur a lié le virement : on dit quand il est passé sur le compte, pas quand on l'a vu.
+      if (matched) return `Vu sur le compte le ${echeance.payment ? formatShortDate(echeance.payment.date) : formatInstantDay(echeance.matchedAt!)}`;
       return transactionId != null ? 'Payée, réglée par une transaction' : 'Payée';
     }
     if (item) {
@@ -152,8 +160,27 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
           </div>
           <div className="flex gap-2">
             <dt className="text-white/40 shrink-0">Statut</dt>
-            <dd className={status === 'late' ? 'text-red-400' : 'text-white/80'}>{statusText || (isLoading ? '…' : '')}</dd>
+            <dd className={`min-w-0 ${status === 'late' ? 'text-red-400' : 'text-white/80'}`}>
+              {statusText || (isLoading ? '…' : '')}
+              {matched && echeance.payment && (
+                <span className="block text-white/50 truncate">
+                  {[echeance.payment.description, echeance.payment.counterpartyName].filter((s) => s && s.trim()).join(' · ')}
+                </span>
+              )}
+            </dd>
           </div>
+          {echeance?.counterpartyIban && (
+            <div className="flex gap-2">
+              <dt className="text-white/40 shrink-0">IBAN</dt>
+              <dd className="text-white/80 tabular-nums">{formatIban(echeance.counterpartyIban)}</dd>
+            </div>
+          )}
+          {echeance?.structuredCommunication && (
+            <div className="flex gap-2">
+              <dt className="text-white/40 shrink-0">Communication</dt>
+              <dd className="text-white/80 tabular-nums">{formatStructuredCommunication(echeance.structuredCommunication)}</dd>
+            </div>
+          )}
         </dl>
 
         {error && <p className="text-xs text-amber-300/90 mb-3">{error}</p>}
