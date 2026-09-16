@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { bankingApi } from '../../api/banking';
 import type { AgendaView, CalendarStatus } from '../../types/agenda';
 import { CreateEcheanceButton } from '../echeances/CreateEcheanceButton';
-import { formatInstantDay, formatRelative } from './agendaFormat';
+import { formatInstantDay, formatRelative, formatSeenAgo, latestInstant } from './agendaFormat';
 
 interface Props {
   view: AgendaView;
@@ -62,6 +64,22 @@ const CalendarStatusLine = ({ calendar }: { calendar: CalendarStatus | undefined
         </p>
       );
   }
+};
+
+/**
+ * « Compte vu il y a 3 h » (lot 3) : la dernière synchronisation bancaire réussie, toutes connexions
+ * confondues. C'est ce qui dit si le silence d'une échéance veut dire impayée ou pas encore synchronisée.
+ * Aucune connexion : rien. La requête est la même que la page Comptes, en lecture seule.
+ */
+const BankSeenLine = () => {
+  const { data } = useQuery({
+    queryKey: ['bank-connections'],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => (await bankingApi.getConnections()).data,
+  });
+  if (!data || data.length === 0) return null;
+  const last = latestInstant(data.map((c) => c.lastSyncAt));
+  return <p className="text-xs text-white/50">{last ? `Compte vu ${formatSeenAgo(last)}` : 'Compte pas encore vu'}</p>;
 };
 
 const VIEWS: { key: AgendaView; label: string }[] = [
@@ -132,7 +150,10 @@ export const AgendaHeader = ({ view, onViewChange, onPrev, onNext, onToday, show
       <h2 className="text-lg md:text-2xl font-bold text-white min-h-7" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
         {title}
       </h2>
-      <CalendarStatusLine calendar={calendar} />
+      <div className="flex flex-col gap-0.5 md:items-end">
+        <CalendarStatusLine calendar={calendar} />
+        <BankSeenLine />
+      </div>
     </div>
   </div>
 );
