@@ -2,14 +2,15 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { documentsApi } from '../../api/documents';
 import type { Document } from '../../types/documents';
+import type { Echeance } from '../../types/agenda';
 import { formatInstantDay } from '../agenda/agendaFormat';
-import { DOCUMENT_KIND_LABELS, formatBytes } from './documentFormat';
+import { DOCUMENT_KIND_LABELS, echeanceStatusView, formatBytes } from './documentFormat';
 
 interface Props {
   doc: Document;
   dashboardId: number;
-  /** Le libellé de l'échéance rattachée, quand la liste des échéances l'a donné. */
-  echeanceLabel: string | undefined;
+  /** L'échéance rattachée, quand la liste des échéances l'a donnée : son libellé et son statut. */
+  echeance: Echeance | undefined;
   onOpen: (id: number, name: string) => void;
   opening: boolean;
   onOpenEcheance: (echeanceId: number) => void;
@@ -17,10 +18,11 @@ interface Props {
 
 /**
  * Une carte, jamais une ligne de tableau : le nom, puis nature, taille lisible et date de dépôt. Toucher
- * le haut ouvre le document. En pied : « → Danse Alice » si rattaché (ouvre la feuille Échéance), et
- * « Supprimer » en deux gestes.
+ * le haut ouvre le document. En pied : « → Danse Alice · payée » si rattaché (ouvre la feuille Échéance),
+ * le statut aux couleurs de l'agenda, et « Supprimer » en deux gestes. Payée : la bordure passe au vert, pour
+ * voir d'un coup d'œil ce qui est réglé sans lire chaque carte.
  */
-export const DocumentCard = ({ doc, dashboardId, echeanceLabel, onOpen, opening, onOpenEcheance }: Props) => {
+export const DocumentCard = ({ doc, dashboardId, echeance, onOpen, opening, onOpenEcheance }: Props) => {
   const queryClient = useQueryClient();
   const [deleteAsked, setDeleteAsked] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,8 +38,11 @@ export const DocumentCard = ({ doc, dashboardId, echeanceLabel, onOpen, opening,
     onError: () => { setError('Suppression impossible, réessaie.'); setDeleteAsked(false); },
   });
 
+  const status = echeanceStatusView(echeance?.status);
+  const paid = echeance?.status === 'Payee';
+
   return (
-    <li className="rounded-xl border border-white/10 bg-white/5 p-3 flex flex-col">
+    <li className={`rounded-xl border ${paid ? 'border-emerald-400/40' : 'border-white/10'} bg-white/5 p-3 flex flex-col`}>
       <button
         type="button"
         onClick={() => onOpen(doc.id, doc.originalFileName)}
@@ -60,7 +65,8 @@ export const DocumentCard = ({ doc, dashboardId, echeanceLabel, onOpen, opening,
             onClick={() => onOpenEcheance(doc.echeanceId!)}
             className="min-h-9 px-1 text-amber-300/90 hover:text-amber-200 text-left break-words transition-colors"
           >
-            → {echeanceLabel ?? 'Échéance'}
+            → {echeance?.label ?? 'Échéance'}
+            {status && <span className={status.className}> · {status.label}</span>}
           </button>
         ) : (
           <span className="text-white/30 min-h-9 inline-flex items-center px-1">Sans échéance</span>
