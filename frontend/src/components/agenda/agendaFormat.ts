@@ -75,6 +75,37 @@ export const formatRelative = (iso: string, now: Date = new Date()) => {
 export const formatInstantDay = (iso: string) =>
   new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' }).format(new Date(iso));
 
+/**
+ * Un instant du serveur lu comme UTC même sans suffixe : relu de SQLite, un DateTime peut sortir sans « Z »
+ * (LastSyncAt des connexions bancaires), et le navigateur le prendrait pour de l'heure locale.
+ */
+const asUtcInstant = (iso: string) => (/(Z|[+-]\d{2}:\d{2})$/.test(iso) ? new Date(iso) : new Date(`${iso}Z`));
+
+/**
+ * « à l'instant » sous une heure, « il y a 3 h » dans la journée, « hier » jusqu'à deux jours, puis la date
+ * courte. Pour dire quand le compte a été vu pour la dernière fois : c'est ce qui distingue un impayé
+ * d'une synchronisation qui n'a pas encore eu lieu.
+ */
+export const formatSeenAgo = (iso: string, now: Date = new Date()) => {
+  const seen = asUtcInstant(iso);
+  const minutes = Math.floor((now.getTime() - seen.getTime()) / 60_000);
+  if (minutes < 60) return "à l'instant";
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `il y a ${hours} h`;
+  if (hours < 48) return 'hier';
+  return `le ${new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' }).format(seen)}`;
+};
+
+/** Le plus récent d'une liste d'instants ISO, null si elle n'en porte aucun. */
+export const latestInstant = (isos: (string | null | undefined)[]): string | null => {
+  let best: string | null = null;
+  for (const iso of isos) {
+    if (!iso) continue;
+    if (best === null || asUtcInstant(iso).getTime() > asUtcInstant(best).getTime()) best = iso;
+  }
+  return best;
+};
+
 /** Le mot de statut sous le montant. Le statut vient du serveur, on ne le déduit pas d'une date. */
 export const statusLabel = (item: AgendaItem): string => {
   switch (item.status) {
