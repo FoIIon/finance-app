@@ -73,6 +73,16 @@ export interface AgendaResult {
   upcoming: AgendaUpcoming;
 }
 
+/** EcheancePaymentDto : ce que la fiche montre de la transaction qui règle l'échéance. */
+export interface EcheancePayment {
+  transactionId: number;
+  /** yyyy-MM-dd dans le fuseau du ménage. */
+  date: string;
+  amount: number;
+  description: string;
+  counterpartyName: string | null;
+}
+
 /** EcheanceDto : la ligne complète, lue pour la feuille basse et pour le PUT de remplacement. */
 export interface Echeance {
   id: number;
@@ -86,6 +96,14 @@ export interface Echeance {
   status: string;
   paidAt: string | null;
   transactionId: number | null;
+  /** IBAN du bénéficiaire, normalisé par le serveur (sans espaces, majuscules). */
+  counterpartyIban: string | null;
+  /** Les douze chiffres de la communication structurée attendue. */
+  structuredCommunication: string | null;
+  /** Instant ISO UTC du rapprochement automatique. Null quand le lien est manuel ou absent. */
+  matchedAt: string | null;
+  /** La transaction liée, pour l'affichage. Null sans lien. */
+  payment: EcheancePayment | null;
   documentIds: number[];
   createdByUserId: number;
   createdAt: string;
@@ -99,4 +117,7 @@ export interface UpdateEcheance {
   amount: number | null;
   notes: string | null;
   transactionId: number | null;
+  /** Saisie brute acceptée, le serveur normalise. Null : effacé. */
+  counterpartyIban: string | null;
+  structuredCommunication: string | null;
 }

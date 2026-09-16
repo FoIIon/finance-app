@@ -7,4 +7,7 @@ export interface CreateEcheance {
   dueDate: string;
   amount: number | null;
   notes: string | null;
+  /** Lot 3, facultatifs : saisie brute acceptée, le serveur normalise et refuse un contrôle 97 faux. */
+  counterpartyIban: string | null;
+  structuredCommunication: string | null;
 }

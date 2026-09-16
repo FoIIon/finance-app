@@ -7,8 +7,32 @@ export interface FieldErrors {
   label?: string;
   dueDate?: string;
   amount?: string;
+  counterpartyIban?: string;
+  structuredCommunication?: string;
   general?: string;
 }
+
+export const STRUCTURED_COMMUNICATION_HINT = 'Douze chiffres, par exemple +++123/4567/89012+++.';
+
+/** Une saisie de communication structurée ramenée à ses chiffres : « +++123/4567/89012+++ » → « 123456789012 ». */
+export const stripStructuredCommunication = (raw: string) => raw.replace(/[+*/\s]/g, '');
+
+/**
+ * Le contrôle belge : les deux derniers chiffres valent les dix premiers modulo 97, 0 donnant 97. Le même
+ * calcul que le serveur, ici pour refuser avant l'envoi. Le serveur reste le juge.
+ */
+export const isValidStructuredCommunication = (twelveDigits: string) => {
+  if (!/^\d{12}$/.test(twelveDigits)) return false;
+  const expected = Number(twelveDigits.slice(0, 10)) % 97 || 97;
+  return Number(twelveDigits.slice(10)) === expected;
+};
+
+/** Douze chiffres → « +++123/4567/89012+++ », pour l'affichage. Autre chose : tel quel. */
+export const formatStructuredCommunication = (digits: string) =>
+  digits.length === 12 ? `+++${digits.slice(0, 3)}/${digits.slice(3, 7)}/${digits.slice(7)}+++` : digits;
+
+/** « BE98068243670693 » → « BE98 0682 4367 0693 », pour l'affichage et la relecture au formulaire. */
+export const formatIban = (iban: string) => iban.replace(/\s+/g, '').toUpperCase().replace(/(.{4})(?=.)/g, '$1 ');
 
 /** yyyy-MM-dd du jour, dans le fuseau du navigateur. */
 export const todayIso = () => toIso(new Date());
@@ -31,7 +55,12 @@ export const amountToInput = (amount: number | null) => (amount == null ? '' : S
 export const fieldErrorsOf = (err: unknown, fallback: string): FieldErrors => {
   if (!isAxiosError(err)) return { general: fallback };
   const data: unknown = err.response?.data;
-  if (typeof data === 'string' && data.trim()) return { general: data };
+  if (typeof data === 'string' && data.trim()) {
+    // Les deux refus métier du lot 3 arrivent en texte brut : ils vont sous leur champ, pas en ligne générale.
+    if (data.startsWith('Communication structurée')) return { structuredCommunication: data };
+    if (data.startsWith('IBAN')) return { counterpartyIban: data };
+    return { general: data };
+  }
   if (data && typeof data === 'object' && 'errors' in data && data.errors && typeof data.errors === 'object') {
     const out: FieldErrors = {};
     const general: string[] = [];
@@ -41,6 +70,8 @@ export const fieldErrorsOf = (err: unknown, fallback: string): FieldErrors => {
         case 'label': out.label = message; break;
         case 'duedate': out.dueDate = message; break;
         case 'amount': out.amount = message; break;
+        case 'counterpartyiban': out.counterpartyIban = message; break;
+        case 'structuredcommunication': out.structuredCommunication = message; break;
         default: general.push(message);
       }
     }
