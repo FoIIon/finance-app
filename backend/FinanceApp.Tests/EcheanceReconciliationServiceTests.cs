@@ -1,0 +1,442 @@
+using System.Text.Json;
+using FinanceApp.API.Controllers;
+using FinanceApp.API.Data;
+using FinanceApp.API.Models;
+using FinanceApp.API.Services;
+using FinanceApp.API.Services.Reporting;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+namespace FinanceApp.Tests;
+
+/// <summary>
+/// L'exécuteur du rapprochement, sur une base SQLite en mémoire au vrai schéma. Ce qu'il doit faire (lier,
+/// dater, une seule fois, jamais deux fois la même transaction) et ce qu'il ne doit jamais faire (toucher
+/// une provision, un compte d'un autre dashboard, une échéance payée à la main, ou le bilan).
+/// </summary>
+public class EcheanceReconciliationServiceTests : IDisposable
+{
+    private const string Ecole = "BE98068243670693";
+    private static readonly string Com = StructuredCommunicationTests.Sc(2026080001);
+    private static readonly DateTime Now = new(2026, 8, 20, 12, 0, 0, DateTimeKind.Utc);
+    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+
+    private readonly SqliteConnection _connection;
+    private readonly DbContextOptions<AppDbContext> _options;
+
+    public EcheanceReconciliationServiceTests()
+    {
+        (_connection, _options) = TestHousehold.OpenInMemory();
+    }
+
+    public void Dispose() => _connection.Dispose();
+
+    private AppDbContext NewContext() => new(_options);
+
+    private static EcheanceReconciliationService Service(AppDbContext ctx) =>
+        new(ctx, NullLogger<EcheanceReconciliationService>.Instance);
+
+    private static EcheanceController Controller(AppDbContext ctx, int userId) =>
+        new(ctx, Microsoft.Extensions.Options.Options.Create(new FinanceApp.API.Services.Calendar.HouseholdOptions())) { ControllerContext = TestHousehold.As(userId) };
+
+    private async Task<int> RunAsync()
+    {
+        using var ctx = NewContext();
+        return await Service(ctx).ReconcileAsync(CancellationToken.None);
+    }
+
+    private static Transaction Depense(Household h, decimal amount, DateTime date, string desc, string? iban = Ecole, bool provisional = false, int? accountId = null, string? com = null) => new()
+    {
+        AccountId = accountId ?? h.AccountId, CategoryId = 6, Type = TransactionType.Expense, Amount = amount, Date = date,
+        Description = desc, CounterpartyIban = iban, StructuredCommunication = com, IsImported = true, IsProvisional = provisional,
+    };
+
+    private static Echeance Facture(Household h, string label, decimal? amount, DateOnly due, string? iban = Ecole, string? com = null, int? transactionId = null, DateTime? paidAt = null) => new()
+    {
+        DashboardId = h.DashboardId, Label = label, DueDate = due, Amount = amount, CounterpartyIban = iban, StructuredCommunication = com,
+        TransactionId = transactionId, PaidAt = paidAt, CreatedByUserId = h.UserId, CreatedAt = Now, UpdatedAt = Now,
+    };
+
+    [Fact]
+    public async Task IbanEtMontant_TransactionImportee_RapprocheEtDate()
+    {
+        Household h;
+        int txId;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "match@test.local");
+            var tx = Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale");
+            ctx.Transactions.AddRange(tx, Depense(h, 1.40m, new DateTime(2026, 8, 28), "Ecole communale"));
+            ctx.Echeances.Add(Facture(h, "Repas Alice août", 2.60m, new DateOnly(2026, 8, 31)));
+            await ctx.SaveChangesAsync();
+            txId = tx.Id;
+        }
+
+        Assert.Equal(1, await RunAsync());
+
+        using var check = NewContext();
+        var e = await check.Echeances.SingleAsync();
+        Assert.Equal(txId, e.TransactionId);
+        Assert.NotNull(e.MatchedAt);
+        Assert.Null(e.PaidAt);
+        Assert.Equal(EcheanceStatus.Payee, EcheanceStatusRules.Of(e, new DateOnly(2026, 9, 1)));
+    }
+
+    [Fact]
+    public async Task CommunicationStructuree_SansMontant_Rapproche()
+    {
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "com@test.local");
+            ctx.Transactions.AddRange(
+                Depense(h, 61.20m, new DateTime(2026, 8, 5), $"+++{Com[..3]}/{Com[3..7]}/{Com[7..]}+++", iban: null, com: Com),
+                Depense(h, 61.20m, new DateTime(2026, 8, 5), "Autre chose", iban: null));
+            ctx.Echeances.Add(Facture(h, "Facture ostéo", null, new DateOnly(2026, 8, 28), iban: null, com: Com));
+            await ctx.SaveChangesAsync();
+        }
+
+        Assert.Equal(1, await RunAsync());
+
+        using var check = NewContext();
+        var e = await check.Echeances.SingleAsync();
+        var tx = await check.Transactions.SingleAsync(t => t.StructuredCommunication == Com);
+        Assert.Equal(tx.Id, e.TransactionId);
+    }
+
+    [Fact]
+    public async Task DeuxiemePasse_NeChangeRien()
+    {
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "idem@test.local");
+            ctx.Transactions.Add(Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale"));
+            ctx.Echeances.Add(Facture(h, "Repas", 2.60m, new DateOnly(2026, 8, 31)));
+            await ctx.SaveChangesAsync();
+        }
+
+        Assert.Equal(1, await RunAsync());
+        DateTime updatedAt, matchedAt;
+        using (var ctx = NewContext())
+        {
+            var e = await ctx.Echeances.SingleAsync();
+            (updatedAt, matchedAt) = (e.UpdatedAt, e.MatchedAt!.Value);
+        }
+
+        Assert.Equal(0, await RunAsync());
+
+        using var check = NewContext();
+        var after = await check.Echeances.SingleAsync();
+        Assert.Equal(updatedAt, after.UpdatedAt);
+        Assert.Equal(matchedAt, after.MatchedAt);
+    }
+
+    [Fact]
+    public async Task ApresUnpay_NeReattachePasLaMemeTransaction_MaisUneAutreConforme()
+    {
+        Household h;
+        int refusee;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "unpay@test.local");
+            var tx = Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale");
+            ctx.Transactions.Add(tx);
+            ctx.Echeances.Add(Facture(h, "Repas", 2.60m, new DateOnly(2026, 8, 31)));
+            await ctx.SaveChangesAsync();
+            refusee = tx.Id;
+        }
+
+        Assert.Equal(1, await RunAsync());
+
+        int echeanceId;
+        using (var ctx = NewContext())
+        {
+            echeanceId = (await ctx.Echeances.SingleAsync()).Id;
+            var result = await Controller(ctx, h.UserId).Unpay(echeanceId);
+            Assert.IsType<OkObjectResult>(result.Result);
+        }
+
+        // La passe suivante ne la remet pas.
+        Assert.Equal(0, await RunAsync());
+        using (var ctx = NewContext())
+        {
+            var e = await ctx.Echeances.SingleAsync();
+            Assert.Null(e.TransactionId);
+            Assert.Null(e.MatchedAt);
+            Assert.Equal(refusee, e.RejectedTransactionId);
+        }
+
+        // Une autre transaction conforme arrive : elle, oui.
+        int autre;
+        using (var ctx = NewContext())
+        {
+            var tx = Depense(h, 2.60m, new DateTime(2026, 9, 2), "Ecole communale");
+            ctx.Transactions.Add(tx);
+            await ctx.SaveChangesAsync();
+            autre = tx.Id;
+        }
+        Assert.Equal(1, await RunAsync());
+        using var check = NewContext();
+        var relue = await check.Echeances.SingleAsync();
+        Assert.Equal(autre, relue.TransactionId);
+        Assert.Equal(refusee, relue.RejectedTransactionId);
+    }
+
+    [Fact]
+    public async Task DeuxEcheancesMemeIbanMemeMontant_ChacuneRecoitLaSienne()
+    {
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "deux@test.local");
+            ctx.Transactions.AddRange(
+                Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale"),
+                Depense(h, 2.60m, new DateTime(2026, 9, 29), "Ecole communale"));
+            ctx.Echeances.AddRange(
+                Facture(h, "Repas août", 2.60m, new DateOnly(2026, 8, 31)),
+                Facture(h, "Repas septembre", 2.60m, new DateOnly(2026, 9, 30)));
+            await ctx.SaveChangesAsync();
+        }
+
+        Assert.Equal(2, await RunAsync());
+
+        using var check = NewContext();
+        var echeances = await check.Echeances.Include(e => e.Transaction).OrderBy(e => e.DueDate).ToListAsync();
+        Assert.All(echeances, e => Assert.NotNull(e.TransactionId));
+        Assert.Equal(new DateTime(2026, 8, 28), echeances[0].Transaction!.Date);
+        Assert.Equal(new DateTime(2026, 9, 29), echeances[1].Transaction!.Date);
+        Assert.NotEqual(echeances[0].TransactionId, echeances[1].TransactionId);
+    }
+
+    [Fact]
+    public async Task TransactionDejaLieeAUneEcheance_NEstPasProposeeAUneAutre()
+    {
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "liee@test.local");
+            var tx = Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale");
+            ctx.Transactions.Add(tx);
+            await ctx.SaveChangesAsync();
+            ctx.Echeances.AddRange(
+                Facture(h, "A, liée à la main", 2.60m, new DateOnly(2026, 8, 31), transactionId: tx.Id),
+                Facture(h, "B", 2.60m, new DateOnly(2026, 8, 31)));
+            await ctx.SaveChangesAsync();
+        }
+
+        Assert.Equal(0, await RunAsync());
+
+        using var check = NewContext();
+        var b = await check.Echeances.SingleAsync(e => e.Label == "B");
+        Assert.Null(b.TransactionId);
+    }
+
+    [Fact]
+    public async Task Provision_EtCompteHorsDashboard_NeSontJamaisRapproches()
+    {
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "prov@test.local");
+            var autreCompte = new Account { Name = "Perso", UserId = h.UserId };
+            ctx.Accounts.Add(autreCompte);
+            await ctx.SaveChangesAsync();
+
+            ctx.Transactions.AddRange(
+                Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale", provisional: true),
+                Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale", accountId: autreCompte.Id));
+            ctx.Echeances.Add(Facture(h, "Repas", 2.60m, new DateOnly(2026, 8, 31)));
+            await ctx.SaveChangesAsync();
+        }
+
+        Assert.Equal(0, await RunAsync());
+
+        using var check = NewContext();
+        Assert.Null((await check.Echeances.SingleAsync()).TransactionId);
+    }
+
+    [Fact]
+    public async Task EcheancePayeeALaMain_EstIgnoree()
+    {
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "main@test.local");
+            ctx.Transactions.Add(Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale"));
+            ctx.Echeances.Add(Facture(h, "Repas", 2.60m, new DateOnly(2026, 8, 31), paidAt: Now));
+            await ctx.SaveChangesAsync();
+        }
+
+        Assert.Equal(0, await RunAsync());
+
+        using var check = NewContext();
+        var e = await check.Echeances.SingleAsync();
+        Assert.Null(e.TransactionId);
+        Assert.Equal(Now, e.PaidAt);
+    }
+
+    [Fact]
+    public async Task Rattrapage_PoseLaCommunicationSurLHistorique_SansToucherLeReste()
+    {
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "backfill@test.local");
+            ctx.Transactions.AddRange(
+                Depense(h, 61.20m, new DateTime(2026, 5, 5), $"Virement +++{Com[..3]}/{Com[3..7]}/{Com[7..]}+++ ostéo", iban: null),
+                Depense(h, 12.00m, new DateTime(2026, 5, 6), "+++123/4567/89012+++ contrôle faux", iban: null),
+                Depense(h, 30.00m, new DateTime(2026, 5, 7), "COLRUYT", iban: null));
+            await ctx.SaveChangesAsync();
+        }
+
+        Assert.Equal(0, await RunAsync());
+
+        using var check = NewContext();
+        var rows = await check.Transactions.OrderBy(t => t.Date).ToListAsync();
+        Assert.Equal(Com, rows[0].StructuredCommunication);
+        Assert.Null(rows[1].StructuredCommunication);
+        Assert.Null(rows[2].StructuredCommunication);
+        Assert.Equal(3, rows.Count);
+        Assert.All(rows, t => Assert.Equal(6, t.CategoryId));
+    }
+
+    // ----- Invariance du bilan -----
+
+    private sealed record Snapshot(string Monthly, string Summary, string Burndown, string CategoryHistory, string FlowHistory, int TransactionCount);
+
+    private async Task<Snapshot> SnapshotAsync(Household h, int categoryId)
+    {
+        using var ctx = NewContext();
+        var reporting = new ReportingService(ctx, new AccountBalanceService(ctx));
+        var accounts = new List<int> { h.AccountId };
+
+        var monthly = await reporting.MonthlyReportAsync(accounts, 2026, 8);
+        var summary = await reporting.SummaryAsync(h.UserId, accounts, new DateTime(2026, 8, 1), new DateTime(2026, 8, 31, 23, 59, 59), null, true, Now);
+        var burndown = await reporting.BurndownAsync(accounts, h.DashboardId, 2026, 8, Now);
+        var history = await reporting.CategoryHistoryAsync(accounts, categoryId, 6, Now);
+        var flow = await reporting.CategoryFlowHistoryAsync(accounts, categoryId, 6, null, true, Now);
+
+        return new Snapshot(
+            JsonSerializer.Serialize(monthly, Json),
+            JsonSerializer.Serialize(summary, Json),
+            JsonSerializer.Serialize(burndown, Json),
+            JsonSerializer.Serialize(history, Json),
+            JsonSerializer.Serialize(flow, Json),
+            await ctx.Transactions.CountAsync());
+    }
+
+    [Fact]
+    public async Task UnePasseQuiRapprocheEtRattrape_NeChangeRien_AuBilan()
+    {
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "bilan@test.local");
+            var epargne = new Category { Name = "Épargne", Icon = "x", Color = "#000", IsTransfer = true, UserId = h.UserId };
+            ctx.Categories.Add(epargne);
+            await ctx.SaveChangesAsync();
+
+            Transaction T(int day, TransactionType type, decimal amount, int categoryId, string desc, string? iban = null,
+                bool fixe = false, bool refund = false, bool exceptional = false, bool provisional = false) => new()
+            {
+                AccountId = h.AccountId, CategoryId = categoryId, Type = type, Amount = amount, Description = desc, CounterpartyIban = iban,
+                Date = new DateTime(2026, 8, day), IsFixed = fixe, IsRefund = refund, IsExceptional = exceptional, IsProvisional = provisional, IsImported = true,
+            };
+
+            ctx.Transactions.AddRange(
+                T(1, TransactionType.Income, 3120.45m, 8, "Salaire Seb"),
+                T(1, TransactionType.Income, 2210.10m, 8, "Salaire Audrey"),
+                T(2, TransactionType.Expense, 1250.00m, 3, "Prêt hypothécaire", fixe: true),
+                T(4, TransactionType.Expense, 189.99m, 3, $"Électricité +++{Com[..3]}/{Com[3..7]}/{Com[7..]}+++", iban: "BE68539007547034", fixe: true),
+                T(6, TransactionType.Income, 62.30m, 3, "Régularisation énergie", fixe: true),
+                T(7, TransactionType.Expense, 143.67m, 1, "Colruyt"),
+                T(10, TransactionType.Expense, 27.50m, 5, "Pharmacie"),
+                T(11, TransactionType.Income, 27.50m, 5, "Mutuelle", refund: true),
+                T(13, TransactionType.Expense, 899.00m, 7, "Lave-linge", exceptional: true),
+                T(15, TransactionType.Expense, 300.00m, epargne.Id, "Ordre permanent livret"),
+                T(18, TransactionType.Expense, 2.60m, 6, "Ecole communale", iban: Ecole),
+                T(18, TransactionType.Expense, 1.40m, 6, "Ecole communale", iban: Ecole),
+                T(25, TransactionType.Income, 3120.45m, 8, "Salaire attendu", provisional: true));
+            await ctx.SaveChangesAsync();
+
+            ctx.Echeances.AddRange(
+                Facture(h, "Repas Alice", 2.60m, new DateOnly(2026, 8, 31)),
+                Facture(h, "Repas Hugo", 1.40m, new DateOnly(2026, 8, 31)),
+                Facture(h, "Électricité", null, new DateOnly(2026, 8, 10), iban: null, com: Com),
+                Facture(h, "Assurance auto, rien en face", 612.33m, new DateOnly(2026, 9, 30), iban: "BE71096123456769"));
+            await ctx.SaveChangesAsync();
+        }
+
+        var before = await SnapshotAsync(h, categoryId: 3);
+        using (var doc = JsonDocument.Parse(before.Monthly))
+        {
+            Assert.NotEqual(0m, doc.RootElement.GetProperty("Entrees").GetDecimal());
+            Assert.NotEqual(0m, doc.RootElement.GetProperty("Fixe").GetDecimal());
+            Assert.NotEqual(0m, doc.RootElement.GetProperty("Variable").GetDecimal());
+        }
+        Assert.Equal(13, before.TransactionCount);
+
+        // La passe rapproche trois échéances (deux par IBAN et montant, une par communication rattrapée
+        // dans la même passe) et rattrape une communication.
+        Assert.Equal(3, await RunAsync());
+
+        using (var ctx = NewContext())
+        {
+            Assert.Equal(3, await ctx.Echeances.CountAsync(e => e.TransactionId != null && e.MatchedAt != null));
+            Assert.Equal(1, await ctx.Transactions.CountAsync(t => t.StructuredCommunication != null));
+            var electricite = await ctx.Echeances.Include(e => e.Transaction).SingleAsync(e => e.Label == "Électricité");
+            Assert.Equal(189.99m, electricite.Transaction!.Amount);
+        }
+
+        var after = await SnapshotAsync(h, categoryId: 3);
+        Assert.Equal(before.Monthly, after.Monthly);
+        Assert.Equal(before.Summary, after.Summary);
+        Assert.Equal(before.Burndown, after.Burndown);
+        Assert.Equal(before.CategoryHistory, after.CategoryHistory);
+        Assert.Equal(before.FlowHistory, after.FlowHistory);
+        Assert.Equal(before.TransactionCount, after.TransactionCount);
+    }
+
+    // ----- Garde-fous de source -----
+
+    private static string ApiSourceDir()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !Directory.Exists(Path.Combine(dir.FullName, "FinanceApp.API")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        return Path.Combine(dir!.FullName, "FinanceApp.API");
+    }
+
+    [Theory]
+    [InlineData("Services/Reporting/BilanClassifier.cs")]
+    [InlineData("Services/ProvisionService.cs")]
+    [InlineData("Services/Reporting/ReportingService.cs")]
+    public void LeBilanIgnoreLeRapprochement_ParLaSource(string relative)
+    {
+        var source = File.ReadAllText(Path.Combine(ApiSourceDir(), relative));
+        Assert.NotEmpty(source);
+        foreach (var token in new[] { "Echeance", "EcheanceMatcher", "EcheanceReconciliation", "StructuredCommunication", "PaymentCandidate" })
+            Assert.DoesNotContain(token, source);
+    }
+
+    [Fact]
+    public void LesJournauxDuRapprochement_NePortentNiIbanNiLibelleNiCommunication()
+    {
+        var source = File.ReadAllText(Path.Combine(ApiSourceDir(), "Services/EcheanceReconciliationService.cs"));
+        var lines = source.Split('\n');
+        var calls = lines.Select((l, i) => (l, i)).Where(x => x.l.Contains("_logger.Log")).Select(x => x.i).ToList();
+        Assert.NotEmpty(calls);
+        foreach (var i in calls)
+        {
+            // L'appel et ses trois lignes suivantes : le message et ses arguments.
+            var call = string.Join("\n", lines.Skip(i).Take(4));
+            foreach (var forbidden in new[] { "Iban", "Description", "Label", "{Communication", "CounterpartyName", ".StructuredCommunication" })
+                Assert.DoesNotContain(forbidden, call);
+        }
+    }
+}
