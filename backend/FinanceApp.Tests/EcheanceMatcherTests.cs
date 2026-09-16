@@ -119,6 +119,17 @@ public class EcheanceMatcherTests
     }
 
     [Fact]
+    public void CommunicationVide_DesDeuxCotes_NeRapprochePas()
+    {
+        // La sentinelle du rattrapage (chaîne vide) n'est pas une clé, ni sur l'échéance ni sur le candidat.
+        Assert.Null(Chercher(null, null, "", [C(1, 2.60m, 0, com: "")]));
+        Assert.Null(Chercher(null, Ecole, "", [C(1, 2.60m, 0, com: "")]));
+        Assert.Null(Chercher(null, null, Com, [C(1, 2.60m, 0, com: "")]));
+        // Avec un montant et l'IBAN, la clé ordinaire joue encore.
+        Assert.Equal(1, Chercher(2.60m, Ecole, "", [C(1, 2.60m, 0, com: "")])?.Id);
+    }
+
+    [Fact]
     public void AucunCandidat_RendNull() =>
         Assert.Null(Chercher(2.60m, Ecole, Com, []));
 }
