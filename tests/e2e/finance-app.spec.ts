@@ -489,4 +489,59 @@ test.describe.serial('FinanceApp E2E', () => {
     expect(overflow).toBeLessThanOrEqual(0);
     await page.setViewportSize({ width: 1280, height: 1000 });
   });
+
+  test('Test 14 : Échéance avec IBAN et communication structurée, affichés formatés, contrôle 97 refusé, suppression', async () => {
+    // Lot 3 (16/09/2026) : les deux clés du rapprochement automatique se saisissent au formulaire et se relisent
+    // sur la fiche. 1234567890 mod 97 = 2 : « …89002 » passe le contrôle, « …89012 » (le placeholder) non.
+    await page.goto('/agenda');
+    await page.waitForURL('**/agenda**');
+    await expect(page.getByRole('heading', { name: /^Aujourd'hui/ })).toBeVisible({ timeout: 10000 });
+
+    const due = new Date();
+    due.setDate(due.getDate() + 2);
+    const dueIso = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`;
+
+    await page.getByRole('button', { name: '+ Échéance' }).click();
+    const form = page.getByRole('dialog', { name: 'Nouvelle échéance' });
+    await expect(form).toBeVisible();
+    await form.getByLabel('Libellé').fill('Test E2E école');
+    await form.getByLabel('Date limite').fill(dueIso);
+    await form.getByLabel(/Montant/).fill('2,60');
+    // Saisie en minuscules avec des espaces : le serveur normalise, la fiche regroupe par quatre.
+    await form.getByLabel(/IBAN du bénéficiaire/).fill('be98 0682 4367 0693');
+    await form.getByLabel(/Communication structurée/).fill('123456789002');
+    await form.getByRole('button', { name: 'Enregistrer' }).click();
+    await expect(form).not.toBeVisible({ timeout: 5000 });
+
+    const row = page.getByRole('button', { name: /Test E2E école/ });
+    await expect(row).toBeVisible({ timeout: 10000 });
+    await row.click();
+    const sheet = page.getByRole('dialog', { name: 'Test E2E école' });
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toContainText('BE98 0682 4367 0693');
+    await expect(sheet).toContainText('+++123/4567/89002+++');
+    // Aucun rapprochement possible sans transaction : rien ne dit « Vu sur le compte ».
+    await expect(sheet).not.toContainText('Vu sur le compte');
+
+    // Modification : une communication au contrôle faux est refusée avant l'envoi, sous son champ.
+    await sheet.getByRole('button', { name: 'Modifier' }).click();
+    const edit = page.getByRole('dialog', { name: "Modifier l'échéance" });
+    await expect(edit).toBeVisible();
+    await expect(edit.getByLabel(/IBAN du bénéficiaire/)).toHaveValue('BE98 0682 4367 0693');
+    await expect(edit.getByLabel(/Communication structurée/)).toHaveValue('123456789002');
+    await edit.getByLabel(/Communication structurée/).fill('+++123/4567/89012+++');
+    await edit.getByRole('button', { name: 'Enregistrer' }).click();
+    await expect(edit).toContainText('Douze chiffres, par exemple +++123/4567/89012+++.');
+    await expect(edit).toBeVisible();
+    await edit.getByRole('button', { name: 'Fermer' }).click();
+    await expect(edit).not.toBeVisible();
+
+    // Suppression de l'échéance en deux gestes depuis la fiche.
+    const again = page.getByRole('dialog', { name: 'Test E2E école' });
+    await expect(again).toBeVisible({ timeout: 10000 });
+    await again.getByRole('button', { name: 'Supprimer' }).click();
+    await again.getByRole('button', { name: 'Oui' }).click();
+    await expect(again).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: /Test E2E école/ })).toHaveCount(0);
+  });
 });
