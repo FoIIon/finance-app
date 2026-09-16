@@ -17,7 +17,7 @@ public class StructuredCommunicationTests
         return $"{body:D10}{r:D2}";
     }
 
-    // 1234567890 mod 97 = 2 : la communication du placeholder de l'écran (…89012) est donc fausse.
+    // 1234567890 mod 97 = 2 : …89002 est l'exemple de l'écran, …89012 la saisie fausse des tests.
     private static readonly string Valide = Sc(1234567890);          // 123456789002
     private static readonly string Autre = Sc(9876543210);           // 9876543210 mod 97 = 9
     private static readonly string ResteNul = Sc(1234567888);        // 1234567888 = 97 × 12727504
@@ -50,7 +50,7 @@ public class StructuredCommunicationTests
     [Fact]
     public void Extract_ControleFaux_RendNull()
     {
-        // Le placeholder de l'écran, tel quel : 12 au lieu de 02.
+        // Une seule erreur de frappe sur l'exemple : 12 au lieu de 02.
         Assert.Null(StructuredCommunication.Extract("+++123/4567/89012+++"));
     }
 
