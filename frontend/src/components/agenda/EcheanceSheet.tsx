@@ -67,6 +67,8 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['agenda', dashboardId] }),
       queryClient.invalidateQueries({ queryKey: ['echeance', echeanceId] }),
+      // La page Documents lit le statut dans la liste : sans ça, la carte garde « à payer » après le geste.
+      queryClient.invalidateQueries({ queryKey: ['echeances', dashboardId] }),
     ]);
   };
 

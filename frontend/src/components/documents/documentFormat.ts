@@ -26,6 +26,23 @@ export const formatBytes = (bytes: number) => {
   return `${fmt(bytes / (1024 * 1024), 1)} Mo`;
 };
 
+/**
+ * Le statut de l'échéance rattachée (AVenir, EnRetard, Payee, calculé par le serveur) en mot et en couleur,
+ * mêmes teintes que l'agenda : vert sur « payée », rouge sur « en retard », gris sinon. Null si inconnu.
+ */
+export const echeanceStatusView = (status: string | undefined): { label: string; className: string } | null => {
+  switch (status) {
+    case 'Payee':
+      return { label: 'payée', className: 'text-emerald-400' };
+    case 'EnRetard':
+      return { label: 'en retard', className: 'text-red-400' };
+    case 'AVenir':
+      return { label: 'à payer', className: 'text-white/50' };
+    default:
+      return null;
+  }
+};
+
 /** « facture-luminus.pdf » → « facture-luminus », pour pré-remplir un libellé. */
 export const fileNameWithoutExtension = (name: string) => name.replace(/\.[^.]+$/, '');
 

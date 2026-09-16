@@ -65,9 +65,9 @@ const Documents = () => {
     return [...set].sort((a, b) => b - a);
   }, [all.data, currentYear]);
 
-  const labelOf = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const e of echeances.data ?? []) map.set(e.id, e.label);
+  const echeanceOf = useMemo(() => {
+    const map = new Map<number, Echeance>();
+    for (const e of echeances.data ?? []) map.set(e.id, e);
     return map;
   }, [echeances.data]);
 
@@ -213,7 +213,7 @@ const Documents = () => {
               key={doc.id}
               doc={doc}
               dashboardId={currentDashboard.id}
-              echeanceLabel={doc.echeanceId != null ? labelOf.get(doc.echeanceId) : undefined}
+              echeance={doc.echeanceId != null ? echeanceOf.get(doc.echeanceId) : undefined}
               onOpen={open}
               opening={pendingId === doc.id}
               onOpenEcheance={setOpenEcheanceId}
