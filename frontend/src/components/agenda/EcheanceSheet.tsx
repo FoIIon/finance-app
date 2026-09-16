@@ -160,7 +160,7 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
           </div>
           <div className="flex gap-2">
             <dt className="text-white/40 shrink-0">Statut</dt>
-            <dd className={`min-w-0 ${status === 'late' ? 'text-red-400' : 'text-white/80'}`}>
+            <dd className={`min-w-0 ${status === 'late' ? 'text-red-400' : status === 'paid' ? 'text-emerald-400' : 'text-white/80'}`}>
               {statusText || (isLoading ? '…' : '')}
               {matched && echeance.payment && (
                 <span className="block text-white/50 truncate">
