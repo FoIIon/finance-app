@@ -81,6 +81,7 @@ builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IInvitationService, InvitationService>();
 builder.Services.AddScoped<RecurringTransactionService>();
 builder.Services.AddScoped<ProvisionService>();
+builder.Services.AddScoped<EcheanceReconciliationService>();
 builder.Services.AddScoped<FinanceApp.API.Services.Reporting.AccountBalanceService>();
 builder.Services.AddScoped<FinanceApp.API.Services.Reporting.ReportingService>();
 builder.Services.AddHttpClient<GoCardlessClient>();

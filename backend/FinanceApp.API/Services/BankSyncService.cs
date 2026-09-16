@@ -9,6 +9,8 @@ public class BankSyncService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<BankSyncService> _logger;
+    /// <summary>Le jeton d'arrêt de l'hôte, gardé pour la passe de rapprochement lancée depuis une sync manuelle aussi.</summary>
+    private CancellationToken _stoppingToken;
 
     public BankSyncService(IServiceScopeFactory scopeFactory, ILogger<BankSyncService> logger)
     {
@@ -18,6 +20,7 @@ public class BankSyncService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _stoppingToken = stoppingToken;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -122,6 +125,17 @@ public class BankSyncService : BackgroundService
         else
         {
             await SyncGoCardlessAsync(connection, context, serviceProvider, rethrow, daysBack);
+        }
+
+        // Lot 3 : rapprochement des échéances sur ce qui est en base, dans son propre try. Une banque qui
+        // échoue n'empêche pas la passe, une passe qui échoue ne marque pas la synchro en erreur.
+        try
+        {
+            await serviceProvider.GetRequiredService<EcheanceReconciliationService>().ReconcileAsync(_stoppingToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erreur lors du rapprochement automatique des échéances après la connexion {ConnectionId}.", connectionId);
         }
     }
 
@@ -319,6 +333,7 @@ public class BankSyncService : BackgroundService
                         IsImported = true,
                         CounterpartyName = counterparty,
                         CounterpartyIban = counterpartyIban,
+                        StructuredCommunication = StructuredCommunication.Extract(description),
                         IsFixed = isFixed,
                         BankAccountId = account.Id
                     };
