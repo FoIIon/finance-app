@@ -10,8 +10,38 @@ import type { Account } from '../types/dashboard';
 import { formatCurrency } from '../utils/format';
 import { useToast } from '../hooks/useToast';
 
+/** Période par défaut de l'écran : nombre de mois en arrière, ou tout l'historique. */
+type Period = '1' | '3' | '12' | 'all';
+const PERIOD_KEY = 'transactions.period';
+const PERIOD_DEFAULT: Period = '3';
+const PAGE_SIZE = 100;
+
+const isPeriod = (v: string | null): v is Period => v === '1' || v === '3' || v === '12' || v === 'all';
+
+const readStoredPeriod = (): Period => {
+  try {
+    const v = localStorage.getItem(PERIOD_KEY);
+    return isPeriod(v) ? v : PERIOD_DEFAULT;
+  } catch {
+    return PERIOD_DEFAULT;
+  }
+};
+
+/** Aujourd'hui moins n mois, en date locale YYYY-MM-DD. Le jour est ramené au dernier du mois cible s'il déborde. */
+const monthsAgoIso = (n: number): string => {
+  const now = new Date();
+  const target = new Date(now.getFullYear(), now.getMonth() - n, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(now.getDate(), lastDay));
+  const mm = String(target.getMonth() + 1).padStart(2, '0');
+  const dd = String(target.getDate()).padStart(2, '0');
+  return `${target.getFullYear()}-${mm}-${dd}`;
+};
+
+const formatCount = (n: number) => n.toLocaleString('fr-FR');
+
 const Transactions = () => {
-  const { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setFixed, setRefund, setEnvelope } = useTransactions();
+  const { transactions, total, loading, loadingMore, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setFixed, setRefund, setEnvelope } = useTransactions();
   const { currentDashboard } = useDashboards();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -35,6 +65,9 @@ const Transactions = () => {
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [period, setPeriod] = useState<Period>(readStoredPeriod);
+  // Une recherche non vide porte sur tout l'historique : celui qui tape « Colruyt » veut toutes les lignes.
+  const searchActive = searchQuery.trim() !== '';
 
   // Tri
   const [sortBy, setSortBy] = useState('date');
@@ -68,14 +101,63 @@ const Transactions = () => {
     accountsApi.getAll().then((res) => setAccounts(res.data));
   }, []);
 
-  useEffect(() => {
-    const filters: TransactionFilters = { sortBy, sortDesc };
+  const changePeriod = (value: Period) => {
+    setPeriod(value);
+    try {
+      localStorage.setItem(PERIOD_KEY, value);
+    } catch {
+      // Stockage indisponible (navigation privée) : la période vaut pour la session, sans plus.
+    }
+  };
+
+  // Les filtres de la requête, page exclue. Tout changement repart à la première page et remplace la liste.
+  const baseFilters = useMemo(() => {
+    const filters: TransactionFilters = { sortBy, sortDesc, limit: PAGE_SIZE };
     if (filterType !== '') filters.type = filterType;
     if (filterCategory !== '') filters.categoryId = filterCategory;
     if (filterAccount !== '') filters.accountId = filterAccount;
-    if (searchQuery) filters.search = searchQuery;
-    fetchTransactions(filters);
-  }, [filterType, filterCategory, filterAccount, searchQuery, sortBy, sortDesc, fetchTransactions]);
+    if (searchActive) filters.search = searchQuery;
+    else if (period !== 'all') filters.from = monthsAgoIso(Number(period));
+    return filters;
+  }, [filterType, filterCategory, filterAccount, searchQuery, searchActive, period, sortBy, sortDesc]);
+
+  useEffect(() => {
+    fetchTransactions({ ...baseFilters, offset: 0 });
+  }, [baseFilters, fetchTransactions]);
+
+  const hasMore = total !== null && transactions.length < total;
+
+  const loadMore = () => {
+    if (loading || loadingMore || !hasMore) return;
+    fetchTransactions({ ...baseFilters, offset: transactions.length }, { append: true });
+  };
+
+  const countLabel = (n: number) => `${formatCount(n)} ${n === 1 ? 'transaction' : 'transactions'}`;
+
+  // Sous le tableau et sous les cartes : « 100 sur 2 305 · Voir plus », ou « 2 305 transactions » une fois tout chargé.
+  const renderTotalLine = () => {
+    if (loading || total === null || transactions.length === 0) return null;
+    return (
+      <div className="flex items-center justify-center gap-3 px-4 py-3 border-t border-white/5 text-sm text-white/40">
+        {hasMore ? (
+          <>
+            <span>{formatCount(transactions.length)} sur {formatCount(total)}</span>
+            <span aria-hidden="true">·</span>
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="text-amber-400 hover:text-amber-300 font-medium transition-colors disabled:opacity-50"
+            >
+              {loadingMore ? 'Chargement...' : 'Voir plus'}
+            </button>
+          </>
+        ) : (
+          <span>{countLabel(total)}</span>
+        )}
+      </div>
+    );
+  };
 
   // Debounce recherche
   const handleSearchChange = (value: string) => {
@@ -210,9 +292,16 @@ const Transactions = () => {
   return (
     <div className="space-y-6 animate-[fadeIn_0.5s_ease-out]">
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-          Transactions {currentDashboard ? `— ${currentDashboard.name}` : ''}
-        </h2>
+        <div>
+          <h2 className="text-3xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+            Transactions {currentDashboard ? `— ${currentDashboard.name}` : ''}
+          </h2>
+          {total !== null && !loading && (
+            <p className="text-white/40 text-sm mt-1">
+              {countLabel(total)}{searchActive ? ' pour cette recherche' : period === 'all' ? '' : ' sur la période'}
+            </p>
+          )}
+        </div>
         <button
           onClick={openCreateForm}
           className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-semibold hover:from-amber-600 hover:to-orange-700 transition-all duration-200"
@@ -223,6 +312,19 @@ const Transactions = () => {
 
       {/* Filtres */}
       <div className="flex flex-wrap gap-4">
+        <select
+          aria-label="Période"
+          value={period}
+          onChange={(e) => changePeriod(e.target.value as Period)}
+          disabled={searchActive}
+          title={searchActive ? "La recherche porte sur tout l'historique" : undefined}
+          className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-amber-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <option value="1">1 mois</option>
+          <option value="3">3 mois</option>
+          <option value="12">12 mois</option>
+          <option value="all">Tout</option>
+        </select>
         <input
           type="text"
           placeholder="Rechercher..."
@@ -423,6 +525,7 @@ const Transactions = () => {
             </tbody>
           </table>
         )}
+        {renderTotalLine()}
       </div>
 
       {/* Vue mobile : cartes empilées */}
@@ -505,6 +608,7 @@ const Transactions = () => {
             </div>
           ))
         )}
+        {renderTotalLine()}
       </div>
 
       {/* Modal formulaire */}

@@ -214,4 +214,8 @@ export interface TransactionFilters {
   search?: string;
   sortBy?: string;
   sortDesc?: boolean;
+  /** Taille de page (1 à 500). Absent : toute la liste du périmètre, pas d'en-tête X-Total-Count. */
+  limit?: number;
+  /** Lignes sautées avant la page. 0 par défaut. */
+  offset?: number;
 }
