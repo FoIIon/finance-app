@@ -112,13 +112,15 @@ export interface Echeance {
   updatedAt: string;
 }
 
-/** UpdateEcheanceDto : remplacement complet, un champ absent revient à null. */
+/**
+ * UpdateEcheanceDto : remplacement complet des champs saisis, un champ absent revient à null. Le lien de
+ * paiement n'en fait pas partie : seuls « Je l'ai payée » (pay) et « Finalement non » (unpay) le changent.
+ */
 export interface UpdateEcheance {
   label: string;
   dueDate: string;
   amount: number | null;
   notes: string | null;
-  transactionId: number | null;
   /** Saisie brute acceptée, le serveur normalise. Null : effacé. */
   counterpartyIban: string | null;
   structuredCommunication: string | null;

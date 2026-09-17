@@ -458,9 +458,13 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(sheet.getByRole('heading', { name: 'Documents' })).toBeVisible();
     await sheet.getByRole('button', { name: "Je l'ai payée" }).click();
     await expect(sheet).toContainText(/Payée/, { timeout: 10000 });
+    // Lot 3 v4 : « Finalement non » est le seul geste qui défait un paiement, il n'y a plus de « Détacher ».
+    await expect(sheet.getByRole('button', { name: 'Finalement non' })).toBeVisible();
+    await expect(sheet.getByRole('button', { name: 'Détacher la transaction' })).toHaveCount(0);
 
     // « Modifier » : la feuille de saisie prend la place de la feuille Échéance, pré-remplie, puis la rend
-    // avec le nouveau libellé. L'agenda le reprend après invalidation.
+    // avec le nouveau libellé. L'agenda le reprend après invalidation. Le PUT ne touche pas au paiement :
+    // l'échéance renommée est toujours payée.
     await sheet.getByRole('button', { name: 'Modifier' }).click();
     const edit = page.getByRole('dialog', { name: "Modifier l'échéance" });
     await expect(edit).toBeVisible();
@@ -470,6 +474,8 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(edit).not.toBeVisible({ timeout: 5000 });
     const renamed = page.getByRole('dialog', { name: 'Test E2E facture modifiée' });
     await expect(renamed).toBeVisible({ timeout: 10000 });
+    await expect(renamed).toContainText(/Payée/);
+    await expect(renamed.getByRole('button', { name: 'Finalement non' })).toBeVisible();
     await renamed.getByRole('button', { name: 'Fermer' }).click();
     await expect(renamed).not.toBeVisible();
     await expect(page.getByRole('button', { name: /Test E2E facture modifiée/ })).toBeVisible({ timeout: 10000 });

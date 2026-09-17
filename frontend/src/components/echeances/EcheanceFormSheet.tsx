@@ -60,7 +60,7 @@ export const EcheanceFormSheet = ({ dashboardId, initial, defaults, onClose, onS
   const save = useMutation({
     mutationFn: (data: FormData) =>
       initial
-        ? echeancesApi.update(initial.id, { ...data, notes: initial.notes, transactionId: initial.transactionId })
+        ? echeancesApi.update(initial.id, { ...data, notes: initial.notes })
         : echeancesApi.create({ ...data, dashboardId, notes: null }),
     onSuccess: async (res) => {
       const saved = res.data;
