@@ -177,21 +177,6 @@ public class EcheanceDocumentAuthorizationTests : IDisposable
         Assert.Equal(_echeanceB, upcoming[0].Id);
     }
 
-    [Fact]
-    public async Task UneTransactionDUnAutreDashboard_NeProuvePas_UneEcheance()
-    {
-        using var ctx = NewContext();
-        var txA = new Transaction { AccountId = _a.AccountId, CategoryId = 3, Amount = 1234.56m, Date = new DateTime(2026, 10, 10), Type = TransactionType.Expense, Description = "Précompte A" };
-        ctx.Transactions.Add(txA);
-        await ctx.SaveChangesAsync();
-
-        var result = await Echeances(ctx, _b.UserId).Update(_echeanceB, new UpdateEcheanceDto
-        {
-            Label = "Précompte immobilier", DueDate = new DateOnly(2026, 10, 15), Amount = 1234.56m, TransactionId = txA.Id,
-        });
-        Assert.IsType<BadRequestObjectResult>(result.Result);
-    }
-
     // ----- Documents -----
 
     [Fact]
@@ -290,59 +275,38 @@ public class EcheanceDocumentAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task UneTransactionDuDashboard_ProuveLEcheance_QuiPasseAPayee()
+    public async Task LePut_NePortePlusLeLienDePaiement_SeulsLeRapprocheur_PayEtUnpay_LeChangent()
     {
+        // Lot 3 v4 : le lien manuel par PUT (lot 1) a disparu, avec ses contrôles de dashboard, de provision et
+        // d'unicité, désormais portés par le rapprocheur seul. Le DTO n'a plus de champ TransactionId, un PUT sur
+        // une échéance liée la laisse liée, et un PUT sur une échéance libre ne la lie pas.
+        Assert.Null(typeof(UpdateEcheanceDto).GetProperty("TransactionId"));
+
         using var ctx = NewContext();
+        var ctl = Echeances(ctx, _b.UserId);
+        var free = (EcheanceDto)((OkObjectResult)(await ctl.Update(_echeanceB, new UpdateEcheanceDto
+        {
+            Label = "Précompte immobilier", DueDate = new DateOnly(2026, 10, 15), Amount = 1234.56m,
+        })).Result!).Value!;
+        Assert.Null(free.TransactionId);
+        Assert.NotEqual("Payee", free.Status);
+
         var tx = new Transaction { AccountId = _b.AccountId, CategoryId = 3, Amount = 1234.56m, Date = new DateTime(2026, 10, 10), Type = TransactionType.Expense, Description = "Précompte" };
         ctx.Transactions.Add(tx);
         await ctx.SaveChangesAsync();
+        var linked = await ctx.Echeances.SingleAsync(e => e.Id == _echeanceB);
+        linked.TransactionId = tx.Id;
+        linked.MatchedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
 
-        var result = await Echeances(ctx, _b.UserId).Update(_echeanceB, new UpdateEcheanceDto
+        var dto = (EcheanceDto)((OkObjectResult)(await ctl.Update(_echeanceB, new UpdateEcheanceDto
         {
-            Label = "Précompte immobilier", DueDate = new DateOnly(2026, 10, 15), Amount = 1234.56m, TransactionId = tx.Id,
-        });
-
-        var dto = (EcheanceDto)((OkObjectResult)result.Result!).Value!;
+            Label = "Précompte immobilier 2026", DueDate = new DateOnly(2026, 10, 15), Amount = 1234.56m,
+        })).Result!).Value!;
         Assert.Equal("Payee", dto.Status);
         Assert.Equal(tx.Id, dto.TransactionId);
+        Assert.NotNull(dto.MatchedAt);
         Assert.Null(dto.PaidAt);
-    }
-
-    [Fact]
-    public async Task UneTransactionQuiProuveDeja_UneAutreEcheance_Rend409()
-    {
-        using var ctx = NewContext();
-        var ctl = Echeances(ctx, _b.UserId);
-        var tx = new Transaction { AccountId = _b.AccountId, CategoryId = 3, Amount = 50m, Date = new DateTime(2026, 10, 10), Type = TransactionType.Expense, Description = "Taxe" };
-        ctx.Transactions.Add(tx);
-        await ctx.SaveChangesAsync();
-        var second = (EcheanceDto)((CreatedAtActionResult)(await ctl.Create(new CreateEcheanceDto
-        {
-            DashboardId = _b.DashboardId, Label = "Taxe déchets", DueDate = new DateOnly(2026, 10, 20), Amount = 50m,
-        })).Result!).Value!;
-
-        Assert.IsType<OkObjectResult>((await ctl.Update(second.Id, new UpdateEcheanceDto { Label = second.Label, DueDate = second.DueDate, Amount = 50m, TransactionId = tx.Id })).Result);
-        var result = await ctl.Update(_echeanceB, new UpdateEcheanceDto { Label = "Précompte immobilier", DueDate = new DateOnly(2026, 10, 15), TransactionId = tx.Id });
-
-        Assert.IsType<ConflictObjectResult>(result.Result);
-        Assert.Null((await ctx.Echeances.AsNoTracking().SingleAsync(e => e.Id == _echeanceB)).TransactionId);
-    }
-
-    [Fact]
-    public async Task UneTransactionProvisionnelle_NeProuvePas_UnPaiement()
-    {
-        using var ctx = NewContext();
-        var tx = new Transaction { AccountId = _b.AccountId, CategoryId = 8, Amount = 3000m, Date = new DateTime(2026, 10, 25), Type = TransactionType.Income, Description = "Salaire attendu", IsProvisional = true };
-        ctx.Transactions.Add(tx);
-        await ctx.SaveChangesAsync();
-
-        var result = await Echeances(ctx, _b.UserId).Update(_echeanceB, new UpdateEcheanceDto
-        {
-            Label = "Précompte immobilier", DueDate = new DateOnly(2026, 10, 15), TransactionId = tx.Id,
-        });
-
-        var bad = Assert.IsType<BadRequestObjectResult>(result.Result);
-        Assert.Contains("provisionnelle", bad.Value!.ToString());
     }
 
     [Fact]

@@ -70,7 +70,12 @@ public class CreateEcheanceDto
     public string? StructuredCommunication { get; set; }
 }
 
-/// <summary>Remplacement complet : un champ absent revient à null (le montant redevient inconnu).</summary>
+/// <summary>
+/// Remplacement complet des champs saisis : un champ absent revient à null (le montant redevient inconnu).
+/// Le lien de paiement n'en fait pas partie : PaidAt, TransactionId et MatchedAt ne changent que par Pay et
+/// Unpay. Une fiche ouverte avant une passe de rapprochement et enregistrée après ne peut donc pas défaire
+/// le lien que la passe a posé.
+/// </summary>
 public class UpdateEcheanceDto
 {
     [Required, MaxLength(200)]
@@ -84,9 +89,6 @@ public class UpdateEcheanceDto
 
     [MaxLength(1000)]
     public string? Notes { get; set; }
-
-    /// <summary>Transaction qui règle l'échéance, sur un compte du dashboard. Null : détachée.</summary>
-    public int? TransactionId { get; set; }
 
     [MaxLength(42)]
     public string? CounterpartyIban { get; set; }

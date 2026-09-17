@@ -185,36 +185,10 @@ public class EcheanceController : ApiControllerBase
         var (iban, communication, keyError) = NormalizeKeys(dto.CounterpartyIban, dto.StructuredCommunication);
         if (keyError != null) return BadRequest(keyError);
 
-        if (dto.TransactionId.HasValue && dto.TransactionId != echeance.TransactionId)
-        {
-            // La transaction doit vivre sur un compte du dashboard : on ne prouve pas une échéance
-            // du Commun avec une ligne du Perso.
-            var candidate = await _context.Transactions
-                .Where(t => t.Id == dto.TransactionId.Value
-                         && t.Account.DashboardAccounts.Any(da => da.DashboardId == echeance.DashboardId))
-                .Select(t => new { t.IsProvisional })
-                .FirstOrDefaultAsync();
-            if (candidate == null) return BadRequest("Transaction introuvable sur les comptes de ce dashboard.");
-            // Une provision (salaire attendu, matérialisé en début de mois) n'est pas un paiement.
-            if (candidate.IsProvisional) return BadRequest("Une transaction provisionnelle ne prouve pas un paiement.");
-
-            var alreadyProves = await _context.Echeances.AnyAsync(e => e.TransactionId == dto.TransactionId.Value && e.Id != id);
-            if (alreadyProves) return Conflict("Cette transaction règle déjà une autre échéance.");
-        }
-
-        var now = DateTime.UtcNow;
-        if (dto.TransactionId != echeance.TransactionId)
-        {
-            // Le lien change de la main de l'utilisateur : ce n'est plus le rapprocheur qui l'a posé. Détacher
-            // une transaction rapprochée automatiquement vaut refus, sinon la passe suivante la remettrait.
-            if (echeance.MatchedAt.HasValue && echeance.TransactionId.HasValue)
-                echeance.AutoMatchRefusedAt = now;
-            echeance.MatchedAt = null;
-            echeance.Transaction = null;
-        }
-
-        // Une clé corrigée lève le refus : l'utilisateur a changé ce sur quoi on devinait. Après le détachement
-        // ci-dessus, pour qu'une correction faite dans le même geste laisse redeviner.
+        // « Modifier » ne touche jamais au lien de paiement : PaidAt, TransactionId et MatchedAt restent tels
+        // quels, seuls Pay et Unpay les changent. Une fiche ouverte avant une passe de rapprochement et
+        // enregistrée après garde donc le lien que la passe a posé. Une clé corrigée lève le refus de
+        // rapprochement : l'utilisateur a changé ce sur quoi on devinait.
         if (iban != echeance.CounterpartyIban || communication != echeance.StructuredCommunication)
             echeance.AutoMatchRefusedAt = null;
 
@@ -222,23 +196,11 @@ public class EcheanceController : ApiControllerBase
         echeance.DueDate = dto.DueDate;
         echeance.Amount = dto.Amount;
         echeance.Notes = dto.Notes;
-        echeance.TransactionId = dto.TransactionId;
         echeance.CounterpartyIban = iban;
         echeance.StructuredCommunication = communication;
-        echeance.UpdatedAt = now;
+        echeance.UpdatedAt = DateTime.UtcNow;
 
-        try
-        {
-            await _context.SaveChangesAsync();
-        }
-        catch (DbUpdateException)
-        {
-            // Deux mises à jour concurrentes sur la même transaction : l'index unique tranche.
-            return Conflict("Cette transaction règle déjà une autre échéance.");
-        }
-        // Lien posé à la main : la transaction n'était pas chargée, l'écran attend son détail.
-        if (echeance.TransactionId.HasValue && echeance.Transaction == null)
-            await _context.Entry(echeance).Reference(e => e.Transaction).LoadAsync();
+        await _context.SaveChangesAsync();
         return Ok(Map(echeance, Today));
     }
 

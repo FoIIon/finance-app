@@ -12,7 +12,8 @@ namespace FinanceApp.Tests;
 /// <summary>
 /// Le contrôleur des échéances face aux clés du rapprochement : normalisation à la saisie, refus d'un
 /// contrôle 97 faux sans écho de la valeur, « Finalement non » qui refuse la transaction seulement quand
-/// c'est le rapprocheur qui l'avait liée, et le détail de paiement dans le DTO.
+/// c'est le rapprocheur qui l'avait liée, « Modifier » qui ne touche jamais au lien, et le détail de
+/// paiement dans le DTO.
 /// </summary>
 public class EcheanceReconciliationControllerTests : IDisposable
 {
@@ -167,34 +168,87 @@ public class EcheanceReconciliationControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task Update_AvecTransactionIdALaMain_MetMatchedAtNull_EtRemplitPayment()
+    public async Task Update_SurUneEcheanceRapprochee_ConserveTransactionId_MatchedAt_EtAutoMatchRefusedAt_TelsQuels()
     {
+        // Le bug de prod de la v3 : une fiche « Modifier » ouverte avant la passe de rapprochement et enregistrée
+        // après renvoyait l'ancien état sans lien, le PUT détachait la transaction et marquait l'échéance refusée
+        // pour toujours. Le lien ne fait plus partie du PUT : quoi que la fiche renvoie, il reste.
         using var ctx = NewContext();
         var txId = await TransactionAsync(ctx, 2.60m, new DateTime(2026, 8, 28), desc: "Repas chauds août");
-        var id = await EcheanceAsync(ctx);
+        var matchedAt = new DateTime(2026, 8, 29, 6, 0, 0, DateTimeKind.Utc);
+        var id = await EcheanceAsync(ctx, transactionId: txId, matchedAt: matchedAt);
 
         var dto = Dto(await Controller(ctx).Update(id, new UpdateEcheanceDto
         {
-            Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, TransactionId = txId, CounterpartyIban = Ecole,
+            Label = "Repas (libellé corrigé)", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, CounterpartyIban = Ecole,
         }));
 
         Assert.Equal("Payee", dto.Status);
         Assert.Equal(txId, dto.TransactionId);
-        Assert.Null(dto.MatchedAt);
+        Assert.Equal(matchedAt, dto.MatchedAt);
+        Assert.Null(dto.AutoMatchRefusedAt);
         Assert.NotNull(dto.Payment);
-        Assert.Equal(txId, dto.Payment!.TransactionId);
-        Assert.Equal(new DateOnly(2026, 8, 28), dto.Payment.Date);
-        Assert.Equal(2.60m, dto.Payment.Amount);
-        Assert.Equal("Repas chauds août", dto.Payment.Description);
-        Assert.Equal("ECOLE COMMUNALE", dto.Payment.CounterpartyName);
+        Assert.Equal("Repas chauds août", dto.Payment!.Description);
+        Assert.Equal("Repas (libellé corrigé)", dto.Label);
 
         using var check = NewContext();
         var e = await check.Echeances.SingleAsync(x => x.Id == id);
+        Assert.Equal(txId, e.TransactionId);
+        Assert.Equal(matchedAt, e.MatchedAt);
         Assert.Null(e.AutoMatchRefusedAt);
+        Assert.Null(e.PaidAt);
     }
 
     [Fact]
-    public async Task Update_QuiChangeLesClesDUneEcheancePayee_NeDetacheRien()
+    public async Task Update_SurUneEcheanceRefusee_SansChangementDeCle_GardeLeRefus()
+    {
+        using var ctx = NewContext();
+        var refusedAt = new DateTime(2026, 9, 1, 8, 0, 0, DateTimeKind.Utc);
+        var id = await EcheanceAsync(ctx, refusedAt: refusedAt);
+
+        // Même IBAN écrit autrement, libellé et montant changés : les clés n'ont pas bougé, le refus reste.
+        var dto = Dto(await Controller(ctx).Update(id, new UpdateEcheanceDto
+        {
+            Label = "Repas chauds", DueDate = new DateOnly(2026, 8, 31), Amount = 2.65m, CounterpartyIban = "be98 0682 4367 0693",
+        }));
+        Assert.Equal(refusedAt, dto.AutoMatchRefusedAt);
+        Assert.Null(dto.TransactionId);
+    }
+
+    [Fact]
+    public async Task Update_QuiCorrigeLIban_LeveLeRefus()
+    {
+        using var ctx = NewContext();
+        var refusedAt = new DateTime(2026, 9, 1, 8, 0, 0, DateTimeKind.Utc);
+        var id = await EcheanceAsync(ctx, refusedAt: refusedAt);
+
+        var dto = Dto(await Controller(ctx).Update(id, new UpdateEcheanceDto
+        {
+            Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, CounterpartyIban = "BE71 0961 2345 6769",
+        }));
+        Assert.Null(dto.AutoMatchRefusedAt);
+        Assert.Equal("BE71096123456769", dto.CounterpartyIban);
+
+        using var check = NewContext();
+        Assert.Null((await check.Echeances.SingleAsync(x => x.Id == id)).AutoMatchRefusedAt);
+    }
+
+    [Fact]
+    public async Task Update_QuiAjouteLaCommunication_LeveLeRefus()
+    {
+        using var ctx = NewContext();
+        var id = await EcheanceAsync(ctx, refusedAt: new DateTime(2026, 9, 1, 8, 0, 0, DateTimeKind.Utc));
+
+        var dto = Dto(await Controller(ctx).Update(id, new UpdateEcheanceDto
+        {
+            Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, CounterpartyIban = Ecole, StructuredCommunication = Com,
+        }));
+        Assert.Null(dto.AutoMatchRefusedAt);
+        Assert.Equal(Com, dto.StructuredCommunication);
+    }
+
+    [Fact]
+    public async Task Update_QuiChangeLesClesDUneEcheanceRapprochee_NeDetacheRien()
     {
         using var ctx = NewContext();
         var txId = await TransactionAsync(ctx, 2.60m, new DateTime(2026, 8, 28));
@@ -203,7 +257,7 @@ public class EcheanceReconciliationControllerTests : IDisposable
 
         var dto = Dto(await Controller(ctx).Update(id, new UpdateEcheanceDto
         {
-            Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, TransactionId = txId,
+            Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m,
             CounterpartyIban = "BE71 0961 2345 6769", StructuredCommunication = Com,
         }));
 
@@ -216,47 +270,34 @@ public class EcheanceReconciliationControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task Update_QuiDetacheUnRapprochementAutomatique_RefuseLaTransaction()
+    public async Task Update_SurUneEcheancePayeeALaMain_GardePaidAt()
     {
+        using var ctx = NewContext();
+        var id = await EcheanceAsync(ctx);
+        var paid = Dto(await Controller(ctx).Pay(id));
+        Assert.NotNull(paid.PaidAt);
+
+        var dto = Dto(await Controller(ctx).Update(id, new UpdateEcheanceDto
+        {
+            Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, CounterpartyIban = Ecole,
+        }));
+        Assert.Equal("Payee", dto.Status);
+        Assert.Equal(paid.PaidAt, dto.PaidAt);
+    }
+
+    [Fact]
+    public async Task SeulUnpay_Detache_EtRefuseLeRapprochementAutomatique()
+    {
+        // Le geste « Finalement non » reste le seul chemin pour détacher : refus si le lien venait du rapprocheur.
         using var ctx = NewContext();
         var txId = await TransactionAsync(ctx, 2.60m, new DateTime(2026, 8, 28));
         var id = await EcheanceAsync(ctx, transactionId: txId, matchedAt: DateTime.UtcNow);
 
-        var dto = Dto(await Controller(ctx).Update(id, new UpdateEcheanceDto
-        {
-            Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, TransactionId = null, CounterpartyIban = Ecole,
-        }));
-
+        var dto = Dto(await Controller(ctx).Unpay(id));
         Assert.Null(dto.TransactionId);
         Assert.Null(dto.MatchedAt);
         Assert.Null(dto.Payment);
         Assert.NotNull(dto.AutoMatchRefusedAt);
-        using var check = NewContext();
-        Assert.NotNull((await check.Echeances.SingleAsync(x => x.Id == id)).AutoMatchRefusedAt);
-    }
-
-    [Fact]
-    public async Task Update_QuiCorrigeUneCle_LeveLeRefus_UnUpdateSansChangementDeCle_LeGarde()
-    {
-        using var ctx = NewContext();
-        var refusedAt = new DateTime(2026, 9, 1, 8, 0, 0, DateTimeKind.Utc);
-        var id = await EcheanceAsync(ctx, refusedAt: refusedAt);
-        var ctl = Controller(ctx);
-
-        // Même IBAN, libellé changé : le refus reste.
-        var same = Dto(await ctl.Update(id, new UpdateEcheanceDto { Label = "Repas chauds", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, CounterpartyIban = "BE98 0682 4367 0693" }));
-        Assert.Equal(refusedAt, same.AutoMatchRefusedAt);
-
-        // Communication ajoutée : la clé a changé, le refus tombe.
-        var corrected = Dto(await ctl.Update(id, new UpdateEcheanceDto { Label = "Repas chauds", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, CounterpartyIban = Ecole, StructuredCommunication = Com }));
-        Assert.Null(corrected.AutoMatchRefusedAt);
-
-        // Détacher un lien automatique et corriger l'IBAN dans le même geste : la correction l'emporte, on redevine.
-        var txId = await TransactionAsync(ctx, 2.60m, new DateTime(2026, 8, 28));
-        var linked = await EcheanceAsync(ctx, transactionId: txId, matchedAt: DateTime.UtcNow);
-        var both = Dto(await ctl.Update(linked, new UpdateEcheanceDto { Label = "Repas", DueDate = new DateOnly(2026, 8, 31), Amount = 2.60m, TransactionId = null, CounterpartyIban = "BE71 0961 2345 6769" }));
-        Assert.Null(both.TransactionId);
-        Assert.Null(both.AutoMatchRefusedAt);
     }
 
     [Fact]
