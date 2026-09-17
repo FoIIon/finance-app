@@ -3,6 +3,7 @@ using FinanceApp.API.Controllers;
 using FinanceApp.API.Data;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
+using FinanceApp.API.Services.Calendar;
 using FinanceApp.API.Services.Reporting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
@@ -10,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace FinanceApp.Tests;
@@ -38,8 +40,11 @@ public class EcheanceReconciliationServiceTests : IDisposable
 
     private AppDbContext NewContext() => new(_options);
 
-    private static EcheanceReconciliationService Service(AppDbContext ctx) =>
-        new(ctx, NullLogger<EcheanceReconciliationService>.Instance);
+    /// <summary>Le fuseau du ménage par défaut, Europe/Brussels : les dates des candidats sont des jours locaux.</summary>
+    private static IOptions<HouseholdOptions> Household => Options.Create(new HouseholdOptions());
+
+    private static EcheanceReconciliationService Service(AppDbContext ctx, ILogger<EcheanceReconciliationService>? logger = null) =>
+        new(ctx, Household, logger ?? NullLogger<EcheanceReconciliationService>.Instance);
 
     private static EcheanceController Controller(AppDbContext ctx, int userId) =>
         new(ctx, Microsoft.Extensions.Options.Options.Create(new FinanceApp.API.Services.Calendar.HouseholdOptions())) { ControllerContext = TestHousehold.As(userId) };
@@ -64,7 +69,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
     {
         using var ctx = NewContext();
         var logger = new CapturingLogger();
-        var matched = await new EcheanceReconciliationService(ctx, logger).ReconcileAsync(CancellationToken.None);
+        var matched = await Service(ctx, logger).ReconcileAsync(CancellationToken.None);
         return (matched, logger.Lines.Single(l => l.Level == LogLevel.Information).Message);
     }
 
@@ -215,6 +220,29 @@ public class EcheanceReconciliationServiceTests : IDisposable
         Assert.Equal(tx2, relue.TransactionId);
         Assert.NotEqual(tx1, relue.TransactionId);
         Assert.Null(relue.AutoMatchRefusedAt);
+    }
+
+    [Fact]
+    public async Task UneTransactionA23h30Utc_EstUnCandidatDuLendemain_DansLeFuseauDuMenage()
+    {
+        // Le Pi tourne en UTC. Un virement passé le 31 août à 23 h 30 UTC est du 1er septembre à Bruxelles.
+        // Date limite au 16 octobre : la fenêtre ordinaire s'ouvre le 1er septembre (45 jours avant). Sur le jour
+        // UTC le virement serait la veille, hors fenêtre, et l'échéance resterait à payer.
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "fuseau@test.local");
+            ctx.Transactions.Add(Depense(h, 2.60m, new DateTime(2026, 8, 31, 23, 30, 0, DateTimeKind.Utc), "Ecole communale"));
+            ctx.Echeances.Add(Facture(h, "Repas", 2.60m, new DateOnly(2026, 10, 16)));
+            await ctx.SaveChangesAsync();
+        }
+
+        Assert.Equal(1, await RunAsync());
+
+        using var check = NewContext();
+        var e = await check.Echeances.SingleAsync();
+        Assert.NotNull(e.TransactionId);
+        Assert.NotNull(e.MatchedAt);
     }
 
     [Fact]
@@ -478,7 +506,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
 
         int matched;
         using (var ctx = new AppDbContext(options))
-            matched = await new EcheanceReconciliationService(ctx, logger).ReconcileAsync(CancellationToken.None);
+            matched = await Service(ctx, logger).ReconcileAsync(CancellationToken.None);
 
         Assert.True(interceptor.Fired);
         // Deux liens trouvés, un en conflit : le compte rendu est de un, sans exception.

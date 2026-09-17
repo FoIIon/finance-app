@@ -18,7 +18,7 @@ public class EcheanceMatcherTests
     private static readonly DateOnly Due = new(2026, 8, 31);
 
     private static PaymentCandidate C(int id, decimal amount, int daysFromDue, string? iban = Ecole, string? com = null) =>
-        new(id, amount, Due.AddDays(daysFromDue).ToDateTime(new TimeOnly(9, 0)), iban, com);
+        new(id, amount, Due.AddDays(daysFromDue), iban, com);
 
     private static PaymentCandidate? Chercher(
         decimal? amount, string? iban, string? com, IEnumerable<PaymentCandidate> candidats,

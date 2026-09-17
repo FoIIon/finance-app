@@ -1,7 +1,11 @@
 namespace FinanceApp.API.Services;
 
-/// <summary>Une dépense déjà en base, réduite à ce qu'il faut pour prouver une échéance.</summary>
-public sealed record PaymentCandidate(int Id, decimal Amount, DateTime Date, string? CounterpartyIban, string? StructuredCommunication);
+/// <summary>
+/// Une dépense déjà en base, réduite à ce qu'il faut pour prouver une échéance. <paramref name="Date"/> est
+/// le jour de la transaction dans le fuseau du ménage, pas le jour UTC : un virement à 23 h 30 UTC le 31 août
+/// est du 1er septembre à Bruxelles, et c'est ce jour-là que la fenêtre compare à la date limite.
+/// </summary>
+public sealed record PaymentCandidate(int Id, decimal Amount, DateOnly Date, string? CounterpartyIban, string? StructuredCommunication);
 
 /// <summary>
 /// Retrouve, pour une échéance, le virement qui la règle. Pur, statique, sur le modèle de
@@ -82,12 +86,9 @@ public static class EcheanceMatcher
         return InWindow(c, dueDate, OrdinaryDaysBefore, OrdinaryDaysAfter);
     }
 
-    private static bool InWindow(PaymentCandidate c, DateOnly dueDate, int daysBefore, int daysAfter)
-    {
-        var date = DateOnly.FromDateTime(c.Date);
-        return date >= dueDate.AddDays(-daysBefore) && date <= dueDate.AddDays(daysAfter);
-    }
+    private static bool InWindow(PaymentCandidate c, DateOnly dueDate, int daysBefore, int daysAfter) =>
+        c.Date >= dueDate.AddDays(-daysBefore) && c.Date <= dueDate.AddDays(daysAfter);
 
     private static int DaysFromDue(PaymentCandidate c, DateOnly dueDate) =>
-        Math.Abs(DateOnly.FromDateTime(c.Date).DayNumber - dueDate.DayNumber);
+        Math.Abs(c.Date.DayNumber - dueDate.DayNumber);
 }
