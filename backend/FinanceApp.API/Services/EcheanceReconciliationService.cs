@@ -43,14 +43,18 @@ public class EcheanceReconciliationService
     private async Task<int> MatchOpenEcheancesAsync(CancellationToken ct)
     {
         // Au-delà de la fenêtre forte après la date limite, aucun virement ne peut plus prouver l'échéance :
-        // elle reste manuelle et n'élargit pas la fenêtre des candidats. Le jour du ménage, pas l'UTC : le Pi
-        // tourne en UTC et, entre 22 h et minuit, la borne glisserait d'un jour.
-        var oldestDueStillMatchable = _household.TodayLocal(_clock.GetUtcNow().UtcDateTime).AddDays(-EcheanceMatcher.StrongDaysAfter);
+        // elle reste manuelle et n'élargit pas la fenêtre des candidats. Avant la fenêtre forte, rien ne peut
+        // encore la prouver : une échéance saisie pour l'an prochain attend, elle n'élargit pas la requête d'un
+        // an. Le jour du ménage, pas l'UTC : le Pi tourne en UTC et, entre 22 h et minuit, la borne glisserait
+        // d'un jour.
+        var today = _household.TodayLocal(_clock.GetUtcNow().UtcDateTime);
+        var oldestDueStillMatchable = today.AddDays(-EcheanceMatcher.StrongDaysAfter);
+        var newestDueAlreadyProvable = today.AddDays(EcheanceMatcher.StrongDaysBefore);
 
         var open = await _context.Echeances
             .Where(e => e.PaidAt == null && e.TransactionId == null && e.AutoMatchRefusedAt == null)
             .Where(e => e.CounterpartyIban != null || e.StructuredCommunication != null)
-            .Where(e => e.DueDate >= oldestDueStillMatchable)
+            .Where(e => e.DueDate >= oldestDueStillMatchable && e.DueDate <= newestDueAlreadyProvable)
             .OrderBy(e => e.DueDate).ThenBy(e => e.Id)
             .ToListAsync(ct);
         if (open.Count == 0) return 0;
@@ -60,7 +64,7 @@ public class EcheanceReconciliationService
 
         foreach (var group in open.GroupBy(e => e.DashboardId).OrderBy(g => g.Key))
         {
-            var candidates = await LoadCandidatesAsync(group.Key, group, ct);
+            var candidates = await LoadCandidatesAsync(group.Key, group, today, ct);
             foreach (var e in group)
             {
                 var payment = EcheanceMatcher.FindPayment(
@@ -84,17 +88,21 @@ public class EcheanceReconciliationService
     /// Les dépenses réelles des comptes logiques du dashboard, hors provisions, pas déjà la preuve d'une autre
     /// échéance, dans la fenêtre la plus large que les échéances du dashboard peuvent réclamer. Depuis que le
     /// PUT ne lie plus de transaction (v4), cette requête est le seul endroit qui définit le périmètre d'un
-    /// candidat. Sans tri : le matcher trie lui-même. La date du candidat
-    /// est le jour du ménage (HouseholdOptions), et sa communication structurée est extraite du libellé en
-    /// mémoire, après la lecture SQL : rien n'est écrit sur la transaction, rien n'est suivi par le contexte.
+    /// candidat. Sans tri : le matcher trie lui-même. La date du candidat est le jour du ménage
+    /// (HouseholdOptions), et sa communication structurée est extraite du libellé en mémoire, après la lecture
+    /// SQL : rien n'est écrit sur la transaction, rien n'est suivi par le contexte. La fenêtre s'arrête au
+    /// surlendemain d'aujourd'hui : aucune transaction non provisionnelle n'est datée dans le futur, il n'y a
+    /// rien à charger au-delà.
     /// </summary>
-    private async Task<List<PaymentCandidate>> LoadCandidatesAsync(int dashboardId, IEnumerable<Echeance> echeances, CancellationToken ct)
+    private async Task<List<PaymentCandidate>> LoadCandidatesAsync(int dashboardId, IEnumerable<Echeance> echeances, DateOnly today, CancellationToken ct)
     {
         var dues = echeances.Select(e => e.DueDate).ToList();
         // Un jour de marge de chaque côté : la fenêtre SQL compare des instants UTC, le matcher des jours
         // locaux, et un virement du premier jour de la fenêtre locale peut être daté de la veille en UTC.
         var from = dues.Min().AddDays(-EcheanceMatcher.StrongDaysBefore - 1).ToDateTime(TimeOnly.MinValue);
-        var toExclusive = dues.Max().AddDays(EcheanceMatcher.StrongDaysAfter + 2).ToDateTime(TimeOnly.MinValue);
+        var latestUseful = dues.Max().AddDays(EcheanceMatcher.StrongDaysAfter + 2);
+        var dayAfterTomorrow = today.AddDays(2);
+        var toExclusive = (latestUseful < dayAfterTomorrow ? latestUseful : dayAfterTomorrow).ToDateTime(TimeOnly.MinValue);
 
         var rows = await _context.Transactions
             .Where(t => t.Type == TransactionType.Expense && !t.IsProvisional)
