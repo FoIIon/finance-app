@@ -21,12 +21,14 @@ public class EcheanceReconciliationService
 {
     private readonly AppDbContext _context;
     private readonly HouseholdOptions _household;
+    private readonly TimeProvider _clock;
     private readonly ILogger<EcheanceReconciliationService> _logger;
 
-    public EcheanceReconciliationService(AppDbContext context, IOptions<HouseholdOptions> household, ILogger<EcheanceReconciliationService> logger)
+    public EcheanceReconciliationService(AppDbContext context, IOptions<HouseholdOptions> household, TimeProvider clock, ILogger<EcheanceReconciliationService> logger)
     {
         _context = context;
         _household = household.Value;
+        _clock = clock;
         _logger = logger;
     }
 
@@ -43,7 +45,7 @@ public class EcheanceReconciliationService
         // Au-delà de la fenêtre forte après la date limite, aucun virement ne peut plus prouver l'échéance :
         // elle reste manuelle et n'élargit pas la fenêtre des candidats. Le jour du ménage, pas l'UTC : le Pi
         // tourne en UTC et, entre 22 h et minuit, la borne glisserait d'un jour.
-        var oldestDueStillMatchable = _household.TodayLocal(DateTime.UtcNow).AddDays(-EcheanceMatcher.StrongDaysAfter);
+        var oldestDueStillMatchable = _household.TodayLocal(_clock.GetUtcNow().UtcDateTime).AddDays(-EcheanceMatcher.StrongDaysAfter);
 
         var open = await _context.Echeances
             .Where(e => e.PaidAt == null && e.TransactionId == null && e.AutoMatchRefusedAt == null)
@@ -65,7 +67,7 @@ public class EcheanceReconciliationService
                     e.DueDate, e.Amount, e.CounterpartyIban, e.StructuredCommunication, candidates, alreadyClaimed);
                 if (payment == null) continue;
 
-                var now = DateTime.UtcNow;
+                var now = _clock.GetUtcNow().UtcDateTime;
                 e.TransactionId = payment.Id;
                 e.MatchedAt = now;
                 e.UpdatedAt = now;

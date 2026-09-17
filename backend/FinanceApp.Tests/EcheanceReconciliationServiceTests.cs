@@ -27,6 +27,9 @@ public class EcheanceReconciliationServiceTests : IDisposable
     private const string Ecole = "BE98068243670693";
     private static readonly string Com = StructuredCommunicationTests.Sc(2026080001);
     private static readonly DateTime Now = new(2026, 8, 20, 12, 0, 0, DateTimeKind.Utc);
+    /// <summary>L'horloge du rapprocheur, figée : la passe se joue toujours le 30 septembre 2026 à midi UTC.</summary>
+    private static readonly DateTimeOffset Clock = new(2026, 9, 30, 12, 0, 0, TimeSpan.Zero);
+    private static readonly DateOnly Today = new(2026, 9, 30);
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
     private readonly SqliteConnection _connection;
@@ -45,7 +48,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
     private static IOptions<HouseholdOptions> Household => Options.Create(new HouseholdOptions());
 
     private static EcheanceReconciliationService Service(AppDbContext ctx, ILogger<EcheanceReconciliationService>? logger = null) =>
-        new(ctx, Household, logger ?? NullLogger<EcheanceReconciliationService>.Instance);
+        new(ctx, Household, new FixedTimeProvider(Clock), logger ?? NullLogger<EcheanceReconciliationService>.Instance);
 
     private static EcheanceController Controller(AppDbContext ctx, int userId) =>
         new(ctx, Microsoft.Extensions.Options.Options.Create(new FinanceApp.API.Services.Calendar.HouseholdOptions())) { ControllerContext = TestHousehold.As(userId) };
@@ -102,7 +105,8 @@ public class EcheanceReconciliationServiceTests : IDisposable
         using var check = NewContext();
         var e = await check.Echeances.SingleAsync();
         Assert.Equal(txId, e.TransactionId);
-        Assert.NotNull(e.MatchedAt);
+        Assert.Equal(Clock.UtcDateTime, e.MatchedAt);
+        Assert.Equal(Clock.UtcDateTime, e.UpdatedAt);
         Assert.Null(e.PaidAt);
         Assert.Equal(EcheanceStatus.Payee, EcheanceStatusRules.Of(e, new DateOnly(2026, 9, 1)));
     }
@@ -253,10 +257,10 @@ public class EcheanceReconciliationServiceTests : IDisposable
             h = await TestHousehold.SeedAsync(ctx, "ancienne@test.local");
             ctx.Transactions.AddRange(
                 Depense(h, 2.60m, new DateTime(2025, 7, 5), "Ecole communale"),
-                Depense(h, 1.40m, DateTime.UtcNow.Date.AddDays(-3), "Ecole communale"));
+                Depense(h, 1.40m, Today.AddDays(-3).ToDateTime(TimeOnly.MinValue), "Ecole communale"));
             ctx.Echeances.AddRange(
                 Facture(h, "Repas juin 2025", 2.60m, new DateOnly(2025, 6, 30)),
-                Facture(h, "Repas ce mois", 1.40m, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2)));
+                Facture(h, "Repas ce mois", 1.40m, Today.AddDays(2)));
             await ctx.SaveChangesAsync();
         }
 
