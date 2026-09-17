@@ -23,11 +23,13 @@ public static partial class StructuredCommunication
 
     // Les trois signes d'ouverture, trois groupes de 3, 4 et 5 chiffres, barres et espaces facultatifs
     // entre les groupes, trois signes de fermeture. La fermeture n'a pas à répéter l'ouverture : les
-    // banques mélangent parfois les deux formes sur un même libellé.
-    [GeneratedRegex(@"(?:\+{3}|\*{3})\s*(\d{3})\s*/?\s*(\d{4})\s*/?\s*(\d{5})\s*(?:\+{3}|\*{3})")]
+    // banques mélangent parfois les deux formes sur un même libellé. [0-9] et non \d : \d accepte les
+    // chiffres de tous les alphabets, et long.Parse levait sur eux au milieu d'une passe.
+    [GeneratedRegex(@"(?:\+{3}|\*{3})\s*([0-9]{3})\s*/?\s*([0-9]{4})\s*/?\s*([0-9]{5})\s*(?:\+{3}|\*{3})")]
     private static partial Regex Delimited();
 
-    [GeneratedRegex(@"^\d{12}$")]
+    // \A et \z, pas ^ et $ : $ laisse passer un saut de ligne final, et « 123456789002\n » n'est pas une clé.
+    [GeneratedRegex(@"\A[0-9]{12}\z")]
     private static partial Regex TwelveDigits();
 
     /// <summary>
