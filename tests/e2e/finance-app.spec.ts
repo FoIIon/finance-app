@@ -550,4 +550,69 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(again).not.toBeVisible({ timeout: 5000 });
     await expect(page.getByRole('button', { name: /Test E2E école/ })).toHaveCount(0);
   });
+
+  test('Test 15 : Transactions, période « 3 mois » par défaut, ligne de total, bascule sur « Tout »', async () => {
+    // Pagination (17/09/2026) : l'écran ne charge plus tout l'historique. Période par défaut trois mois,
+    // page de 100, total lu dans l'en-tête X-Total-Count (exposé par CORS en dev, sinon la ligne de total
+    // n'apparaît pas). Le test 8 a supprimé la transaction des tests 4 et 5 : on en recrée une, datée
+    // d'aujourd'hui, donc dans la période.
+    const pageErrors: string[] = [];
+    const onError = (err: Error) => pageErrors.push(err.message);
+    page.on('pageerror', onError);
+
+    await page.goto('/transactions');
+    await page.waitForURL('**/transactions');
+    const periode = page.getByLabel('Période');
+    await expect(periode).toBeVisible({ timeout: 10000 });
+    await expect(periode).toHaveValue('3');
+    await expect(periode).toBeEnabled();
+
+    const description = `Ligne pagination ${Date.now()}`;
+    await page.getByRole('button', { name: '+ Ajouter' }).click();
+    await expect(page.getByText('Nouvelle transaction')).toBeVisible();
+    await page.locator('input[type="number"]').fill('12.34');
+    await page.locator('form input[type="text"]').fill(description);
+    const categorySelect = page.locator('form select').last();
+    await page.waitForFunction(() => {
+      const selects = document.querySelectorAll('form select');
+      const catSelect = selects[selects.length - 1];
+      return catSelect && catSelect.querySelectorAll('option').length > 1;
+    });
+    const options = await categorySelect.locator('option:not([disabled])').all();
+    const value = await options[0].getAttribute('value');
+    if (value) await categorySelect.selectOption(value);
+    await page.getByRole('button', { name: 'Ajouter', exact: true }).click();
+    await expect(page.getByText('Nouvelle transaction')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('table').getByText(description)).toBeVisible({ timeout: 10000 });
+
+    // La ligne de total sous le tableau (le bloc des cartes en rend une aussi, masquée à 1280 px).
+    const tableCard = page.locator('table').locator('..');
+    await expect(tableCard.getByText(/^\d+ transactions?$/)).toBeVisible({ timeout: 10000 });
+
+    // Bascule sur « Tout » : la requête repart sans borne, répond 200 avec le total, la liste se recharge.
+    const reload = page.waitForResponse((r) =>
+      r.request().method() === 'GET' && r.url().includes('/transaction?') && !r.url().includes('from='));
+    await periode.selectOption('all');
+    const response = await reload;
+    expect(response.status()).toBe(200);
+    expect(response.headers()['x-total-count']).toBeDefined();
+    await expect(periode).toHaveValue('all');
+    await expect(page.locator('table').getByText(description)).toBeVisible({ timeout: 10000 });
+    await expect(tableCard.getByText(/^\d+ transactions?$/)).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem('transactions.period'))).toBe('all');
+
+    // Une recherche non vide porte sur tout l'historique : le sélecteur se désactive et le dit.
+    await page.getByPlaceholder('Rechercher...').fill(description);
+    await expect(periode).toBeDisabled({ timeout: 5000 });
+    await expect(periode).toHaveAttribute('title', "La recherche porte sur tout l'historique");
+    await page.getByPlaceholder('Rechercher...').fill('');
+    await expect(periode).toBeEnabled({ timeout: 5000 });
+
+    // Retour à la valeur par défaut, pour ne rien laisser derrière soi.
+    await periode.selectOption('3');
+    await expect(periode).toHaveValue('3');
+
+    page.off('pageerror', onError);
+    expect(pageErrors).toEqual([]);
+  });
 });
