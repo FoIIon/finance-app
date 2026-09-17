@@ -14,6 +14,9 @@ const totalFromHeaders = (headers: Record<string, unknown>): number | null => {
 export const useTransactions = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [total, setTotal] = useState<number | null>(null);
+  // Offset de la page suivante, compté sur les lignes reçues du serveur uniquement : une création ajoutée en
+  // tête ou une suppression locale ne le déplacent pas, sinon « Voir plus » sauterait ou répéterait une ligne.
+  const [nextOffset, setNextOffset] = useState(0);
   const [summary, setSummary] = useState<TransactionSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -28,19 +31,25 @@ export const useTransactions = () => {
   const fetchTransactions = useCallback(async (filters?: TransactionFilters, options?: { append?: boolean }) => {
     const append = options?.append ?? false;
     const seq = ++requestSeq.current;
-    if (append) setLoadingMore(true); else setLoading(true);
+    // La requête qui prend la main pose les deux drapeaux : un « Voir plus » dépassé par un changement de
+    // filtre ne laisse pas loadingMore à true, puisque la requête de remplacement l'a remis à false ici.
+    setLoading(!append);
+    setLoadingMore(append);
     setError(null);
     try {
       const response = await transactionsApi.getAll({ ...filters, dashboardId });
       if (seq !== requestSeq.current) return;
       setTransactions((prev) => (append ? [...prev, ...response.data] : response.data));
+      setNextOffset((prev) => (append ? prev : 0) + response.data.length);
       setTotal(totalFromHeaders(response.headers as Record<string, unknown>));
     } catch {
       if (seq !== requestSeq.current) return;
       setError('Erreur lors du chargement des transactions');
     } finally {
+      // Une réponse en retard ne touche à aucun drapeau : ils appartiennent à la requête courante.
       if (seq === requestSeq.current) {
-        if (append) setLoadingMore(false); else setLoading(false);
+        setLoading(false);
+        setLoadingMore(false);
       }
     }
   }, [dashboardId]);
@@ -113,6 +122,7 @@ export const useTransactions = () => {
   return {
     transactions,
     total,
+    nextOffset,
     summary,
     loading,
     loadingMore,

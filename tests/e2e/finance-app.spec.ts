@@ -586,8 +586,10 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(page.locator('table').getByText(description)).toBeVisible({ timeout: 10000 });
 
     // La ligne de total sous le tableau (le bloc des cartes en rend une aussi, masquée à 1280 px).
+    // Le compteur est formaté en fr-FR : au-delà de 999, une espace fine insécable (U+202F) sépare les milliers.
+    const totalLine = /^[\d\u202f\u00a0 ]+ transactions?$/;
     const tableCard = page.locator('table').locator('..');
-    await expect(tableCard.getByText(/^\d+ transactions?$/)).toBeVisible({ timeout: 10000 });
+    await expect(tableCard.getByText(totalLine)).toBeVisible({ timeout: 10000 });
 
     // Bascule sur « Tout » : la requête repart sans borne, répond 200 avec le total, la liste se recharge.
     const reload = page.waitForResponse((r) =>
@@ -598,7 +600,7 @@ test.describe.serial('FinanceApp E2E', () => {
     expect(response.headers()['x-total-count']).toBeDefined();
     await expect(periode).toHaveValue('all');
     await expect(page.locator('table').getByText(description)).toBeVisible({ timeout: 10000 });
-    await expect(tableCard.getByText(/^\d+ transactions?$/)).toBeVisible();
+    await expect(tableCard.getByText(totalLine)).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('transactions.period'))).toBe('all');
 
     // Une recherche non vide porte sur tout l'historique : le sélecteur se désactive et le dit.

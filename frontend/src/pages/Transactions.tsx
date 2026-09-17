@@ -41,7 +41,7 @@ const monthsAgoIso = (n: number): string => {
 const formatCount = (n: number) => n.toLocaleString('fr-FR');
 
 const Transactions = () => {
-  const { transactions, total, loading, loadingMore, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setFixed, setRefund, setEnvelope } = useTransactions();
+  const { transactions, total, nextOffset, loading, loadingMore, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setFixed, setRefund, setEnvelope } = useTransactions();
   const { currentDashboard } = useDashboards();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -129,7 +129,7 @@ const Transactions = () => {
 
   const loadMore = () => {
     if (loading || loadingMore || !hasMore) return;
-    fetchTransactions({ ...baseFilters, offset: transactions.length }, { append: true });
+    fetchTransactions({ ...baseFilters, offset: nextOffset }, { append: true });
   };
 
   const countLabel = (n: number) => `${formatCount(n)} ${n === 1 ? 'transaction' : 'transactions'}`;
