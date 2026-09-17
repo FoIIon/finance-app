@@ -11,9 +11,8 @@ namespace FinanceApp.Tests;
 
 /// <summary>
 /// Le contrôleur des échéances face aux clés du rapprochement : normalisation à la saisie, refus d'un
-/// contrôle 97 faux sans écho de la valeur, « Finalement non » qui refuse la transaction seulement quand
-/// c'est le rapprocheur qui l'avait liée, « Modifier » qui ne touche jamais au lien, et le détail de
-/// paiement dans le DTO.
+/// contrôle 97 faux sans écho de la valeur, « Finalement non » qui refuse le rapprochement dès qu'une
+/// transaction était liée, « Modifier » qui ne touche jamais au lien, et le détail de paiement dans le DTO.
 /// </summary>
 public class EcheanceReconciliationControllerTests : IDisposable
 {
@@ -89,18 +88,22 @@ public class EcheanceReconciliationControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task Unpay_DUnLienManuel_NePosePasAutoMatchRefusedAt()
+    public async Task Unpay_DUnLienSansMatchedAt_PoseAussiAutoMatchRefusedAt()
     {
+        // Un lien sans MatchedAt est une ligne d'avant la v4 (plus aucun chemin n'en crée) : « Finalement non »
+        // sur une échéance liée veut toujours dire « arrête de deviner », quelle que soit l'origine du lien.
         using var ctx = NewContext();
         var txId = await TransactionAsync(ctx, 2.60m, new DateTime(2026, 8, 28));
         var id = await EcheanceAsync(ctx, transactionId: txId, matchedAt: null);
 
-        Dto(await Controller(ctx).Unpay(id));
+        var dto = Dto(await Controller(ctx).Unpay(id));
+        Assert.NotNull(dto.AutoMatchRefusedAt);
 
         using var check = NewContext();
         var e = await check.Echeances.SingleAsync(x => x.Id == id);
-        Assert.Null(e.AutoMatchRefusedAt);
+        Assert.NotNull(e.AutoMatchRefusedAt);
         Assert.Null(e.TransactionId);
+        Assert.Null(e.MatchedAt);
     }
 
     [Fact]
