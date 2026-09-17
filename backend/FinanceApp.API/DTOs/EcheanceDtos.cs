@@ -25,7 +25,8 @@ public class EcheanceDto
     /// <summary>Instant UTC où l'utilisateur a défait un rapprochement automatique. Posé : le rapprocheur ignore
     /// cette échéance jusqu'à ce que l'IBAN ou la communication change.</summary>
     public DateTime? AutoMatchRefusedAt { get; set; }
-    /// <summary>La transaction qui règle l'échéance, pour l'écran. Null sans lien.</summary>
+    /// <summary>La transaction qui règle l'échéance, pour l'écran. Null sans lien, et toujours null dans la liste
+    /// (GET /echeances) : seule la fiche (GET /echeances/{id}) la charge.</summary>
     public EcheancePaymentDto? Payment { get; set; }
     public List<int> DocumentIds { get; set; } = new();
     public int CreatedByUserId { get; set; }
