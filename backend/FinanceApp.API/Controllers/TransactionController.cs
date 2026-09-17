@@ -179,6 +179,14 @@ public class TransactionController : ApiControllerBase
                                   || (chercherIban && t.CounterpartyIban != null && EF.Functions.Like(t.CounterpartyIban, motifIban, EchappementLike)));
         }
 
+        // Le compte se prend sur la requête filtrée, avant tout tri : le total ne dépend pas de l'ordre,
+        // et on ne s'appuie pas sur le traducteur pour retirer l'ORDER BY du COUNT.
+        if (take.HasValue)
+        {
+            var total = await query.CountAsync();
+            Response.Headers[EnTeteTotal] = total.ToString();
+        }
+
         var descending = sortDesc ?? true;
         var ordered = sortBy?.ToLower() switch
         {
@@ -192,11 +200,6 @@ public class TransactionController : ApiControllerBase
         // changer d'ordre entre deux requêtes et apparaître deux fois ou jamais d'une page à l'autre.
         query = ordered.ThenByDescending(t => t.Id);
 
-        if (take.HasValue)
-        {
-            var total = await query.CountAsync();
-            Response.Headers[EnTeteTotal] = total.ToString();
-        }
         if (offset is > 0) query = query.Skip(offset.Value);
         if (take.HasValue) query = query.Take(take.Value);
 
