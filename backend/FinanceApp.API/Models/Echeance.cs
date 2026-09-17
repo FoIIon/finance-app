@@ -31,14 +31,15 @@ public class Echeance
     public string? StructuredCommunication { get; set; }
 
     /// <summary>Instant UTC où le rapprocheur a lié <see cref="TransactionId"/>. Null quand le lien est
-    /// manuel ou absent. Dit qui a lié, jamais si c'est payé : le statut reste dérivé par
-    /// <see cref="Services.EcheanceStatusRules"/>.</summary>
+    /// absent (ou posé à la main avant la v4, quand le PUT le permettait encore). Dit qui a lié, jamais si
+    /// c'est payé : le statut reste dérivé par <see cref="Services.EcheanceStatusRules"/>.</summary>
     public DateTime? MatchedAt { get; set; }
 
-    /// <summary>Instant UTC où l'utilisateur a défait un rapprochement automatique (« Finalement non » ou
-    /// « Détacher » sur un lien posé par le rapprocheur). Le geste veut dire « arrête de deviner pour
+    /// <summary>Instant UTC où l'utilisateur a défait un rapprochement automatique (« Finalement non », soit
+    /// POST unpay, sur un lien posé par le rapprocheur). Le geste veut dire « arrête de deviner pour
     /// celle-ci » : le rapprocheur l'ignore tant que c'est posé. Corriger l'IBAN ou la communication
-    /// remet à null, la clé a changé, on peut redeviner. Un paiement ou un lien manuel n'y touchent pas.</summary>
+    /// remet à null, la clé a changé, on peut redeviner. Un paiement à la main n'y touche pas, et « Modifier »
+    /// (PUT) ne touche jamais au lien.</summary>
     public DateTime? AutoMatchRefusedAt { get; set; }
 
     public int CreatedByUserId { get; set; }
