@@ -363,6 +363,77 @@ public class EcheanceReconciliationServiceTests : IDisposable
         Assert.Equal(Now, e.PaidAt);
     }
 
+    // ----- Fenêtre des candidats bornée -----
+
+    /// <summary>Garde le SQL émis : la seule façon de prouver qu'aucune requête n'a été faite sur Transactions.</summary>
+    private sealed class SqlCapture : DbCommandInterceptor
+    {
+        public List<string> Commands { get; } = new();
+        public override ValueTask<InterceptionResult<System.Data.Common.DbDataReader>> ReaderExecutingAsync(System.Data.Common.DbCommand command, CommandEventData eventData, InterceptionResult<System.Data.Common.DbDataReader> result, CancellationToken ct = default)
+        {
+            Commands.Add(command.CommandText);
+            return base.ReaderExecutingAsync(command, eventData, result, ct);
+        }
+    }
+
+    [Fact]
+    public async Task UneEcheanceA400Jours_NeFaitChargerAucunCandidat()
+    {
+        // Rien ne peut encore prouver une échéance dont la fenêtre forte n'est pas ouverte : elle n'entre pas
+        // dans la passe, et la requête sur Transactions n'est même pas émise. Une transaction conforme datée
+        // dans le futur (un jeu de test, jamais la prod) prouverait le contraire si elle était chargée.
+        Household h;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "an-prochain@test.local");
+            ctx.Transactions.Add(Depense(h, 2.60m, Today.AddDays(380).ToDateTime(TimeOnly.MinValue), "Ecole communale"));
+            ctx.Echeances.Add(Facture(h, "Repas dans un an", 2.60m, Today.AddDays(400)));
+            await ctx.SaveChangesAsync();
+        }
+
+        var capture = new SqlCapture();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).AddInterceptors(capture).Options;
+        int matched;
+        using (var ctx = new AppDbContext(options))
+            matched = await Service(ctx).ReconcileAsync(CancellationToken.None);
+
+        Assert.Equal(0, matched);
+        Assert.NotEmpty(capture.Commands);
+        Assert.DoesNotContain(capture.Commands, c => c.Contains("\"Transactions\""));
+
+        using var check = NewContext();
+        Assert.Null((await check.Echeances.SingleAsync()).TransactionId);
+    }
+
+    [Fact]
+    public async Task LaFenetreDesCandidats_SArreteAuSurlendemain_MemePourUneEcheanceProche()
+    {
+        // Échéance dans dix jours, fenêtre forte ouverte. Une transaction datée d'après-demain ou plus tard
+        // n'existe pas en prod (rien de non provisionnel n'est daté dans le futur) : la requête ne la charge
+        // pas, une transaction d'hier l'est.
+        Household h;
+        int hier;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "surlendemain@test.local");
+            var tx = Depense(h, 2.60m, Today.AddDays(-1).ToDateTime(TimeOnly.MinValue), "Ecole communale");
+            ctx.Transactions.AddRange(
+                Depense(h, 1.40m, Today.AddDays(5).ToDateTime(TimeOnly.MinValue), "Ecole communale"),
+                tx);
+            ctx.Echeances.AddRange(
+                Facture(h, "Repas Hugo", 1.40m, Today.AddDays(10)),
+                Facture(h, "Repas Alice", 2.60m, Today.AddDays(10)));
+            await ctx.SaveChangesAsync();
+            hier = tx.Id;
+        }
+
+        Assert.Equal(1, await RunAsync());
+
+        using var check = NewContext();
+        Assert.Null((await check.Echeances.SingleAsync(e => e.Label == "Repas Hugo")).TransactionId);
+        Assert.Equal(hier, (await check.Echeances.SingleAsync(e => e.Label == "Repas Alice")).TransactionId);
+    }
+
     // ----- Lecture seule sur Transactions -----
 
     /// <summary>Toutes les lignes de Transactions, toutes les colonnes, telles que SQLite les rend. Deux passes identiques rendent la même chaîne.</summary>
