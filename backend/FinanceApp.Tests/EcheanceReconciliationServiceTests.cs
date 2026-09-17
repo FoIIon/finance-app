@@ -59,11 +59,11 @@ public class EcheanceReconciliationServiceTests : IDisposable
     /// <summary>Garde les messages formatés : le compte de rattrapage n'est visible que par le journal.</summary>
     private sealed class CapturingLogger : ILogger<EcheanceReconciliationService>
     {
-        public List<(LogLevel Level, string Message)> Lines { get; } = new();
+        public List<(LogLevel Level, string Message, Exception? Exception)> Lines { get; } = new();
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            Lines.Add((logLevel, formatter(state, exception)));
+            Lines.Add((logLevel, formatter(state, exception), exception));
     }
 
     /// <summary>Une dépense importée. La communication structurée, s'il y en a une, est dans le libellé, comme en prod.</summary>
@@ -487,7 +487,9 @@ public class EcheanceReconciliationServiceTests : IDisposable
         Assert.True(interceptor.Fired);
         // Deux liens trouvés, un en conflit : toute la passe est abandonnée, le compte rendu est zéro, sans exception.
         Assert.Equal(0, matched);
-        Assert.Contains(logger.Lines, l => l.Level == LogLevel.Warning && l.Message.Contains("2 lien(s) abandonné(s)"));
+        Assert.Contains(logger.Lines, l => l.Level == LogLevel.Warning && l.Message.Contains("contrainte unique") && l.Message.Contains("2 lien(s) abandonné(s)"));
+        Assert.DoesNotContain(logger.Lines, l => l.Level == LogLevel.Error);
+        Assert.IsType<DbUpdateException>(logger.Lines.Single(l => l.Level == LogLevel.Warning).Exception);
 
         using (var check = NewContext())
         {
@@ -507,6 +509,75 @@ public class EcheanceReconciliationServiceTests : IDisposable
         using var after = NewContext();
         Assert.Equal(t1, (await after.Echeances.SingleAsync(e => e.Label == "A")).TransactionId);
         Assert.Null((await after.Echeances.SingleAsync(e => e.Label == "B")).TransactionId);
+    }
+
+    /// <summary>
+    /// Entre la lecture des candidats et la sauvegarde, la transaction retenue disparaît : la clé étrangère
+    /// tranche, ce n'est pas un conflit d'index unique et le journal doit le dire.
+    /// </summary>
+    private sealed class DeleteCandidateInterceptor : SaveChangesInterceptor
+    {
+        private readonly DbContextOptions<AppDbContext> _options;
+        private readonly int _transactionId;
+        public bool Fired { get; private set; }
+
+        public DeleteCandidateInterceptor(DbContextOptions<AppDbContext> options, int transactionId)
+        {
+            _options = options;
+            _transactionId = transactionId;
+        }
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken ct = default)
+        {
+            var linksEcheances = eventData.Context!.ChangeTracker.Entries<Echeance>().Any(e => e.State == EntityState.Modified);
+            if (linksEcheances && !Fired)
+            {
+                Fired = true;
+                using var other = new AppDbContext(_options);
+                other.Transactions.Remove(await other.Transactions.SingleAsync(t => t.Id == _transactionId, ct));
+                await other.SaveChangesAsync(ct);
+            }
+            return result;
+        }
+    }
+
+    [Fact]
+    public async Task ErreurDEcriture_HorsContrainteUnique_AbandonneLaPasse_EtLeJournalNommeLaCause()
+    {
+        Household h;
+        int txId;
+        using (var ctx = NewContext())
+        {
+            h = await TestHousehold.SeedAsync(ctx, "fk@test.local");
+            var tx = Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale");
+            ctx.Transactions.Add(tx);
+            ctx.Echeances.Add(Facture(h, "Repas", 2.60m, new DateOnly(2026, 8, 31)));
+            await ctx.SaveChangesAsync();
+            txId = tx.Id;
+        }
+
+        var interceptor = new DeleteCandidateInterceptor(_options, txId);
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).AddInterceptors(interceptor).Options;
+        var logger = new CapturingLogger();
+
+        int matched;
+        using (var ctx = new AppDbContext(options))
+            matched = await Service(ctx, logger).ReconcileAsync(CancellationToken.None);
+
+        Assert.True(interceptor.Fired);
+        Assert.Equal(0, matched);
+        var erreur = logger.Lines.Single(l => l.Level == LogLevel.Error);
+        Assert.Contains("erreur d'écriture", erreur.Message);
+        Assert.Contains("1 lien(s) abandonné(s)", erreur.Message);
+        Assert.DoesNotContain("contrainte unique", erreur.Message);
+        Assert.IsType<DbUpdateException>(erreur.Exception);
+        Assert.DoesNotContain(logger.Lines, l => l.Level == LogLevel.Warning);
+
+        using var check = NewContext();
+        var e = await check.Echeances.SingleAsync();
+        Assert.Null(e.TransactionId);
+        Assert.Null(e.MatchedAt);
+        Assert.Equal(0, await check.Transactions.CountAsync());
     }
 
     // ----- Invariance du bilan -----
