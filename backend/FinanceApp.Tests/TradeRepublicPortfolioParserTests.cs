@@ -169,6 +169,17 @@ public class TradeRepublicPortfolioParserTests
         Assert.Null(after);
     }
 
+    [Theory]
+    [InlineData("""{ "securitiesAccountNumber": "0123456789", "phoneNumber": "x" }""", "0123456789")]
+    [InlineData("""{ "securitiesAccountNumber": 123456 }""", "123456")]
+    [InlineData("""{ "securitiesAccountNumber": "" }""", null)]
+    [InlineData("""{ "other": 1 }""", null)]
+    [InlineData("""[]""", null)]
+    public void ParseSecuritiesAccountNumber_lit_le_numero_du_compte_titres(string json, string? attendu)
+    {
+        Assert.Equal(attendu, TradeRepublicPortfolioParser.ParseSecuritiesAccountNumber(json));
+    }
+
     [Fact]
     public void DescribeShape_donne_la_structure_sans_les_valeurs()
     {
