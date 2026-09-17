@@ -78,14 +78,21 @@ public class BankSyncService : BackgroundService
 
         // Lot 3 : une passe de rapprochement des échéances par cycle, sur ce qui est en base, dans son propre
         // try. Une banque qui a échoué au-dessus n'empêche pas la passe, une passe qui échoue ne marque rien.
-        await ReconcileEcheancesAsync(scope.ServiceProvider, stoppingToken);
+        await ReconcileEcheancesAsync(stoppingToken);
     }
 
-    private async Task ReconcileEcheancesAsync(IServiceProvider serviceProvider, CancellationToken ct)
+    /// <summary>
+    /// La passe tourne dans un scope à elle, pas dans celui de la synchronisation : un import qui a échoué à
+    /// mi-chemin laisse des transactions Added ou Modified dans l'AppDbContext du scope courant, et le
+    /// SaveChangesAsync de la passe les enregistrerait à sa place. Les deux appelants (cycle et sync manuelle)
+    /// passent par ici.
+    /// </summary>
+    private async Task ReconcileEcheancesAsync(CancellationToken ct)
     {
         try
         {
-            await serviceProvider.GetRequiredService<EcheanceReconciliationService>().ReconcileAsync(ct);
+            using var scope = _scopeFactory.CreateScope();
+            await scope.ServiceProvider.GetRequiredService<EcheanceReconciliationService>().ReconcileAsync(ct);
         }
         catch (Exception ex)
         {
@@ -116,7 +123,7 @@ public class BankSyncService : BackgroundService
         }
 
         // Et le virement d'une échéance aussi. Pas de jeton d'arrêt sur le chemin manuel.
-        await ReconcileEcheancesAsync(scope.ServiceProvider, CancellationToken.None);
+        await ReconcileEcheancesAsync(CancellationToken.None);
     }
 
     private async Task SyncConnectionInternalAsync(int connectionId, IServiceProvider serviceProvider, bool rethrow = false, int? daysBack = null)
