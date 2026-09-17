@@ -42,16 +42,16 @@ const statusFromDto = (status: string | undefined): AgendaStatus | null => {
 
 /**
  * Feuille basse sur le patron de CategoryDetailModal. Titre, montant, date limite, statut en texte, puis
- * les gestes : « Je l'ai payée », réversible au même endroit par « Finalement non », et « Détacher la
- * transaction » en deux gestes. Chaque geste invalide l'agenda, le serveur recalcule le statut. Lot 1 :
- * une section Documents, puis « Modifier » (la feuille de saisie prend la place de celle-ci) et « Supprimer ».
+ * les gestes : « Je l'ai payée », réversible au même endroit par « Finalement non », qui couvre aussi le
+ * cas d'une transaction liée (manuelle ou rapprochée) : c'est le seul geste qui détache. Chaque geste
+ * invalide l'agenda, le serveur recalcule le statut. Lot 1 : une section Documents, puis « Modifier » (la
+ * feuille de saisie prend la place de celle-ci, et ne touche jamais au lien de paiement) et « Supprimer ».
  * Lot 3 : quand c'est le rapprocheur qui a lié la transaction (matchedAt), le statut dit « Vu sur le compte »
  * et montre le virement ; les clés saisies (IBAN, communication) s'affichent formatées quand elles existent.
  */
 export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props) => {
   const queryClient = useQueryClient();
   const { data: echeance, isLoading } = useEcheanceQuery(echeanceId);
-  const [detachAsked, setDetachAsked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
@@ -85,25 +85,7 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
     onError: (err) => setError(messageOf(err, "Impossible d'annuler le paiement, réessaie.")),
   });
 
-  // PUT de remplacement complet : on renvoie les champs lus, seul transactionId passe à null.
-  const detach = useMutation({
-    mutationFn: () => {
-      if (!echeance) throw new Error('Échéance non chargée');
-      return echeancesApi.update(echeanceId, {
-        label: echeance.label,
-        dueDate: echeance.dueDate,
-        amount: echeance.amount,
-        notes: echeance.notes,
-        transactionId: null,
-        counterpartyIban: echeance.counterpartyIban,
-        structuredCommunication: echeance.structuredCommunication,
-      });
-    },
-    onSuccess: () => { setError(null); setDetachAsked(false); return invalidate(); },
-    onError: (err) => setError(messageOf(err, 'Impossible de détacher la transaction, réessaie.')),
-  });
-
-  const busy = pay.isPending || unpay.isPending || detach.isPending;
+  const busy = pay.isPending || unpay.isPending;
   const status: AgendaStatus | null = item?.status ?? statusFromDto(echeance?.status);
   const title = item?.title ?? echeance?.label ?? '';
   const amount = item ? item.amount : echeance?.amount ?? null;
@@ -208,39 +190,6 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
             >
               {unpay.isPending ? 'Annulation…' : 'Finalement non'}
             </button>
-          )}
-
-          {transactionId != null && echeance && (
-            detachAsked ? (
-              <div className="flex items-center gap-3 text-sm text-white/70 min-h-11 px-1">
-                <span>Détacher ?</span>
-                <button
-                  type="button"
-                  onClick={() => detach.mutate()}
-                  disabled={busy}
-                  className="min-h-11 px-3 rounded-lg bg-white/10 text-white hover:bg-white/15 disabled:opacity-50 transition-colors"
-                >
-                  {detach.isPending ? '…' : 'Oui'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDetachAsked(false)}
-                  disabled={busy}
-                  className="min-h-11 px-3 rounded-lg text-white/60 hover:text-white transition-colors"
-                >
-                  Non
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setDetachAsked(true)}
-                disabled={busy}
-                className="w-full min-h-11 text-sm text-white/40 hover:text-white/70 transition-colors"
-              >
-                Détacher la transaction
-              </button>
-            )
           )}
         </div>
 

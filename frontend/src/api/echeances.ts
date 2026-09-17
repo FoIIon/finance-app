@@ -10,11 +10,12 @@ export const echeancesApi = {
 
   create: (data: CreateEcheance) => apiClient.post<Echeance>('/echeances', data),
 
-  /** Remplacement complet : on renvoie tous les champs lus, seuls ceux qui changent diffèrent. */
+  /** Remplacement complet des champs saisis : on renvoie tous les champs lus, seuls ceux qui changent diffèrent. Ne touche pas au lien de paiement. */
   update: (id: number, data: UpdateEcheance) => apiClient.put<Echeance>(`/echeances/${id}`, data),
 
   pay: (id: number) => apiClient.post<Echeance>(`/echeances/${id}/pay`),
 
+  /** « Finalement non » : défait le paiement, manuel ou prouvé par transaction. Seul chemin pour détacher une transaction. */
   unpay: (id: number) => apiClient.post<Echeance>(`/echeances/${id}/unpay`),
 
   /** Les documents rattachés restent, détachés (FK en SetNull côté serveur). */
