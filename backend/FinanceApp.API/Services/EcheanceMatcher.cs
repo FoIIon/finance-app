@@ -71,7 +71,7 @@ public static class EcheanceMatcher
     /// <summary>Règle 3 : même communication structurée, même montant si l'échéance en a un, dans la fenêtre large.</summary>
     private static bool MatchesStrongKey(PaymentCandidate c, decimal? amount, string? structuredCommunication, DateOnly dueDate)
     {
-        // Vide vaut null des deux côtés : la sentinelle du rattrapage n'est pas une clé.
+        // Vide vaut null des deux côtés : une chaîne vide n'est pas une clé.
         if (string.IsNullOrEmpty(structuredCommunication) || string.IsNullOrEmpty(c.StructuredCommunication)) return false;
         if (c.StructuredCommunication != structuredCommunication) return false;
         if (amount.HasValue && c.Amount != amount.Value) return false;

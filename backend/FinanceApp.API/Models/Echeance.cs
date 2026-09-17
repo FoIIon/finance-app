@@ -25,8 +25,9 @@ public class Echeance
     /// ordinaire du rapprochement automatique.</summary>
     public string? CounterpartyIban { get; set; }
 
-    /// <summary>Communication structurée attendue, douze chiffres, même normalisation que sur
-    /// <see cref="Transaction.StructuredCommunication"/>. Clé forte : elle rapproche même sans montant.</summary>
+    /// <summary>Communication structurée attendue, douze chiffres (<see cref="Services.StructuredCommunication.Normalize"/>).
+    /// Clé forte : elle rapproche même sans montant, comparée à celle que le rapprocheur extrait du libellé
+    /// de chaque candidat, en mémoire.</summary>
     public string? StructuredCommunication { get; set; }
 
     /// <summary>Instant UTC où le rapprocheur a lié <see cref="TransactionId"/>. Null quand le lien est

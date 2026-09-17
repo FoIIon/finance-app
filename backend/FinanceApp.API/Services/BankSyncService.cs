@@ -338,8 +338,6 @@ public class BankSyncService : BackgroundService
                         IsImported = true,
                         CounterpartyName = counterparty,
                         CounterpartyIban = counterpartyIban,
-                        // Tri-état : la clé si le libellé en porte une, sinon la sentinelle « examiné, rien ».
-                        StructuredCommunication = StructuredCommunication.Extract(description) ?? StructuredCommunication.Examined,
                         IsFixed = isFixed,
                         BankAccountId = account.Id
                     };

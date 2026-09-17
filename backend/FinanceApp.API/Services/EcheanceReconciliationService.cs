@@ -10,20 +10,14 @@ namespace FinanceApp.API.Services;
 /// L'exécuteur du rapprochement automatique des échéances, lancé une fois par cycle de synchronisation
 /// bancaire. Il prépare les candidats et applique <see cref="EcheanceMatcher.FindPayment"/> ; il ne décide rien.
 ///
-/// Ce qu'il écrit, et rien d'autre : <c>Echeance.TransactionId</c>, <c>MatchedAt</c>, <c>UpdatedAt</c>,
-/// et <c>Transaction.StructuredCommunication</c> en rattrapage des lignes importées avant que la colonne
-/// n'existe. Il n'ajoute, ne supprime, ne recatégorise jamais une transaction : le bilan ne le voit pas,
-/// et un test d'invariance le prouve. Les journaux ne portent que des comptes, jamais un IBAN, un libellé
-/// ni une communication.
+/// Ce qu'il écrit, et rien d'autre : <c>Echeance.TransactionId</c>, <c>MatchedAt</c>, <c>UpdatedAt</c>. Sur la
+/// table <c>Transactions</c> il est strictement en lecture : la communication structurée d'un libellé est
+/// extraite en mémoire à chaque passe, jamais stockée. Il n'ajoute, ne supprime, ne recatégorise jamais une
+/// transaction : le bilan ne le voit pas, et un test d'invariance le prouve ligne par ligne. Les journaux ne
+/// portent que des comptes, jamais un IBAN, un libellé ni une communication.
 /// </summary>
 public class EcheanceReconciliationService
 {
-    /// <summary>
-    /// Lot du rattrapage par passe. Chaque ligne prise sort du filtre (clé ou sentinelle), le rattrapage
-    /// converge : trois passes pour l'historique de prod, puis la requête est vide et immédiate.
-    /// </summary>
-    public const int BackfillBatchSize = 1000;
-
     private readonly AppDbContext _context;
     private readonly HouseholdOptions _household;
     private readonly ILogger<EcheanceReconciliationService> _logger;
@@ -35,41 +29,12 @@ public class EcheanceReconciliationService
         _logger = logger;
     }
 
-    /// <summary>Une passe complète : rattrapage des communications, puis rapprochement. Rend le nombre d'échéances rapprochées.</summary>
+    /// <summary>Une passe complète. Rend le nombre d'échéances rapprochées.</summary>
     public async Task<int> ReconcileAsync(CancellationToken ct)
     {
-        var (backfilled, examined) = await BackfillStructuredCommunicationsAsync(ct);
         var matched = await MatchOpenEcheancesAsync(ct);
-
-        _logger.LogInformation(
-            "Rapprochement des échéances : {Matched} rapprochée(s), {Backfilled} communication(s) structurée(s) rattrapée(s), {Examined} libellé(s) examiné(s) sans communication valide.",
-            matched, backfilled, examined);
+        _logger.LogInformation("Rapprochement des échéances : {Matched} rapprochée(s).", matched);
         return matched;
-    }
-
-    /// <summary>
-    /// Les transactions jamais examinées (colonne null), par lots triés par Id. Chaque ligne reçoit sa clé ou la
-    /// sentinelle, et ne revient plus. Seule écriture sur Transactions de tout le lot. Sauvegardée avant le
-    /// rapprochement pour que les candidats relus en base portent leur clé.
-    /// </summary>
-    private async Task<(int Backfilled, int Examined)> BackfillStructuredCommunicationsAsync(CancellationToken ct)
-    {
-        var rows = await _context.Transactions
-            .Where(t => t.StructuredCommunication == null)
-            .OrderBy(t => t.Id)
-            .Take(BackfillBatchSize)
-            .ToListAsync(ct);
-
-        var backfilled = 0;
-        foreach (var t in rows)
-        {
-            var digits = StructuredCommunication.Extract(t.Description);
-            t.StructuredCommunication = digits ?? StructuredCommunication.Examined;
-            if (digits != null) backfilled++;
-        }
-
-        if (rows.Count > 0) await _context.SaveChangesAsync(ct);
-        return (backfilled, rows.Count - backfilled);
     }
 
     private async Task<int> MatchOpenEcheancesAsync(CancellationToken ct)
@@ -116,7 +81,8 @@ public class EcheanceReconciliationService
     /// Les dépenses réelles des comptes logiques du dashboard (même périmètre qu'EcheanceController.Update),
     /// hors provisions, pas déjà la preuve d'une autre échéance, dans la fenêtre la plus large que les
     /// échéances du dashboard peuvent réclamer. Sans tri : le matcher trie lui-même. La date du candidat
-    /// est le jour du ménage (HouseholdOptions), le matcher compare des jours locaux à des dates limites.
+    /// est le jour du ménage (HouseholdOptions), et sa communication structurée est extraite du libellé en
+    /// mémoire, après la lecture SQL : rien n'est écrit sur la transaction, rien n'est suivi par le contexte.
     /// </summary>
     private async Task<List<PaymentCandidate>> LoadCandidatesAsync(int dashboardId, IEnumerable<Echeance> echeances, CancellationToken ct)
     {
@@ -131,14 +97,14 @@ public class EcheanceReconciliationService
             .Where(t => t.Account.DashboardAccounts.Any(da => da.DashboardId == dashboardId))
             .Where(t => t.Date >= from && t.Date < toExclusive)
             .Where(t => !_context.Echeances.Any(e => e.TransactionId == t.Id))
-            .Select(t => new { t.Id, t.Amount, t.Date, t.CounterpartyIban, t.StructuredCommunication })
+            .Select(t => new { t.Id, t.Amount, t.Date, t.CounterpartyIban, t.Description })
             .ToListAsync(ct);
 
         // Relue de SQLite en Kind Unspecified, la date d'une transaction est UTC : TodayLocal la ramène au
-        // jour du ménage. La sentinelle vide n'est pas une clé : elle sort en null.
+        // jour du ménage.
         return rows
             .Select(t => new PaymentCandidate(t.Id, t.Amount, _household.TodayLocal(t.Date), t.CounterpartyIban,
-                t.StructuredCommunication == StructuredCommunication.Examined ? null : t.StructuredCommunication))
+                StructuredCommunication.Extract(t.Description)))
             .ToList();
     }
 

@@ -19,7 +19,8 @@ namespace FinanceApp.Tests;
 /// <summary>
 /// L'exécuteur du rapprochement, sur une base SQLite en mémoire au vrai schéma. Ce qu'il doit faire (lier,
 /// dater, une seule fois, jamais deux fois la même transaction) et ce qu'il ne doit jamais faire (toucher
-/// une provision, un compte d'un autre dashboard, une échéance payée à la main, ou le bilan).
+/// une provision, un compte d'un autre dashboard, une échéance payée à la main, une ligne de Transactions,
+/// ou le bilan).
 /// </summary>
 public class EcheanceReconciliationServiceTests : IDisposable
 {
@@ -65,19 +66,15 @@ public class EcheanceReconciliationServiceTests : IDisposable
             Lines.Add((logLevel, formatter(state, exception)));
     }
 
-    private async Task<(int Matched, string Journal)> RunCapturingAsync()
-    {
-        using var ctx = NewContext();
-        var logger = new CapturingLogger();
-        var matched = await Service(ctx, logger).ReconcileAsync(CancellationToken.None);
-        return (matched, logger.Lines.Single(l => l.Level == LogLevel.Information).Message);
-    }
-
-    private static Transaction Depense(Household h, decimal amount, DateTime date, string desc, string? iban = Ecole, bool provisional = false, int? accountId = null, string? com = null) => new()
+    /// <summary>Une dépense importée. La communication structurée, s'il y en a une, est dans le libellé, comme en prod.</summary>
+    private static Transaction Depense(Household h, decimal amount, DateTime date, string desc, string? iban = Ecole, bool provisional = false, int? accountId = null) => new()
     {
         AccountId = accountId ?? h.AccountId, CategoryId = 6, Type = TransactionType.Expense, Amount = amount, Date = date,
-        Description = desc, CounterpartyIban = iban, StructuredCommunication = com, IsImported = true, IsProvisional = provisional,
+        Description = desc, CounterpartyIban = iban, IsImported = true, IsProvisional = provisional,
     };
+
+    /// <summary>« +++123/4567/89002+++ » depuis les douze chiffres, pour écrire un libellé de virement.</summary>
+    private static string Formatee(string com) => $"+++{com[..3]}/{com[3..7]}/{com[7..]}+++";
 
     private static Echeance Facture(Household h, string label, decimal? amount, DateOnly due, string? iban = Ecole, string? com = null, int? transactionId = null, DateTime? paidAt = null) => new()
     {
@@ -118,7 +115,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
         {
             h = await TestHousehold.SeedAsync(ctx, "com@test.local");
             ctx.Transactions.AddRange(
-                Depense(h, 61.20m, new DateTime(2026, 8, 5), $"+++{Com[..3]}/{Com[3..7]}/{Com[7..]}+++", iban: null, com: Com),
+                Depense(h, 61.20m, new DateTime(2026, 8, 5), $"Virement {Formatee(Com)} ostéo", iban: null),
                 Depense(h, 61.20m, new DateTime(2026, 8, 5), "Autre chose", iban: null));
             ctx.Echeances.Add(Facture(h, "Facture ostéo", null, new DateOnly(2026, 8, 28), iban: null, com: Com));
             await ctx.SaveChangesAsync();
@@ -128,7 +125,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
 
         using var check = NewContext();
         var e = await check.Echeances.SingleAsync();
-        var tx = await check.Transactions.SingleAsync(t => t.StructuredCommunication == Com);
+        var tx = await check.Transactions.SingleAsync(t => t.Description.Contains("ostéo"));
         Assert.Equal(tx.Id, e.TransactionId);
     }
 
@@ -365,81 +362,60 @@ public class EcheanceReconciliationServiceTests : IDisposable
         Assert.Equal(Now, e.PaidAt);
     }
 
-    [Fact]
-    public async Task Rattrapage_PoseLaCommunicationOuLaSentinelle_SurToutLHistorique_SansToucherLeReste()
+    // ----- Lecture seule sur Transactions -----
+
+    /// <summary>Toutes les lignes de Transactions, toutes les colonnes, telles que SQLite les rend. Deux passes identiques rendent la même chaîne.</summary>
+    private async Task<string> TransactionsSnapshotAsync()
     {
-        Household h;
-        using (var ctx = NewContext())
-        {
-            h = await TestHousehold.SeedAsync(ctx, "backfill@test.local");
-            ctx.Transactions.AddRange(
-                Depense(h, 61.20m, new DateTime(2026, 5, 5), $"Virement +++{Com[..3]}/{Com[3..7]}/{Com[7..]}+++ ostéo", iban: null),
-                Depense(h, 12.00m, new DateTime(2026, 5, 6), "+++123/4567/89012+++ contrôle faux", iban: null),
-                Depense(h, 30.00m, new DateTime(2026, 5, 7), "COLRUYT", iban: null));
-            await ctx.SaveChangesAsync();
-        }
-
-        Assert.Equal(0, await RunAsync());
-
-        using var check = NewContext();
-        var rows = await check.Transactions.OrderBy(t => t.Date).ToListAsync();
-        Assert.Equal(Com, rows[0].StructuredCommunication);
-        // Contrôle faux ou aucun séparateur : examinées, sentinelle vide. Plus aucun null après la passe.
-        Assert.Equal(StructuredCommunication.Examined, rows[1].StructuredCommunication);
-        Assert.Equal(StructuredCommunication.Examined, rows[2].StructuredCommunication);
-        Assert.Equal(3, rows.Count);
-        Assert.All(rows, t => Assert.Equal(6, t.CategoryId));
+        using var ctx = NewContext();
+        var rows = await ctx.Transactions.AsNoTracking().OrderBy(t => t.Id).ToListAsync();
+        return JsonSerializer.Serialize(rows, Json);
     }
 
     [Fact]
-    public async Task Rattrapage_UnLibelleSansCommunicationValide_RecoitLaSentinelle_EtNEstPlusRepris()
+    public async Task UnePasse_NeChangeAucuneLigneDeTransactions_MemeCelleQuElleRapproche()
     {
+        // Un libellé à communication valide (autrefois rattrapé en colonne), un au contrôle faux, un paiement par
+        // carte, et une dépense qui va être rapprochée par IBAN : après la passe, la table est identique octet
+        // pour octet. Le rapprocheur est en lecture seule sur Transactions.
         Household h;
         using (var ctx = NewContext())
         {
-            h = await TestHousehold.SeedAsync(ctx, "sentinelle@test.local");
+            h = await TestHousehold.SeedAsync(ctx, "lecture-seule@test.local");
             ctx.Transactions.AddRange(
-                Depense(h, 45.00m, new DateTime(2026, 5, 5), "PAIEMENT CARTE ****1234 COLRUYT", iban: null),
-                Depense(h, 12.00m, new DateTime(2026, 5, 6), "+++123/4567/89012+++ contrôle faux", iban: null),
-                Depense(h, 61.20m, new DateTime(2026, 5, 7), $"+++{Com[..3]}/{Com[3..7]}/{Com[7..]}+++", iban: null));
+                Depense(h, 61.20m, new DateTime(2026, 8, 5), $"Virement {Formatee(Com)} ostéo", iban: null),
+                Depense(h, 12.00m, new DateTime(2026, 8, 6), "+++123/4567/89012+++ contrôle faux", iban: null),
+                Depense(h, 30.00m, new DateTime(2026, 8, 7), "PAIEMENT CARTE ****1234 COLRUYT", iban: null),
+                Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale"));
+            ctx.Echeances.AddRange(
+                Facture(h, "Ostéo", null, new DateOnly(2026, 8, 28), iban: null, com: Com),
+                Facture(h, "Repas", 2.60m, new DateOnly(2026, 8, 31)));
             await ctx.SaveChangesAsync();
         }
 
-        var (_, first) = await RunCapturingAsync();
-        Assert.Contains("1 communication(s) structurée(s) rattrapée(s), 2 libellé(s) examiné(s)", first);
-        using (var ctx = NewContext())
-            Assert.Equal(0, await ctx.Transactions.CountAsync(t => t.StructuredCommunication == null));
+        var before = await TransactionsSnapshotAsync();
+        // Le sérialiseur échappe les accents : on vérifie sur un mot ASCII que le libellé est bien dans la photo.
+        Assert.Contains("Virement", before);
 
-        using (var ctx = NewContext())
-        {
-            var rows = await ctx.Transactions.OrderBy(t => t.Date).ToListAsync();
-            Assert.Equal("", rows[0].StructuredCommunication);
-            Assert.Equal("", rows[1].StructuredCommunication);
-            Assert.Equal(Com, rows[2].StructuredCommunication);
-        }
+        Assert.Equal(2, await RunAsync());
 
-        // Seconde passe : plus rien dans le filtre, ni rattrapage ni examen.
-        var (_, second) = await RunCapturingAsync();
-        Assert.Contains("0 communication(s) structurée(s) rattrapée(s), 0 libellé(s) examiné(s)", second);
+        Assert.Equal(before, await TransactionsSnapshotAsync());
+        using var check = NewContext();
+        Assert.Equal(2, await check.Echeances.CountAsync(e => e.TransactionId != null && e.MatchedAt != null));
     }
 
     [Fact]
-    public async Task UnCandidatALaSentinelle_NeRapprochePasUneEcheanceParCommunication()
+    public void LeRapprocheur_NEcritJamaisSurTransactions_ParLaSource()
     {
-        Household h;
-        using (var ctx = NewContext())
-        {
-            h = await TestHousehold.SeedAsync(ctx, "sentinelle-cle@test.local");
-            ctx.Transactions.Add(Depense(h, 61.20m, new DateTime(2026, 8, 5), "PAIEMENT CARTE ****1234", iban: null, com: ""));
-            // Une échéance à communication vide en base (le contrôleur ne la produit pas, la base l'accepte).
-            ctx.Echeances.Add(Facture(h, "Ostéo", null, new DateOnly(2026, 8, 28), iban: null, com: ""));
-            await ctx.SaveChangesAsync();
-        }
-
-        Assert.Equal(0, await RunAsync());
-
-        using var check = NewContext();
-        Assert.Null((await check.Echeances.SingleAsync()).TransactionId);
+        // Aucun Add, Remove ni affectation sur une transaction dans l'exécuteur : la lecture des candidats
+        // projette des colonnes, et la seule sauvegarde porte des échéances.
+        var source = File.ReadAllText(Path.Combine(ApiSourceDir(), "Services/EcheanceReconciliationService.cs"));
+        Assert.DoesNotContain("Transactions.Add", source);
+        Assert.DoesNotContain("Transactions.Remove", source);
+        Assert.DoesNotContain("Transactions.Update", source);
+        Assert.DoesNotContain("ExecuteUpdate", source);
+        Assert.DoesNotContain("ExecuteDelete", source);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(source, @"SaveChangesAsync\("));
     }
 
     // ----- Conflit sur l'index unique pendant la sauvegarde -----
@@ -580,7 +556,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
                 T(1, TransactionType.Income, 3120.45m, 8, "Salaire Seb"),
                 T(1, TransactionType.Income, 2210.10m, 8, "Salaire Audrey"),
                 T(2, TransactionType.Expense, 1250.00m, 3, "Prêt hypothécaire", fixe: true),
-                T(4, TransactionType.Expense, 189.99m, 3, $"Électricité +++{Com[..3]}/{Com[3..7]}/{Com[7..]}+++", iban: "BE68539007547034", fixe: true),
+                T(4, TransactionType.Expense, 189.99m, 3, $"Électricité {Formatee(Com)}", iban: "BE68539007547034", fixe: true),
                 T(6, TransactionType.Income, 62.30m, 3, "Régularisation énergie", fixe: true),
                 T(7, TransactionType.Expense, 143.67m, 1, "Colruyt"),
                 T(10, TransactionType.Expense, 27.50m, 5, "Pharmacie"),
@@ -609,19 +585,19 @@ public class EcheanceReconciliationServiceTests : IDisposable
         }
         Assert.Equal(13, before.TransactionCount);
 
-        // La passe rapproche trois échéances (deux par IBAN et montant, une par communication rattrapée
-        // dans la même passe) et rattrape une communication.
+        var transactionsBefore = await TransactionsSnapshotAsync();
+
+        // La passe rapproche trois échéances : deux par IBAN et montant, une par la communication lue dans le libellé.
         Assert.Equal(3, await RunAsync());
 
         using (var ctx = NewContext())
         {
             Assert.Equal(3, await ctx.Echeances.CountAsync(e => e.TransactionId != null && e.MatchedAt != null));
-            Assert.Equal(1, await ctx.Transactions.CountAsync(t => t.StructuredCommunication == Com));
-            Assert.Equal(0, await ctx.Transactions.CountAsync(t => t.StructuredCommunication == null));
             var electricite = await ctx.Echeances.Include(e => e.Transaction).SingleAsync(e => e.Label == "Électricité");
             Assert.Equal(189.99m, electricite.Transaction!.Amount);
         }
 
+        Assert.Equal(transactionsBefore, await TransactionsSnapshotAsync());
         var after = await SnapshotAsync(h, categoryId: 3);
         Assert.Equal(before.Monthly, after.Monthly);
         Assert.Equal(before.Summary, after.Summary);

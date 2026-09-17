@@ -76,12 +76,6 @@ public class AppDbContext : DbContext
             .IsUnique()
             .HasFilter("[ExternalId] IS NOT NULL");
 
-        // Lot 3 : la communication structurée du libellé, clé forte du rapprochement des échéances. Sans
-        // index : le matcher compare en mémoire sur une fenêtre, et la colonne porte surtout des sentinelles.
-        modelBuilder.Entity<Transaction>()
-            .Property(t => t.StructuredCommunication)
-            .HasMaxLength(12);
-
         // Category
         modelBuilder.Entity<Category>()
             .HasOne(c => c.User)
