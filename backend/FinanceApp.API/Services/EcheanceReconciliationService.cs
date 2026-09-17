@@ -1,6 +1,7 @@
 using FinanceApp.API.Data;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services.Calendar;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -109,11 +110,13 @@ public class EcheanceReconciliationService
     }
 
     /// <summary>
-    /// Une sauvegarde pour toute la passe, une seule tentative. Si l'index unique sur TransactionId tranche
-    /// (une autre écriture a pris une transaction entre la lecture des candidats et ici), toute la passe est
+    /// Une sauvegarde pour toute la passe, une seule tentative. Si l'écriture échoue, toute la passe est
     /// abandonnée : les échéances reprennent leurs valeurs d'origine, on journalise le nombre, on rend 0. La
-    /// passe suivante relira les candidats sans la transaction prise et réessaiera. Jamais d'exception vers
-    /// la synchronisation.
+    /// passe suivante relira les candidats et réessaiera. Jamais d'exception vers la synchronisation.
+    /// Le journal nomme la cause : une contrainte unique sur TransactionId (une autre écriture a pris une
+    /// transaction entre la lecture des candidats et ici, attendu et bénin, avertissement) ou toute autre
+    /// erreur d'écriture (clé étrangère, base verrouillée, disque : inattendu, erreur). L'exception est
+    /// jointe au journal dans les deux cas ; ses messages ne portent que des noms de colonnes.
     /// </summary>
     private async Task<int> SaveLinksAsync(List<Echeance> matched, CancellationToken ct)
     {
@@ -122,9 +125,13 @@ public class EcheanceReconciliationService
             await _context.SaveChangesAsync(ct);
             return matched.Count;
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex)
         {
-            _logger.LogWarning("Rapprochement des échéances : conflit sur l'index unique, {Count} lien(s) abandonné(s), la passe suivante réessaiera.", matched.Count);
+            if (IsUniqueConstraintViolation(ex))
+                _logger.LogWarning(ex, "Rapprochement des échéances : contrainte unique sur TransactionId, {Count} lien(s) abandonné(s), la passe suivante réessaiera.", matched.Count);
+            else
+                _logger.LogError(ex, "Rapprochement des échéances : erreur d'écriture, {Count} lien(s) abandonné(s), la passe suivante réessaiera.", matched.Count);
+
             foreach (var e in matched)
             {
                 var entry = _context.Entry(e);
@@ -134,4 +141,11 @@ public class EcheanceReconciliationService
             return 0;
         }
     }
+
+    /// <summary>
+    /// SQLITE_CONSTRAINT (19) avec le code étendu SQLITE_CONSTRAINT_UNIQUE (2067). Le code primaire seul ne
+    /// suffit pas : une clé étrangère cassée rend aussi 19, avec le code étendu 787, et ce n'est pas la même cause.
+    /// </summary>
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex) =>
+        ex.InnerException is SqliteException { SqliteErrorCode: 19, SqliteExtendedErrorCode: 2067 };
 }
