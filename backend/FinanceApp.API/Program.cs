@@ -224,7 +224,9 @@ app.UseCors("Frontend");
 // Sert le build frontend depuis wwwroot/ (déploiement Pi : backend + frontend sur la même origine).
 // index.html sans Cache-Control laissait le navigateur appliquer son cache heuristique : un déploiement
 // restait invisible plusieurs heures (constaté le 16/09/2026). Il est revalidé à chaque chargement,
-// les bundles Vite portent un hash dans leur nom et peuvent être gardés un an.
+// les bundles Vite portent un hash dans leur nom et peuvent être gardés un an. Tout le reste (manifest,
+// icônes, apple-touch-icon.png) est revalidé aussi : le manifest a déjà changé de nom une fois, et un
+// navigateur qui le garde en cache heuristique garderait l'ancien nom sur l'écran d'accueil pendant des jours.
 var staticFiles = new StaticFileOptions
 {
     OnPrepareResponse = ctx =>
@@ -234,6 +236,8 @@ var staticFiles = new StaticFileOptions
             headers.CacheControl = "no-cache";
         else if (ctx.Context.Request.Path.StartsWithSegments("/assets"))
             headers.CacheControl = "public, max-age=31536000, immutable";
+        else
+            headers.CacheControl = "no-cache";
     }
 };
 app.UseDefaultFiles();
