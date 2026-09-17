@@ -1,6 +1,8 @@
 using FinanceApp.API.Data;
 using FinanceApp.API.Models;
+using FinanceApp.API.Services.Calendar;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace FinanceApp.API.Services;
 
@@ -23,11 +25,13 @@ public class EcheanceReconciliationService
     public const int BackfillBatchSize = 1000;
 
     private readonly AppDbContext _context;
+    private readonly HouseholdOptions _household;
     private readonly ILogger<EcheanceReconciliationService> _logger;
 
-    public EcheanceReconciliationService(AppDbContext context, ILogger<EcheanceReconciliationService> logger)
+    public EcheanceReconciliationService(AppDbContext context, IOptions<HouseholdOptions> household, ILogger<EcheanceReconciliationService> logger)
     {
         _context = context;
+        _household = household.Value;
         _logger = logger;
     }
 
@@ -71,8 +75,9 @@ public class EcheanceReconciliationService
     private async Task<int> MatchOpenEcheancesAsync(CancellationToken ct)
     {
         // Au-delà de la fenêtre forte après la date limite, aucun virement ne peut plus prouver l'échéance :
-        // elle reste manuelle et n'élargit pas la fenêtre des candidats. Le jour UTC suffit à cette borne.
-        var oldestDueStillMatchable = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-EcheanceMatcher.StrongDaysAfter);
+        // elle reste manuelle et n'élargit pas la fenêtre des candidats. Le jour du ménage, pas l'UTC : le Pi
+        // tourne en UTC et, entre 22 h et minuit, la borne glisserait d'un jour.
+        var oldestDueStillMatchable = _household.TodayLocal(DateTime.UtcNow).AddDays(-EcheanceMatcher.StrongDaysAfter);
 
         var open = await _context.Echeances
             .Where(e => e.PaidAt == null && e.TransactionId == null && e.AutoMatchRefusedAt == null)
@@ -110,23 +115,31 @@ public class EcheanceReconciliationService
     /// <summary>
     /// Les dépenses réelles des comptes logiques du dashboard (même périmètre qu'EcheanceController.Update),
     /// hors provisions, pas déjà la preuve d'une autre échéance, dans la fenêtre la plus large que les
-    /// échéances du dashboard peuvent réclamer. Sans tri : le matcher trie lui-même.
+    /// échéances du dashboard peuvent réclamer. Sans tri : le matcher trie lui-même. La date du candidat
+    /// est le jour du ménage (HouseholdOptions), le matcher compare des jours locaux à des dates limites.
     /// </summary>
     private async Task<List<PaymentCandidate>> LoadCandidatesAsync(int dashboardId, IEnumerable<Echeance> echeances, CancellationToken ct)
     {
         var dues = echeances.Select(e => e.DueDate).ToList();
-        var from = dues.Min().AddDays(-EcheanceMatcher.StrongDaysBefore).ToDateTime(TimeOnly.MinValue);
-        var toExclusive = dues.Max().AddDays(EcheanceMatcher.StrongDaysAfter + 1).ToDateTime(TimeOnly.MinValue);
+        // Un jour de marge de chaque côté : la fenêtre SQL compare des instants UTC, le matcher des jours
+        // locaux, et un virement du premier jour de la fenêtre locale peut être daté de la veille en UTC.
+        var from = dues.Min().AddDays(-EcheanceMatcher.StrongDaysBefore - 1).ToDateTime(TimeOnly.MinValue);
+        var toExclusive = dues.Max().AddDays(EcheanceMatcher.StrongDaysAfter + 2).ToDateTime(TimeOnly.MinValue);
 
-        return await _context.Transactions
+        var rows = await _context.Transactions
             .Where(t => t.Type == TransactionType.Expense && !t.IsProvisional)
             .Where(t => t.Account.DashboardAccounts.Any(da => da.DashboardId == dashboardId))
             .Where(t => t.Date >= from && t.Date < toExclusive)
             .Where(t => !_context.Echeances.Any(e => e.TransactionId == t.Id))
-            // La sentinelle vide n'est pas une clé : elle sort en null.
-            .Select(t => new PaymentCandidate(t.Id, t.Amount, t.Date, t.CounterpartyIban,
-                t.StructuredCommunication == StructuredCommunication.Examined ? null : t.StructuredCommunication))
+            .Select(t => new { t.Id, t.Amount, t.Date, t.CounterpartyIban, t.StructuredCommunication })
             .ToListAsync(ct);
+
+        // Relue de SQLite en Kind Unspecified, la date d'une transaction est UTC : TodayLocal la ramène au
+        // jour du ménage. La sentinelle vide n'est pas une clé : elle sort en null.
+        return rows
+            .Select(t => new PaymentCandidate(t.Id, t.Amount, _household.TodayLocal(t.Date), t.CounterpartyIban,
+                t.StructuredCommunication == StructuredCommunication.Examined ? null : t.StructuredCommunication))
+            .ToList();
     }
 
     /// <summary>
