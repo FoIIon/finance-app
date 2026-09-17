@@ -44,7 +44,7 @@ public class EcheanceDocumentAuthorizationTests : IDisposable
     private AppDbContext NewContext() => new(_options);
 
     private EcheanceController Echeances(AppDbContext ctx, int userId) =>
-        new(ctx, Microsoft.Extensions.Options.Options.Create(new FinanceApp.API.Services.Calendar.HouseholdOptions())) { ControllerContext = TestHousehold.As(userId) };
+        new(ctx, Microsoft.Extensions.Options.Options.Create(AgendaTestSupport.Household())) { ControllerContext = TestHousehold.As(userId) };
 
     private DocumentController Documents(AppDbContext ctx, int userId) =>
         new(ctx, _storage, _storageOptions) { ControllerContext = TestHousehold.As(userId) };
