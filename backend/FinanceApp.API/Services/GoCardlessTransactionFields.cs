@@ -39,4 +39,32 @@ public static class GoCardlessTransactionFields
 
     /// <summary>Sans espaces, en majuscules : un IBAN doit se comparer et se chercher à l'identique.</summary>
     public static string Normalize(string value) => value.Replace(" ", "").ToUpperInvariant();
+
+    /// <summary>
+    /// Le texte d'un champ de remittance Berlin Group, servi soit en chaîne (<paramref name="name"/>), soit en
+    /// tableau (<paramref name="name"/> + « Array »). Seuls les éléments de type chaîne sont gardés, joints par
+    /// un espace : certaines banques remplissent le tableau structuré d'objets <c>{reference, referenceType,
+    /// referenceIssuer}</c>, et un <c>GetString()</c> sur l'un d'eux levait, faisait échouer l'import du compte
+    /// et rejouait la même erreur à chaque cycle. Null quand ni l'un ni l'autre ne porte de texte.
+    /// </summary>
+    public static string? RemittanceText(JsonElement tx, string name)
+    {
+        if (tx.TryGetProperty(name, out var single) && single.ValueKind == JsonValueKind.String)
+        {
+            var text = single.GetString();
+            if (!string.IsNullOrWhiteSpace(text)) return text;
+        }
+
+        if (tx.TryGetProperty(name + "Array", out var array) && array.ValueKind == JsonValueKind.Array)
+        {
+            var parts = array.EnumerateArray()
+                .Where(e => e.ValueKind == JsonValueKind.String)
+                .Select(e => e.GetString())
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .ToList();
+            if (parts.Count > 0) return string.Join(" ", parts);
+        }
+
+        return null;
+    }
 }
