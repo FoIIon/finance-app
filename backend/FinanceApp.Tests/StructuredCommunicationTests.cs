@@ -115,6 +115,27 @@ public class StructuredCommunicationTests
     }
 
     [Fact]
+    public void SautDeLigneFinal_EstRefuse()
+    {
+        // $ accepterait « 123456789002\n » et long.Parse lèverait sur le \n : les ancres sont \A et \z.
+        Assert.False(StructuredCommunication.IsValid(Valide + "\n"));
+        Assert.Null(StructuredCommunication.Normalize(Valide + "\n"));
+        Assert.Null(StructuredCommunication.Normalize(Valide + "\r\n"));
+    }
+
+    [Fact]
+    public void ChiffresNonAscii_SontRefuses()
+    {
+        // Chiffres arabes-indiens (U+0660 à U+0669) : \d les accepte, [0-9] non, et long.Parse ne les lit pas.
+        const string arabe = "\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669\u0660\u0660\u0662";
+        Assert.False(StructuredCommunication.IsValid(arabe));
+        Assert.Null(StructuredCommunication.Normalize(arabe));
+        Assert.Null(StructuredCommunication.Extract($"+++{arabe[..3]}/{arabe[3..7]}/{arabe[7..]}+++"));
+        // Le mélange non plus : un seul chiffre étranger suffit à refuser.
+        Assert.Null(StructuredCommunication.Extract("+++123/4567/8900\u0662+++"));
+    }
+
+    [Fact]
     public void Format_EcritLaFormeAffichee() =>
         Assert.Equal("+++123/4567/89002+++", StructuredCommunication.Format(Valide));
 }
