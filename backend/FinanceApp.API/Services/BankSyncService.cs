@@ -305,6 +305,16 @@ public class BankSyncService : BackgroundService
                             ? string.Join(" ", descArr.EnumerateArray().Select(d => d.GetString()))
                             : "";
 
+                    // Lot 3 : certaines banques servent la communication structurée à part du libellé. Quand le
+                    // libellé ne la porte pas, elle est ajoutée à la fin sous sa forme +++…+++ : c'est là que le
+                    // rapprocheur la lit. Aucune autre colonne n'en dépend.
+                    var structuredRemittance = tx.TryGetProperty("remittanceInformationStructured", out var structured) && structured.ValueKind == JsonValueKind.String
+                        ? structured.GetString()
+                        : tx.TryGetProperty("remittanceInformationStructuredArray", out var structuredArr) && structuredArr.ValueKind == JsonValueKind.Array
+                            ? string.Join(" ", structuredArr.EnumerateArray().Select(d => d.GetString()))
+                            : null;
+                    description = StructuredCommunication.WithStructuredRemittance(description, structuredRemittance);
+
                     var bookingDate = tx.TryGetProperty("bookingDate", out var date)
                         ? DateTime.Parse(date.GetString()!)
                         : DateTime.UtcNow;

@@ -69,4 +69,25 @@ public static partial class StructuredCommunication
         twelveDigits.Length == Length
             ? $"+++{twelveDigits[..3]}/{twelveDigits[3..7]}/{twelveDigits[7..]}+++"
             : twelveDigits;
+
+    /// <summary>
+    /// Le libellé d'une transaction importée, complété par la communication que la banque sert à part
+    /// (<c>remittanceInformationStructured</c> chez GoCardless) quand le libellé ne la porte pas déjà. Elle
+    /// est ajoutée à la fin, sous la forme <c>+++123/4567/89002+++</c>, pour que <see cref="Extract"/> la
+    /// retrouve à chaque passe du rapprocheur. Rien n'est ajouté si le champ est vide, si ce n'est pas une
+    /// communication belge valide (contrôle 97), ou si le libellé en contient déjà une valide.
+    /// </summary>
+    public static string WithStructuredRemittance(string description, string? structuredRemittance)
+    {
+        description ??= "";
+        if (string.IsNullOrWhiteSpace(structuredRemittance)) return description;
+        if (Extract(description) != null) return description;
+
+        // Servie nue (douze chiffres), avec ses barres, ou déjà encadrée : Normalize les ramène toutes aux chiffres.
+        var digits = Normalize(structuredRemittance) ?? Extract(structuredRemittance);
+        if (digits == null) return description;
+
+        var formatted = Format(digits);
+        return description.Length == 0 ? formatted : $"{description} {formatted}";
+    }
 }
