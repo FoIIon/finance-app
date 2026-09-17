@@ -478,7 +478,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ConflitSurLIndexUnique_PendantLaSauvegarde_RetireLeLienEnConflit_SansLever()
+    public async Task ConflitSurLIndexUnique_PendantLaSauvegarde_AbandonneLaPasse_SansLever_EtLaSuivanteReessaie()
     {
         Household h;
         int t1, t2, echeanceC;
@@ -509,20 +509,28 @@ public class EcheanceReconciliationServiceTests : IDisposable
             matched = await Service(ctx, logger).ReconcileAsync(CancellationToken.None);
 
         Assert.True(interceptor.Fired);
-        // Deux liens trouvés, un en conflit : le compte rendu est de un, sans exception.
-        Assert.Equal(1, matched);
-        Assert.Contains(logger.Lines, l => l.Level == LogLevel.Warning && l.Message.Contains("1 lien(s) en conflit"));
+        // Deux liens trouvés, un en conflit : toute la passe est abandonnée, le compte rendu est zéro, sans exception.
+        Assert.Equal(0, matched);
+        Assert.Contains(logger.Lines, l => l.Level == LogLevel.Warning && l.Message.Contains("2 lien(s) abandonné(s)"));
 
-        using var check = NewContext();
-        var a = await check.Echeances.SingleAsync(e => e.Label == "A");
-        var b = await check.Echeances.SingleAsync(e => e.Label == "B");
-        var c2 = await check.Echeances.SingleAsync(e => e.Id == echeanceC);
-        Assert.Equal(t1, a.TransactionId);
-        Assert.NotNull(a.MatchedAt);
-        Assert.Null(b.TransactionId);
-        Assert.Null(b.MatchedAt);
-        Assert.Equal(t2, c2.TransactionId);
-        Assert.Equal(2, await check.Transactions.CountAsync());
+        using (var check = NewContext())
+        {
+            var a = await check.Echeances.SingleAsync(e => e.Label == "A");
+            var b = await check.Echeances.SingleAsync(e => e.Label == "B");
+            var c2 = await check.Echeances.SingleAsync(e => e.Id == echeanceC);
+            Assert.Null(a.TransactionId);
+            Assert.Null(a.MatchedAt);
+            Assert.Null(b.TransactionId);
+            Assert.Null(b.MatchedAt);
+            Assert.Equal(t2, c2.TransactionId);
+            Assert.Equal(2, await check.Transactions.CountAsync());
+        }
+
+        // La passe suivante relit les candidats : t2 est prise par C, A reçoit t1, B reste à payer.
+        Assert.Equal(1, await RunAsync());
+        using var after = NewContext();
+        Assert.Equal(t1, (await after.Echeances.SingleAsync(e => e.Label == "A")).TransactionId);
+        Assert.Null((await after.Echeances.SingleAsync(e => e.Label == "B")).TransactionId);
     }
 
     // ----- Invariance du bilan -----

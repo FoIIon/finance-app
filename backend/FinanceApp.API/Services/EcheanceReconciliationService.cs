@@ -143,36 +143,29 @@ public class EcheanceReconciliationService
     }
 
     /// <summary>
-    /// Une sauvegarde pour toute la passe. Si l'index unique sur TransactionId tranche (une autre écriture a
-    /// pris la transaction entre-temps), on retire le lien en conflit et on sauvegarde le reste, sans jamais
-    /// planter la synchronisation.
+    /// Une sauvegarde pour toute la passe, une seule tentative. Si l'index unique sur TransactionId tranche
+    /// (une autre écriture a pris une transaction entre la lecture des candidats et ici), toute la passe est
+    /// abandonnée : les échéances reprennent leurs valeurs d'origine, on journalise le nombre, on rend 0. La
+    /// passe suivante relira les candidats sans la transaction prise et réessaiera. Jamais d'exception vers
+    /// la synchronisation.
     /// </summary>
     private async Task<int> SaveLinksAsync(List<Echeance> matched, CancellationToken ct)
     {
-        for (var attempt = 0; attempt <= matched.Count; attempt++)
+        try
         {
-            try
-            {
-                await _context.SaveChangesAsync(ct);
-                return matched.Count;
-            }
-            catch (DbUpdateException ex)
-            {
-                var conflicting = ex.Entries.Select(en => en.Entity).OfType<Echeance>().Where(matched.Contains).ToList();
-                // Impossible d'isoler la ligne fautive : on renonce à toute la passe, la suivante réessaiera.
-                if (conflicting.Count == 0) conflicting = matched.ToList();
-
-                _logger.LogWarning("Rapprochement des échéances : {Count} lien(s) en conflit sur l'index unique, retiré(s) de la passe.", conflicting.Count);
-                foreach (var e in conflicting)
-                {
-                    var entry = _context.Entry(e);
-                    entry.CurrentValues.SetValues(entry.OriginalValues);
-                    entry.State = EntityState.Unchanged;
-                    matched.Remove(e);
-                }
-                if (matched.Count == 0) return 0;
-            }
+            await _context.SaveChangesAsync(ct);
+            return matched.Count;
         }
-        return 0;
+        catch (DbUpdateException)
+        {
+            _logger.LogWarning("Rapprochement des échéances : conflit sur l'index unique, {Count} lien(s) abandonné(s), la passe suivante réessaiera.", matched.Count);
+            foreach (var e in matched)
+            {
+                var entry = _context.Entry(e);
+                entry.CurrentValues.SetValues(entry.OriginalValues);
+                entry.State = EntityState.Unchanged;
+            }
+            return 0;
+        }
     }
 }
