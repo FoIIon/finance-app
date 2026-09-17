@@ -306,13 +306,17 @@ public class BankSyncService : BackgroundService
                     var amount = tx.GetProperty("transactionAmount").GetProperty("amount").GetString();
                     var parsedAmount = decimal.Parse(amount!, System.Globalization.CultureInfo.InvariantCulture);
 
-                    var description = GoCardlessTransactionFields.RemittanceText(tx, "remittanceInformationUnstructured") ?? "";
+                    // Le libellé tel que la banque le sert : c'est lui que lisent les règles de catégories et le
+                    // routage perso/commun, jamais la version enrichie ci-dessous. Un mot-clé numérique court
+                    // (« 4567 ») attraperait sinon un virement à cause de sa communication structurée.
+                    var bankDescription = GoCardlessTransactionFields.RemittanceText(tx, "remittanceInformationUnstructured") ?? "";
 
                     // Lot 3 : certaines banques servent la communication structurée à part du libellé. Quand le
                     // libellé ne la porte pas, elle est ajoutée à la fin sous sa forme +++…+++ : c'est là que le
-                    // rapprocheur la lit. Aucune autre colonne n'en dépend.
+                    // rapprocheur la lit. C'est cette version enrichie qui est stockée dans Description, la
+                    // catégorie et le périmètre se décident sur bankDescription.
                     var structuredRemittance = GoCardlessTransactionFields.RemittanceText(tx, "remittanceInformationStructured");
-                    description = StructuredCommunication.WithStructuredRemittance(description, structuredRemittance);
+                    var description = StructuredCommunication.WithStructuredRemittance(bankDescription, structuredRemittance);
 
                     var bookingDate = tx.TryGetProperty("bookingDate", out var date)
                         ? DateTime.Parse(date.GetString()!)
@@ -328,7 +332,7 @@ public class BankSyncService : BackgroundService
 
                     // Appliquer les règles : la première qui matche (mot-clé le plus long d'abord) fixe la
                     // catégorie, le flag fixe et, pour une ligne TR, le périmètre perso/commun.
-                    var matchedRule = CategoryRuleMatcher.FirstMatch(rules, description, counterparty, counterpartyIban);
+                    var matchedRule = CategoryRuleMatcher.FirstMatch(rules, bankDescription, counterparty, counterpartyIban);
                     var categoryId = matchedRule?.CategoryId ?? defaultCategoryId;
                     var isFixed = matchedRule?.MarkAsFixed ?? false;
 

@@ -43,6 +43,22 @@ public class CategoryRuleMatcherTests
     }
 
     [Fact]
+    public void UneRegleNumeriqueCourte_NeMatchePas_SurLaCommunicationAjouteeAuLibelle()
+    {
+        // À l'import, la communication structurée servie à part est ajoutée au libellé stocké (+++123/4567/89002+++),
+        // mais les règles tournent sur le libellé tel que la banque le sert. Une règle « 4567 » qui vise un
+        // commerçant ne doit pas attraper ce virement à cause de sa communication : le test fixe la raison de
+        // la séparation faite dans BankSyncService entre bankDescription et la description enrichie.
+        var rules = new List<CategoryRule> { new() { Id = 1, Keyword = "4567", CategoryId = 7 } };
+        const string bankDescription = "Virement école";
+        var enriched = StructuredCommunication.WithStructuredRemittance(bankDescription, "+++123/4567/89002+++");
+
+        Assert.Equal("Virement école +++123/4567/89002+++", enriched);
+        Assert.Null(CategoryRuleMatcher.FirstMatch(rules, bankDescription, null));
+        Assert.NotNull(CategoryRuleMatcher.FirstMatch(rules, enriched, null));
+    }
+
+    [Fact]
     public void InApplicationOrder_PlusLongDAbord_PuisPlusAncien()
     {
         var rules = new List<CategoryRule>
