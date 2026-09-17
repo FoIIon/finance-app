@@ -79,7 +79,6 @@ public static partial class StructuredCommunication
     /// </summary>
     public static string WithStructuredRemittance(string description, string? structuredRemittance)
     {
-        description ??= "";
         if (string.IsNullOrWhiteSpace(structuredRemittance)) return description;
         if (Extract(description) != null) return description;
 

@@ -44,14 +44,14 @@ public class EcheanceReconciliationServiceTests : IDisposable
 
     private AppDbContext NewContext() => new(_options);
 
-    /// <summary>Le fuseau du ménage par défaut, Europe/Brussels : les dates des candidats sont des jours locaux.</summary>
-    private static IOptions<HouseholdOptions> Household => Options.Create(new HouseholdOptions());
+    /// <summary>Le fuseau du ménage, Europe/Brussels : les dates des candidats sont des jours locaux.</summary>
+    private static IOptions<HouseholdOptions> Household => Options.Create(AgendaTestSupport.Household());
 
     private static EcheanceReconciliationService Service(AppDbContext ctx, ILogger<EcheanceReconciliationService>? logger = null) =>
         new(ctx, Household, new FixedTimeProvider(Clock), logger ?? NullLogger<EcheanceReconciliationService>.Instance);
 
     private static EcheanceController Controller(AppDbContext ctx, int userId) =>
-        new(ctx, Microsoft.Extensions.Options.Options.Create(new FinanceApp.API.Services.Calendar.HouseholdOptions())) { ControllerContext = TestHousehold.As(userId) };
+        new(ctx, Household) { ControllerContext = TestHousehold.As(userId) };
 
     private async Task<int> RunAsync()
     {
@@ -59,7 +59,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
         return await Service(ctx).ReconcileAsync(CancellationToken.None);
     }
 
-    /// <summary>Garde les messages formatés : le compte de rattrapage n'est visible que par le journal.</summary>
+    /// <summary>Garde les messages formatés, leur niveau et l'exception jointe : la cause d'un abandon de passe n'est visible que par le journal.</summary>
     private sealed class CapturingLogger : ILogger<EcheanceReconciliationService>
     {
         public List<(LogLevel Level, string Message, Exception? Exception)> Lines { get; } = new();
@@ -75,9 +75,6 @@ public class EcheanceReconciliationServiceTests : IDisposable
         AccountId = accountId ?? h.AccountId, CategoryId = 6, Type = TransactionType.Expense, Amount = amount, Date = date,
         Description = desc, CounterpartyIban = iban, IsImported = true, IsProvisional = provisional,
     };
-
-    /// <summary>« +++123/4567/89002+++ » depuis les douze chiffres, pour écrire un libellé de virement.</summary>
-    private static string Formatee(string com) => $"+++{com[..3]}/{com[3..7]}/{com[7..]}+++";
 
     private static Echeance Facture(Household h, string label, decimal? amount, DateOnly due, string? iban = Ecole, string? com = null, int? transactionId = null, DateTime? paidAt = null) => new()
     {
@@ -119,7 +116,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
         {
             h = await TestHousehold.SeedAsync(ctx, "com@test.local");
             ctx.Transactions.AddRange(
-                Depense(h, 61.20m, new DateTime(2026, 8, 5), $"Virement {Formatee(Com)} ostéo", iban: null),
+                Depense(h, 61.20m, new DateTime(2026, 8, 5), $"Virement {StructuredCommunication.Format(Com)} ostéo", iban: null),
                 Depense(h, 61.20m, new DateTime(2026, 8, 5), "Autre chose", iban: null));
             ctx.Echeances.Add(Facture(h, "Facture ostéo", null, new DateOnly(2026, 8, 28), iban: null, com: Com));
             await ctx.SaveChangesAsync();
@@ -387,7 +384,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
         {
             h = await TestHousehold.SeedAsync(ctx, "lecture-seule@test.local");
             ctx.Transactions.AddRange(
-                Depense(h, 61.20m, new DateTime(2026, 8, 5), $"Virement {Formatee(Com)} ostéo", iban: null),
+                Depense(h, 61.20m, new DateTime(2026, 8, 5), $"Virement {StructuredCommunication.Format(Com)} ostéo", iban: null),
                 Depense(h, 12.00m, new DateTime(2026, 8, 6), "+++123/4567/89012+++ contrôle faux", iban: null),
                 Depense(h, 30.00m, new DateTime(2026, 8, 7), "PAIEMENT CARTE ****1234 COLRUYT", iban: null),
                 Depense(h, 2.60m, new DateTime(2026, 8, 28), "Ecole communale"));
@@ -406,20 +403,6 @@ public class EcheanceReconciliationServiceTests : IDisposable
         Assert.Equal(before, await TransactionsSnapshotAsync());
         using var check = NewContext();
         Assert.Equal(2, await check.Echeances.CountAsync(e => e.TransactionId != null && e.MatchedAt != null));
-    }
-
-    [Fact]
-    public void LeRapprocheur_NEcritJamaisSurTransactions_ParLaSource()
-    {
-        // Aucun Add, Remove ni affectation sur une transaction dans l'exécuteur : la lecture des candidats
-        // projette des colonnes, et la seule sauvegarde porte des échéances.
-        var source = File.ReadAllText(Path.Combine(ApiSourceDir(), "Services/EcheanceReconciliationService.cs"));
-        Assert.DoesNotContain("Transactions.Add", source);
-        Assert.DoesNotContain("Transactions.Remove", source);
-        Assert.DoesNotContain("Transactions.Update", source);
-        Assert.DoesNotContain("ExecuteUpdate", source);
-        Assert.DoesNotContain("ExecuteDelete", source);
-        Assert.Single(System.Text.RegularExpressions.Regex.Matches(source, @"SaveChangesAsync\("));
     }
 
     // ----- Conflit sur l'index unique pendant la sauvegarde -----
@@ -610,7 +593,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task UnePasseQuiRapprocheEtRattrape_NeChangeRien_AuBilan()
+    public async Task UnePasseQuiRapproche_NeChangeRien_AuBilan()
     {
         Household h;
         using (var ctx = NewContext())
@@ -631,7 +614,7 @@ public class EcheanceReconciliationServiceTests : IDisposable
                 T(1, TransactionType.Income, 3120.45m, 8, "Salaire Seb"),
                 T(1, TransactionType.Income, 2210.10m, 8, "Salaire Audrey"),
                 T(2, TransactionType.Expense, 1250.00m, 3, "Prêt hypothécaire", fixe: true),
-                T(4, TransactionType.Expense, 189.99m, 3, $"Électricité {Formatee(Com)}", iban: "BE68539007547034", fixe: true),
+                T(4, TransactionType.Expense, 189.99m, 3, $"Électricité {StructuredCommunication.Format(Com)}", iban: "BE68539007547034", fixe: true),
                 T(6, TransactionType.Income, 62.30m, 3, "Régularisation énergie", fixe: true),
                 T(7, TransactionType.Expense, 143.67m, 1, "Colruyt"),
                 T(10, TransactionType.Expense, 27.50m, 5, "Pharmacie"),

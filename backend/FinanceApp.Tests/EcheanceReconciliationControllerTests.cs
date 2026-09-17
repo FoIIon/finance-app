@@ -35,7 +35,7 @@ public class EcheanceReconciliationControllerTests : IDisposable
     private AppDbContext NewContext() => new(_options);
 
     private EcheanceController Controller(AppDbContext ctx) =>
-        new(ctx, Microsoft.Extensions.Options.Options.Create(new FinanceApp.API.Services.Calendar.HouseholdOptions())) { ControllerContext = TestHousehold.As(_h.UserId) };
+        new(ctx, Microsoft.Extensions.Options.Options.Create(AgendaTestSupport.Household())) { ControllerContext = TestHousehold.As(_h.UserId) };
 
     private static EcheanceDto Dto(ActionResult<EcheanceDto> result) =>
         (EcheanceDto)((ObjectResult)result.Result!).Value!;

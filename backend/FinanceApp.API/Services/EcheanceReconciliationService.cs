@@ -81,9 +81,10 @@ public class EcheanceReconciliationService
     }
 
     /// <summary>
-    /// Les dépenses réelles des comptes logiques du dashboard (même périmètre qu'EcheanceController.Update),
-    /// hors provisions, pas déjà la preuve d'une autre échéance, dans la fenêtre la plus large que les
-    /// échéances du dashboard peuvent réclamer. Sans tri : le matcher trie lui-même. La date du candidat
+    /// Les dépenses réelles des comptes logiques du dashboard, hors provisions, pas déjà la preuve d'une autre
+    /// échéance, dans la fenêtre la plus large que les échéances du dashboard peuvent réclamer. Depuis que le
+    /// PUT ne lie plus de transaction (v4), cette requête est le seul endroit qui définit le périmètre d'un
+    /// candidat. Sans tri : le matcher trie lui-même. La date du candidat
     /// est le jour du ménage (HouseholdOptions), et sa communication structurée est extraite du libellé en
     /// mémoire, après la lecture SQL : rien n'est écrit sur la transaction, rien n'est suivi par le contexte.
     /// </summary>

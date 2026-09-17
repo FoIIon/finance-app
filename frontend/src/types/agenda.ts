@@ -104,7 +104,10 @@ export interface Echeance {
   matchedAt: string | null;
   /** Instant ISO UTC où un rapprochement automatique a été défait : le serveur ne redevine plus tant qu'une clé ne change pas. */
   autoMatchRefusedAt: string | null;
-  /** La transaction liée, pour l'affichage. Null sans lien. */
+  /**
+   * La transaction liée, pour l'affichage. Null sans lien, et toujours null dans la liste (GET /echeances,
+   * qui ne charge pas la transaction) : seule la fiche (GET /echeances/{id}) le remplit.
+   */
   payment: EcheancePayment | null;
   documentIds: number[];
   createdByUserId: number;

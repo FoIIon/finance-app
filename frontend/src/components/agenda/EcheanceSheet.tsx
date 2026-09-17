@@ -43,7 +43,8 @@ const statusFromDto = (status: string | undefined): AgendaStatus | null => {
 /**
  * Feuille basse sur le patron de CategoryDetailModal. Titre, montant, date limite, statut en texte, puis
  * les gestes : « Je l'ai payée », réversible au même endroit par « Finalement non », qui couvre aussi le
- * cas d'une transaction liée (manuelle ou rapprochée) : c'est le seul geste qui détache. Chaque geste
+ * cas d'une transaction liée par le rapprocheur : c'est le seul geste qui détache, et le serveur ne redevine
+ * plus tant qu'une clé ne change pas. Chaque geste
  * invalide l'agenda, le serveur recalcule le statut. Lot 1 : une section Documents, puis « Modifier » (la
  * feuille de saisie prend la place de celle-ci, et ne touche jamais au lien de paiement) et « Supprimer ».
  * Lot 3 : quand c'est le rapprocheur qui a lié la transaction (matchedAt), le statut dit « Vu sur le compte »
