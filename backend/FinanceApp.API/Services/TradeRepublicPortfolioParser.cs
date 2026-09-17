@@ -125,6 +125,31 @@ public static class TradeRepublicPortfolioParser
         return string.Join(" | ", blocs);
     }
 
+    /// <summary>
+    /// Forme d'une réponse sans ses valeurs : noms de propriétés, types, taille des tableaux
+    /// (premier élément seulement). Sert au journal quand l'import ne lit aucune position,
+    /// pour voir ce que Trade Republic a changé sans relancer une session d'exploration.
+    /// </summary>
+    public static string DescribeShape(string json, int maxDepth = 5)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return Shape(doc.RootElement, maxDepth);
+    }
+
+    private static string Shape(JsonElement el, int depth) => el.ValueKind switch
+    {
+        JsonValueKind.Object when depth <= 0 => "{…}",
+        JsonValueKind.Object => "{" + string.Join(", ",
+            el.EnumerateObject().Select(p => $"{p.Name}: {Shape(p.Value, depth - 1)}")) + "}",
+        JsonValueKind.Array when el.GetArrayLength() == 0 => "[]",
+        JsonValueKind.Array when depth <= 0 => $"[{el.GetArrayLength()}×…]",
+        JsonValueKind.Array => $"[{el.GetArrayLength()}× {Shape(el[0], depth - 1)}]",
+        JsonValueKind.String => "str",
+        JsonValueKind.Number => "num",
+        JsonValueKind.True or JsonValueKind.False => "bool",
+        _ => "null",
+    };
+
     /// <summary>Un point de la série de cours renvoyée par aggregateHistoryLight.</summary>
     public record TrPricePoint(DateTime AsOf, decimal Close);
 

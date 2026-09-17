@@ -168,4 +168,14 @@ public class TradeRepublicPortfolioParserTests
         Assert.Empty(items);
         Assert.Null(after);
     }
+
+    [Fact]
+    public void DescribeShape_donne_la_structure_sans_les_valeurs()
+    {
+        var forme = TradeRepublicPortfolioParser.DescribeShape(
+            """{ "categories": [ { "positions": [ { "isin": "IE00BK5BQT80", "netSize": 12.5, "ok": true, "x": null } ] }, {} ], "empty": [] }""");
+
+        Assert.Equal("{categories: [2× {positions: [1× {isin: str, netSize: num, ok: bool, x: null}]}], empty: []}", forme);
+        Assert.DoesNotContain("IE00BK5BQT80", forme);
+    }
 }

@@ -547,6 +547,17 @@ public class TradeRepublicClient : IDisposable
             new { type = "compactPortfolioByType", token = sessionToken }, timeoutCts.Token);
         var positions = TradeRepublicPortfolioParser.ParsePositions(positionsJson);
 
+        // Le 17/09/2026, l'import a lu zéro position sans rien signaler : le parseur saute en
+        // silence ce qu'il ne reconnaît pas. La forme de la réponse est journalisée pour voir
+        // ce que Trade Republic a changé.
+        if (positions.Count == 0)
+        {
+            _logger.LogWarning(
+                "TR portefeuille : aucune position lue. Forme : {forme}. Début de réponse : {extrait}",
+                TradeRepublicPortfolioParser.DescribeShape(positionsJson),
+                positionsJson[..Math.Min(1500, positionsJson.Length)]);
+        }
+
         // Solde espèces : le portefeuille ne contient que des positions, aucune catégorie
         // de liquidités. Un échec ici ne doit pas faire perdre l'import des positions.
         decimal? cash = null;
