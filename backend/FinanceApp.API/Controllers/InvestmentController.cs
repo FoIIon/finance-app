@@ -471,6 +471,11 @@ public class InvestmentController : ApiControllerBase
 
         var snapshots = import.Positions;
 
+        // Zéro position n'est jamais un portefeuille réel : c'est une réponse que le parseur ne
+        // sait plus lire. Sans cet arrêt, l'import se disait réussi et la valeur restait figée.
+        if (snapshots.Count == 0)
+            return BadRequest("Trade Republic n'a renvoyé aucune position lisible. Import interrompu, la forme de la réponse est dans le journal du serveur.");
+
         // Le solde espèces est rangé sur la connexion, pas sur une ligne d'investissement :
         // il s'affiche à part et n'entre ni dans la valeur du portefeuille ni dans la
         // plus-value, faute de quoi il gonflerait une performance qu'il ne produit pas.
