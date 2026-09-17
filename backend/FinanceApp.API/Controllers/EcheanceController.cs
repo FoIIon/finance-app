@@ -121,9 +121,10 @@ public class EcheanceController : ApiControllerBase
         var userId = GetUserId();
         if (!await IsMemberAsync(dashboardId, userId)) return NotFound();
 
+        // Sans la transaction : la liste ne sert qu'aux libellés et au statut (dérivé des colonnes), Payment
+        // y reste null. La fiche (GetById) charge la transaction pour le détail du virement.
         var query = _context.Echeances
             .Include(e => e.Documents)
-            .Include(e => e.Transaction)
             .Where(e => e.DashboardId == dashboardId);
         if (from.HasValue) query = query.Where(e => e.DueDate >= from.Value);
         if (to.HasValue) query = query.Where(e => e.DueDate <= to.Value);

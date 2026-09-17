@@ -260,7 +260,7 @@ public class EcheanceReconciliationControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAll_EtGetById_RemplissentPayment_DepuisLaTransaction()
+    public async Task GetById_RemplitPayment_GetAll_LeLaisseNull_MaisDitLeStatut()
     {
         using var ctx = NewContext();
         var txId = await TransactionAsync(ctx, 2.60m, new DateTime(2026, 8, 28));
@@ -270,11 +270,18 @@ public class EcheanceReconciliationControllerTests : IDisposable
         var ctl = Controller(read);
         var one = Dto(await ctl.GetById(id));
         Assert.NotNull(one.Payment);
+        Assert.Equal(txId, one.Payment!.TransactionId);
         Assert.NotNull(one.MatchedAt);
         Assert.Equal(DateTimeKind.Utc, one.MatchedAt!.Value.Kind);
 
-        var all = (List<EcheanceDto>)((OkObjectResult)(await ctl.GetAll(_h.DashboardId, null, null, null)).Result!).Value!;
+        // La liste ne charge pas la transaction : Payment null, mais le statut et le lien se lisent des colonnes.
+        // Un contexte neuf, comme une requête à part : sinon la transaction suivie par GetById se raccrocherait.
+        using var list = NewContext();
+        var all = (List<EcheanceDto>)((OkObjectResult)(await Controller(list).GetAll(_h.DashboardId, null, null, null)).Result!).Value!;
         Assert.Single(all);
-        Assert.Equal(txId, all[0].Payment?.TransactionId);
+        Assert.Null(all[0].Payment);
+        Assert.Equal(txId, all[0].TransactionId);
+        Assert.Equal("Payee", all[0].Status);
+        Assert.NotNull(all[0].MatchedAt);
     }
 }
