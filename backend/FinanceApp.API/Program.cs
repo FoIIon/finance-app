@@ -221,9 +221,23 @@ app.Use(async (context, next) =>
 
 app.UseCors("Frontend");
 
-// Sert le build frontend depuis wwwroot/ (déploiement Pi : backend + frontend sur la même origine)
+// Sert le build frontend depuis wwwroot/ (déploiement Pi : backend + frontend sur la même origine).
+// index.html sans Cache-Control laissait le navigateur appliquer son cache heuristique : un déploiement
+// restait invisible plusieurs heures (constaté le 16/09/2026). Il est revalidé à chaque chargement,
+// les bundles Vite portent un hash dans leur nom et peuvent être gardés un an.
+var staticFiles = new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        var headers = ctx.Context.Response.Headers;
+        if (ctx.File.Name.Equals("index.html", StringComparison.OrdinalIgnoreCase))
+            headers.CacheControl = "no-cache";
+        else if (ctx.Context.Request.Path.StartsWithSegments("/assets"))
+            headers.CacheControl = "public, max-age=31536000, immutable";
+    }
+};
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(staticFiles);
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -239,6 +253,6 @@ app.MapControllers();
 
 // SPA fallback : toute route non-API renvoie index.html (React Router gère le reste)
 if (File.Exists(Path.Combine(app.Environment.WebRootPath ?? "", "index.html")))
-    app.MapFallbackToFile("index.html");
+    app.MapFallbackToFile("index.html", staticFiles);
 
 app.Run();
