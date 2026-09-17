@@ -541,10 +541,34 @@ public class TradeRepublicClient : IDisposable
         string sessionToken, string refreshToken, string deviceToken, CancellationToken ct = default)
     {
         using var timeoutCts = CreateTimeoutToken(ct, TimeSpan.FromSeconds(120));
+
+        // Depuis septembre 2026, le portefeuille sans numéro de compte-titres revient vide.
+        string? secAccNo = null;
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, "/api/v2/auth/account");
+            AddBrowserHeaders(request);
+            AddTrV2Headers(request);
+            request.Headers.Add("Cookie", $"tr_session={sessionToken}");
+            using var response = await _httpClient.SendAsync(request, timeoutCts.Token);
+            var status = (int)response.StatusCode;
+            var body = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+            secAccNo = status == 200 ? TradeRepublicPortfolioParser.ParseSecuritiesAccountNumber(body) : null;
+            if (secAccNo is null)
+                _logger.LogWarning("TR compte : numéro de compte-titres introuvable (HTTP {status}, forme {forme}).",
+                    status, status == 200 ? TradeRepublicPortfolioParser.DescribeShape(body, 2) : "-");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("TR compte : lecture du compte-titres échouée : {message}", ex.Message);
+        }
+
         await ConnectAsync(refreshToken, deviceToken, timeoutCts.Token);
 
-        var positionsJson = await SubscribeOnceRawAsync(
-            new { type = "compactPortfolioByType", token = sessionToken }, timeoutCts.Token);
+        object portfolioPayload = secAccNo is null
+            ? new { type = "compactPortfolioByType", token = sessionToken }
+            : new { type = "compactPortfolioByType", secAccNo, token = sessionToken };
+        var positionsJson = await SubscribeOnceRawAsync(portfolioPayload, timeoutCts.Token);
         var positions = TradeRepublicPortfolioParser.ParsePositions(positionsJson);
 
         // Le 17/09/2026, l'import a lu zéro position sans rien signaler : le parseur saute en

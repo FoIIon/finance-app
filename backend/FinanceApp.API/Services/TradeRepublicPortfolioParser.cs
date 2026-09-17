@@ -299,6 +299,27 @@ public static class TradeRepublicPortfolioParser
         }
     }
 
+    /// <summary>
+    /// Numéro du compte-titres, lu dans GET /api/v2/auth/account (champ
+    /// securitiesAccountNumber, comme pytr). Depuis septembre 2026, compactPortfolioByType
+    /// sans ce numéro répond « categories: [] ».
+    /// </summary>
+    public static string? ParseSecuritiesAccountNumber(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object
+            || !doc.RootElement.TryGetProperty("securitiesAccountNumber", out var v))
+            return null;
+
+        var valeur = v.ValueKind switch
+        {
+            JsonValueKind.String => v.GetString(),
+            JsonValueKind.Number => v.GetRawText(),
+            _ => null,
+        };
+        return string.IsNullOrWhiteSpace(valeur) ? null : valeur;
+    }
+
     /// <summary>Solde espèces en euros du compte Trade Republic.</summary>
     public static decimal? ParseCashBalance(string json)
     {
