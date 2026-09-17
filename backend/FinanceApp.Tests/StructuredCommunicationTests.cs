@@ -138,4 +138,38 @@ public class StructuredCommunicationTests
     [Fact]
     public void Format_EcritLaFormeAffichee() =>
         Assert.Equal("+++123/4567/89002+++", StructuredCommunication.Format(Valide));
+
+    // ----- Composition du libellé à l'import (remittanceInformationStructured) -----
+
+    [Fact]
+    public void WithStructuredRemittance_AjouteLaCommunicationEnFinDeLibelle_QuandIlNeLaPortePas()
+    {
+        Assert.Equal($"Facture école {Formatee(Valide)}", StructuredCommunication.WithStructuredRemittance("Facture école", Valide));
+        // Servie avec ses barres ou déjà encadrée : même résultat, une seule fois.
+        Assert.Equal($"Facture école {Formatee(Valide)}", StructuredCommunication.WithStructuredRemittance("Facture école", "123/4567/89002"));
+        Assert.Equal($"Facture école {Formatee(Valide)}", StructuredCommunication.WithStructuredRemittance("Facture école", Formatee(Valide, "***")));
+        // Libellé vide : la communication devient le libellé.
+        Assert.Equal(Formatee(Valide), StructuredCommunication.WithStructuredRemittance("", Valide));
+    }
+
+    [Fact]
+    public void WithStructuredRemittance_NAjouteRien_QuandLeLibelleEnPorteDejaUne()
+    {
+        var libelle = $"Virement {Formatee(Valide)} école";
+        Assert.Equal(libelle, StructuredCommunication.WithStructuredRemittance(libelle, Valide));
+        // Même une autre communication : la première du libellé fait foi, le libellé n'est pas touché.
+        Assert.Equal(libelle, StructuredCommunication.WithStructuredRemittance(libelle, Autre));
+    }
+
+    [Fact]
+    public void WithStructuredRemittance_NAjouteRien_SansChamp_OuSiLeChampNEstPasUneCommunicationValide()
+    {
+        Assert.Equal("Colruyt", StructuredCommunication.WithStructuredRemittance("Colruyt", null));
+        Assert.Equal("Colruyt", StructuredCommunication.WithStructuredRemittance("Colruyt", ""));
+        Assert.Equal("Colruyt", StructuredCommunication.WithStructuredRemittance("Colruyt", "   "));
+        // Contrôle 97 faux, référence RF (ISO 11649) ou texte libre : pas une clé belge, le libellé reste tel quel.
+        Assert.Equal("Colruyt", StructuredCommunication.WithStructuredRemittance("Colruyt", "+++123/4567/89012+++"));
+        Assert.Equal("Colruyt", StructuredCommunication.WithStructuredRemittance("Colruyt", "RF18539007547034"));
+        Assert.Equal("Colruyt", StructuredCommunication.WithStructuredRemittance("Colruyt", "Facture 2026-08"));
+    }
 }
