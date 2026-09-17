@@ -64,6 +64,12 @@ public class TransactionController : ApiControllerBase
     /// </summary>
     private const string EchappementLike = "!";
 
+    /// <summary>Plafond d'une page de GET /transaction : au-delà, limit est ramené à cette valeur.</summary>
+    public const int LimiteMaxParPage = 500;
+
+    /// <summary>En-tête qui porte le total du périmètre filtré quand une page est demandée.</summary>
+    public const string EnTeteTotal = "X-Total-Count";
+
     /// <summary>
     /// Neutralise les jokers d'un motif LIKE saisi par l'utilisateur. Sans ça, chercher « 100% » ou
     /// « _ » renverrait n'importe quoi.
@@ -116,10 +122,23 @@ public class TransactionController : ApiControllerBase
         [FromQuery] bool? isFixed,
         [FromQuery] string? search,
         [FromQuery] string? sortBy,
-        [FromQuery] bool? sortDesc)
+        [FromQuery] bool? sortDesc,
+        [FromQuery] int? limit,
+        [FromQuery] int? offset)
     {
+        // Pagination facultative : sans limit, la liste complète du périmètre (les modales de catégorie
+        // et l'écran des exceptionnelles en dépendent). Avec limit, le total avant fenêtre part dans
+        // X-Total-Count, la réponse reste un tableau nu.
+        if (offset is < 0) return BadRequest("offset doit être positif ou nul.");
+        if (limit is < 1) return BadRequest("limit doit être au moins 1.");
+        var take = limit.HasValue ? Math.Min(limit.Value, LimiteMaxParPage) : (int?)null;
+
         var accountIds = await GetAccountIds(dashboardId);
-        if (!accountIds.Any()) return Ok(new List<TransactionDto>());
+        if (!accountIds.Any())
+        {
+            if (take.HasValue) Response.Headers[EnTeteTotal] = "0";
+            return Ok(new List<TransactionDto>());
+        }
 
         var query = _context.Transactions
             .Include(t => t.Category)
@@ -161,7 +180,7 @@ public class TransactionController : ApiControllerBase
         }
 
         var descending = sortDesc ?? true;
-        query = sortBy?.ToLower() switch
+        var ordered = sortBy?.ToLower() switch
         {
             "description" => descending ? query.OrderByDescending(t => t.Description) : query.OrderBy(t => t.Description),
             "account" => descending ? query.OrderByDescending(t => t.Account.Name) : query.OrderBy(t => t.Account.Name),
@@ -169,6 +188,17 @@ public class TransactionController : ApiControllerBase
             "amount" => descending ? query.OrderByDescending(t => t.Amount) : query.OrderBy(t => t.Amount),
             _ => descending ? query.OrderByDescending(t => t.Date) : query.OrderBy(t => t.Date),
         };
+        // Tri secondaire stable : sans lui, deux lignes à la même date (ou au même montant) peuvent
+        // changer d'ordre entre deux requêtes et apparaître deux fois ou jamais d'une page à l'autre.
+        query = ordered.ThenByDescending(t => t.Id);
+
+        if (take.HasValue)
+        {
+            var total = await query.CountAsync();
+            Response.Headers[EnTeteTotal] = total.ToString();
+        }
+        if (offset is > 0) query = query.Skip(offset.Value);
+        if (take.HasValue) query = query.Take(take.Value);
 
         var transactions = await query
             .Select(t => MapToDto(t))
