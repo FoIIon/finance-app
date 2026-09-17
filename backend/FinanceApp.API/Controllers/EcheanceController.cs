@@ -220,9 +220,11 @@ public class EcheanceController : ApiControllerBase
     }
 
     /// <summary>
-    /// Annule le paiement, manuel ou prouvé par transaction : l'échéance redevient à payer. Si c'est le
-    /// rapprocheur qui avait lié la transaction, le geste vaut « arrête de deviner pour celle-ci » : le
-    /// rapprocheur l'ignore jusqu'à ce qu'une clé soit corrigée. Un lien manuel qu'on défait n'est pas un refus.
+    /// Annule le paiement, manuel ou prouvé par transaction : l'échéance redevient à payer. Dès qu'une
+    /// transaction était liée, le geste vaut « arrête de deviner pour celle-ci » : le rapprocheur l'ignore
+    /// jusqu'à ce qu'une clé soit corrigée. Plus aucun chemin ne pose un lien à la main (le PUT ne porte plus
+    /// TransactionId depuis la v4), un lien sans MatchedAt est un reste d'avant et vaut le même refus. Un
+    /// paiement coché à la main (PaidAt seul) qu'on décoche n'est pas un refus.
     /// </summary>
     [HttpPost("{id}/unpay")]
     public async Task<ActionResult<EcheanceDto>> Unpay(int id)
@@ -231,7 +233,7 @@ public class EcheanceController : ApiControllerBase
         if (echeance == null) return NotFound();
 
         var now = DateTime.UtcNow;
-        if (echeance.MatchedAt.HasValue && echeance.TransactionId.HasValue)
+        if (echeance.TransactionId.HasValue)
             echeance.AutoMatchRefusedAt = now;
         echeance.PaidAt = null;
         echeance.TransactionId = null;
