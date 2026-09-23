@@ -11,12 +11,11 @@ const totalFromHeaders = (headers: Record<string, unknown>): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+export type FetchMode = 'replace' | 'append' | 'refresh';
+
 export const useTransactions = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [total, setTotal] = useState<number | null>(null);
-  // Offset de la page suivante, compté sur les lignes reçues du serveur uniquement : une création ajoutée en
-  // tête ou une suppression locale ne le déplacent pas, sinon « Voir plus » sauterait ou répéterait une ligne.
-  const [nextOffset, setNextOffset] = useState(0);
   const [summary, setSummary] = useState<TransactionSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -28,19 +27,22 @@ export const useTransactions = () => {
 
   const dashboardId = currentDashboard?.id;
 
-  const fetchTransactions = useCallback(async (filters?: TransactionFilters, options?: { append?: boolean }) => {
-    const append = options?.append ?? false;
+  // Trois façons de charger :
+  // - replace : nouveaux filtres, la liste est remplacée et l'écran affiche son chargement pendant la requête ;
+  // - append : page suivante, collée à la fin de la liste ;
+  // - refresh : rechargement après une mutation locale, la liste reste affichée et « Voir plus » est bloqué.
+  const fetchTransactions = useCallback(async (filters?: TransactionFilters, options?: { mode?: FetchMode }) => {
+    const mode = options?.mode ?? 'replace';
     const seq = ++requestSeq.current;
     // La requête qui prend la main pose les deux drapeaux : un « Voir plus » dépassé par un changement de
     // filtre ne laisse pas loadingMore à true, puisque la requête de remplacement l'a remis à false ici.
-    setLoading(!append);
-    setLoadingMore(append);
+    setLoading(mode === 'replace');
+    setLoadingMore(mode !== 'replace');
     setError(null);
     try {
       const response = await transactionsApi.getAll({ ...filters, dashboardId });
       if (seq !== requestSeq.current) return;
-      setTransactions((prev) => (append ? [...prev, ...response.data] : response.data));
-      setNextOffset((prev) => (append ? prev : 0) + response.data.length);
+      setTransactions((prev) => (mode === 'append' ? [...prev, ...response.data] : response.data));
       setTotal(totalFromHeaders(response.headers as Record<string, unknown>));
     } catch {
       if (seq !== requestSeq.current) return;
@@ -63,6 +65,9 @@ export const useTransactions = () => {
     }
   }, [dashboardId]);
 
+  // Création et suppression modifient la liste en place pour un retour immédiat, puis l'écran recharge la
+  // liste depuis le serveur (mode refresh) : la position de la ligne côté serveur n'est pas connue ici, et
+  // toute page suivante calculée sur une liste modifiée localement sauterait ou répéterait une ligne.
   const createTransaction = async (data: CreateTransaction) => {
     const response = await transactionsApi.create(data);
     setTransactions((prev) => [response.data, ...prev]);
@@ -122,7 +127,6 @@ export const useTransactions = () => {
   return {
     transactions,
     total,
-    nextOffset,
     summary,
     loading,
     loadingMore,

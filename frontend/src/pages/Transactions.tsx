@@ -15,6 +15,8 @@ type Period = '1' | '3' | '12' | 'all';
 const PERIOD_KEY = 'transactions.period';
 const PERIOD_DEFAULT: Period = '3';
 const PAGE_SIZE = 100;
+// Plafond de l'API (TransactionController.LimiteMaxParPage) : au-delà, le serveur ramène la page à cette taille.
+const MAX_PAGE_LIMIT = 500;
 
 const isPeriod = (v: string | null): v is Period => v === '1' || v === '3' || v === '12' || v === 'all';
 
@@ -41,7 +43,7 @@ const monthsAgoIso = (n: number): string => {
 const formatCount = (n: number) => n.toLocaleString('fr-FR');
 
 const Transactions = () => {
-  const { transactions, total, nextOffset, loading, loadingMore, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setFixed, setRefund, setEnvelope } = useTransactions();
+  const { transactions, total, loading, loadingMore, fetchTransactions, createTransaction, updateTransaction, deleteTransaction, setExceptional, setFixed, setRefund, setEnvelope } = useTransactions();
   const { currentDashboard } = useDashboards();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -127,9 +129,19 @@ const Transactions = () => {
 
   const hasMore = total !== null && transactions.length < total;
 
+  // L'offset de la page suivante est la longueur de la liste : elle ne contient que des lignes venues du
+  // serveur, puisque toute mutation locale est suivie d'un rechargement (reloadLoaded).
   const loadMore = () => {
     if (loading || loadingMore || !hasMore) return;
-    fetchTransactions({ ...baseFilters, offset: nextOffset }, { append: true });
+    fetchTransactions({ ...baseFilters, offset: transactions.length }, { mode: 'append' });
+  };
+
+  // Après une création ou une suppression, la liste est rechargée depuis le serveur sur la profondeur déjà
+  // affichée. Une ligne créée aujourd'hui se place en tête côté serveur et décale tout d'un rang, une
+  // suppression fait remonter les suivantes : aucun offset compté côté client ne survit à une mutation.
+  const reloadLoaded = () => {
+    const limit = Math.min(MAX_PAGE_LIMIT, Math.max(PAGE_SIZE, transactions.length));
+    fetchTransactions({ ...baseFilters, limit, offset: 0 }, { mode: 'refresh' });
   };
 
   const countLabel = (n: number) => `${formatCount(n)} ${n === 1 ? 'transaction' : 'transactions'}`;
@@ -233,6 +245,7 @@ const Transactions = () => {
       await createTransaction(formData);
       setShowForm(false);
       showToast('Transaction ajoutée', 'success');
+      reloadLoaded();
     } catch {
       setFormError('Erreur lors de la sauvegarde de la transaction');
       showToast('Erreur lors de la sauvegarde de la transaction', 'error');
@@ -244,6 +257,7 @@ const Transactions = () => {
       await deleteTransaction(id);
       setDeleteConfirm(null);
       showToast('Transaction supprimée', 'success');
+      reloadLoaded();
     } catch {
       setDeleteConfirm(null);
       showToast('Impossible de supprimer la transaction', 'error');
