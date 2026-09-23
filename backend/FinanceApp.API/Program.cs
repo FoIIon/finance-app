@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using FinanceApp.API.Data;
 using FinanceApp.API.Services;
 using FinanceApp.API.Services.Calendar;
+using FinanceApp.API.Services.Mail;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -118,6 +119,17 @@ builder.Services.AddHttpClient(CalendarIcsFetcher.HttpClientName, client =>
 builder.Services.AddSingleton<ICalendarIcsFetcher, CalendarIcsFetcher>();
 builder.Services.AddSingleton<CalendarSyncService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<CalendarSyncService>());
+
+// Lot 4, ingestion des factures reçues par mail. Section MailIngest absente : options par défaut, validateur
+// muet, le service journalise une ligne et ne fait rien. Configurée : validée au démarrage, relevé IMAP toutes
+// les six heures par MailIngestService, même sémaphore que le relevé manuel de DocumentController.
+builder.Services.AddOptions<MailIngestOptions>()
+    .Bind(builder.Configuration.GetSection(MailIngestOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<MailIngestOptions>, MailIngestOptionsValidator>();
+builder.Services.AddSingleton<IMailReader, ImapMailReader>();
+builder.Services.AddSingleton<MailIngestService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<MailIngestService>());
 
 builder.Services.AddRateLimiter(options =>
 {
