@@ -243,13 +243,14 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
               )}
             </dd>
           </div>
-          {echeance?.counterpartyIban && (
+          {/* Quand la section Payer est là, c'est elle qui porte l'IBAN et la communication, avec le bouton Copier. */}
+          {!payable && echeance?.counterpartyIban && (
             <div className="flex gap-2">
               <dt className="text-white/40 shrink-0">IBAN</dt>
               <dd className="text-white/80 tabular-nums">{formatIban(echeance.counterpartyIban)}</dd>
             </div>
           )}
-          {echeance?.structuredCommunication && (
+          {!payable && echeance?.structuredCommunication && (
             <div className="flex gap-2">
               <dt className="text-white/40 shrink-0">Communication</dt>
               <dd className="text-white/80 tabular-nums">{formatStructuredCommunication(echeance.structuredCommunication)}</dd>
@@ -262,7 +263,7 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
             <h4 id="echeance-pay-title" className="text-sm font-semibold text-white mb-3">Payer</h4>
             <ul className="space-y-2 text-sm">
               {payRows.map((row) => (
-                <li key={row.key} className="flex items-center gap-2">
+                <li key={row.key} className="flex flex-wrap items-center gap-2">
                   <span className="text-white/40 shrink-0 w-28">{row.label}</span>
                   <span className={`min-w-0 flex-1 text-white/80 tabular-nums break-all ${copyFailed === row.key ? 'select-all' : ''}`}>{row.shown}</span>
                   <button
@@ -271,8 +272,12 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
                     onClick={() => copyRow(row)}
                     className="shrink-0 min-h-9 px-3 rounded-lg border border-white/10 text-xs text-white/70 hover:text-white hover:bg-white/5 transition-colors"
                   >
-                    {copyFailed === row.key ? 'Copie impossible, sélectionne le texte' : copied === row.key ? 'Copié' : 'Copier'}
+                    {copied === row.key ? 'Copié' : 'Copier'}
                   </button>
+                  {/* Sous la ligne, pas dans le bouton : à 360 px le bouton écraserait la valeur qu'on demande de sélectionner. */}
+                  {copyFailed === row.key && (
+                    <span className="basis-full text-xs text-amber-300/90">Copie impossible, sélectionne le texte</span>
+                  )}
                 </li>
               ))}
             </ul>

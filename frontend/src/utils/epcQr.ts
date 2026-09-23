@@ -23,9 +23,10 @@ export interface EpcPayloadInput {
  * libellé tronqué à 140. Les lignes vides en fin de charge sont omises, jamais celles du milieu.
  */
 export const buildEpcPayload = ({ name, iban, amount, structuredCommunication, label }: EpcPayloadInput): string => {
+  // Le libellé n'est pas contrôlé côté serveur : un retour à la ligne y casserait le format, qui est ligne à ligne.
   const remittance = structuredCommunication
     ? formatStructuredCommunication(structuredCommunication)
-    : label.slice(0, 140);
+    : label.replace(/[\r\n]+/g, ' ').trim().slice(0, 140);
   const lines = [
     'BCD',
     '002',

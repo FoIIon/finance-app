@@ -3,6 +3,8 @@
 
 /** Repli : un textarea hors écran, sélectionné, puis execCommand. Vrai si le navigateur dit avoir copié. */
 const copyViaExecCommand = (text: string): boolean => {
+  // Le focus part sur le textarea le temps de la copie : on le rend ensuite au bouton qui l'avait.
+  const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const textarea = document.createElement('textarea');
   textarea.value = text;
   textarea.setAttribute('readonly', '');
@@ -26,6 +28,7 @@ const copyViaExecCommand = (text: string): boolean => {
     copied = false;
   } finally {
     textarea.remove();
+    previous?.focus();
   }
   return copied;
 };
