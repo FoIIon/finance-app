@@ -617,4 +617,78 @@ test.describe.serial('FinanceApp E2E', () => {
     page.off('pageerror', onError);
     expect(pageErrors).toEqual([]);
   });
+
+  test('Test 16 : Échéance prête à payer, trois boutons Copier, QR code EPC, IBAN copié, section Payer disparue après paiement', async () => {
+    // Fiche « prête à payer » (23/09/2026) : tant que l'échéance est à payer, la fiche prépare le virement.
+    // Le presse-papiers se lit avec la permission accordée au contexte, localhost:5173 est un contexte sécurisé.
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await page.goto('/agenda');
+    await page.waitForURL('**/agenda**');
+    await expect(page.getByRole('heading', { name: /^Aujourd'hui/ })).toBeVisible({ timeout: 10000 });
+
+    const due = new Date();
+    due.setDate(due.getDate() + 2);
+    const dueIso = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`;
+
+    await page.getByRole('button', { name: '+ Échéance' }).click();
+    const form = page.getByRole('dialog', { name: 'Nouvelle échéance' });
+    await expect(form).toBeVisible();
+    await form.getByLabel('Libellé').fill('Test E2E virement');
+    await form.getByLabel('Date limite').fill(dueIso);
+    await form.getByLabel(/Montant/).fill('12,34');
+    await form.getByLabel(/IBAN du bénéficiaire/).fill('BE68539007547034');
+    await form.getByLabel(/^Bénéficiaire/).fill('Institut Test');
+    await form.getByLabel(/Communication structurée/).fill('123456789002');
+    await form.getByRole('button', { name: 'Enregistrer' }).click();
+    await expect(form).not.toBeVisible({ timeout: 5000 });
+
+    const row = page.getByRole('button', { name: /Test E2E virement/ });
+    await expect(row).toBeVisible({ timeout: 10000 });
+    await row.click();
+    const sheet = page.getByRole('dialog', { name: 'Test E2E virement' });
+    await expect(sheet).toBeVisible();
+
+    // La section Payer : un bouton Copier par clé, et le QR code puisque l'IBAN et le bénéficiaire sont là.
+    await expect(sheet.getByRole('heading', { name: 'Payer' })).toBeVisible();
+    await expect(sheet.getByRole('button', { name: /^Copier/ })).toHaveCount(3);
+    const qr = sheet.getByRole('img', { name: 'QR code de virement' });
+    await expect(qr).toBeVisible({ timeout: 10000 });
+    await expect(sheet).toContainText('Scanne avec ton app bancaire');
+
+    // La charge utile EPC069-12 version 002, ligne par ligne : BIC vide, purpose vide, référence RF vide, la
+    // communication structurée formatée en communication libre. Pas de retour final.
+    const expectedEpc = [
+      'BCD',
+      '002',
+      '1',
+      'SCT',
+      '',
+      'Institut Test',
+      'BE68539007547034',
+      'EUR12.34',
+      '',
+      '',
+      '+++123/4567/89002+++',
+    ].join('\n');
+    await expect(qr).toHaveAttribute('data-epc', expectedEpc);
+
+    // Copier l'IBAN : le bouton dit « Copié », le presse-papiers porte l'IBAN compact.
+    await sheet.getByRole('button', { name: "Copier l'IBAN" }).click();
+    await expect(sheet.getByRole('button', { name: "Copier l'IBAN" })).toHaveText('Copié');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('BE68539007547034');
+
+    // Payée : la section Payer disparaît, la fiche reste ouverte.
+    await sheet.getByRole('button', { name: "Je l'ai payée" }).click();
+    await expect(sheet).toContainText(/Payée/, { timeout: 10000 });
+    await expect(sheet.getByRole('heading', { name: 'Payer' })).toHaveCount(0);
+    await expect(sheet.getByRole('button', { name: /^Copier/ })).toHaveCount(0);
+    await expect(sheet.getByRole('img', { name: 'QR code de virement' })).toHaveCount(0);
+
+    // Suppression en deux gestes.
+    await sheet.getByRole('button', { name: 'Supprimer' }).click();
+    await sheet.getByRole('button', { name: 'Oui' }).click();
+    await expect(sheet).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: /Test E2E virement/ })).toHaveCount(0);
+  });
 });
