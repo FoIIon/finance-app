@@ -681,42 +681,45 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(sheet.getByText('BE68 5390 0754 7034')).toHaveCount(1);
 
     // Le chemin de la prod : http://raspberrypi5:5001 n'est pas un contexte sécurisé, navigator.clipboard y est
-    // undefined et seul document.execCommand('copy') reste. On rejoue la page sans l'API et on espionne la
-    // commande : elle doit recevoir la communication formatée, sélectionnée dans le textarea du repli.
-    // Dernier test du fichier : le script d'initialisation ne déborde sur aucun autre.
-    await page.addInitScript(() => {
+    // undefined et seul document.execCommand('copy') reste. Rejoué dans une page dédiée du même contexte
+    // (même localStorage, donc même session) pour que le script d'initialisation ne déborde sur aucun autre
+    // test. L'espion lit la sélection, pas la valeur : c'est la sélection que le vrai execCommand copie, et
+    // c'est elle que select() puis setSelectionRange (iOS) doivent avoir posée.
+    const httpPage = await page.context().newPage();
+    await httpPage.addInitScript(() => {
       Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
       const copies: string[] = [];
       (window as unknown as { __copies: string[] }).__copies = copies;
       document.execCommand = (command: string) => {
         if (command !== 'copy') return false;
         const active = document.activeElement;
-        copies.push(active instanceof HTMLTextAreaElement ? active.value : '');
+        copies.push(active instanceof HTMLTextAreaElement ? active.value.slice(active.selectionStart, active.selectionEnd) : '');
         return true;
       };
     });
-    await page.reload();
-    await expect(page.getByRole('heading', { name: /^Aujourd'hui/ })).toBeVisible({ timeout: 10000 });
-    expect(await page.evaluate(() => navigator.clipboard)).toBeUndefined();
-    await page.getByRole('button', { name: /Test E2E virement/ }).click();
-    const sheetHttp = page.getByRole('dialog', { name: 'Test E2E virement' });
+    await httpPage.goto('/agenda');
+    await expect(httpPage.getByRole('heading', { name: /^Aujourd'hui/ })).toBeVisible({ timeout: 10000 });
+    expect(await httpPage.evaluate(() => navigator.clipboard)).toBeUndefined();
+    await httpPage.getByRole('button', { name: /Test E2E virement/ }).click();
+    const sheetHttp = httpPage.getByRole('dialog', { name: 'Test E2E virement' });
     await expect(sheetHttp).toBeVisible();
     await sheetHttp.getByRole('button', { name: 'Copier la communication' }).click();
     await expect(sheetHttp.getByRole('button', { name: 'Copier la communication' })).toHaveText('Copié');
-    expect(await page.evaluate(() => (window as unknown as { __copies: string[] }).__copies)).toEqual(['+++123/4567/89002+++']);
+    expect(await httpPage.evaluate(() => (window as unknown as { __copies: string[] }).__copies)).toEqual(['+++123/4567/89002+++']);
+    await httpPage.close();
 
     // Payée : la section Payer disparaît, la fiche reste ouverte, l'IBAN revient dans la liste du haut.
-    await sheetHttp.getByRole('button', { name: "Je l'ai payée" }).click();
-    await expect(sheetHttp).toContainText(/Payée/, { timeout: 10000 });
-    await expect(sheetHttp.getByRole('heading', { name: 'Payer' })).toHaveCount(0);
-    await expect(sheetHttp.getByRole('button', { name: /^Copier/ })).toHaveCount(0);
-    await expect(sheetHttp.getByRole('img', { name: 'QR code de virement' })).toHaveCount(0);
-    await expect(sheetHttp.getByText('BE68 5390 0754 7034')).toBeVisible();
+    await sheet.getByRole('button', { name: "Je l'ai payée" }).click();
+    await expect(sheet).toContainText(/Payée/, { timeout: 10000 });
+    await expect(sheet.getByRole('heading', { name: 'Payer' })).toHaveCount(0);
+    await expect(sheet.getByRole('button', { name: /^Copier/ })).toHaveCount(0);
+    await expect(sheet.getByRole('img', { name: 'QR code de virement' })).toHaveCount(0);
+    await expect(sheet.getByText('BE68 5390 0754 7034')).toBeVisible();
 
     // Suppression en deux gestes.
-    await sheetHttp.getByRole('button', { name: 'Supprimer' }).click();
-    await sheetHttp.getByRole('button', { name: 'Oui' }).click();
-    await expect(sheetHttp).not.toBeVisible({ timeout: 5000 });
+    await sheet.getByRole('button', { name: 'Supprimer' }).click();
+    await sheet.getByRole('button', { name: 'Oui' }).click();
+    await expect(sheet).not.toBeVisible({ timeout: 5000 });
     await expect(page.getByRole('button', { name: /Test E2E virement/ })).toHaveCount(0);
   });
 });
