@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import { echeancesApi } from '../../api/echeances';
 import { useEcheanceQuery } from '../../hooks/queries';
 import type { AgendaItem, AgendaStatus } from '../../types/agenda';
+import { copyText } from '../../utils/clipboard';
+import { buildEpcPayload } from '../../utils/epcQr';
 import { formatCurrency } from '../../utils/format';
 import { formatInstantDay, formatLongDate, formatShortDate, statusLabel } from './agendaFormat';
 import { EcheanceDocumentsSection } from '../echeances/EcheanceDocumentsSection';
@@ -40,6 +42,24 @@ const statusFromDto = (status: string | undefined): AgendaStatus | null => {
   }
 };
 
+type PayKey = 'iban' | 'communication' | 'amount';
+
+interface PayRow {
+  key: PayKey;
+  label: string;
+  /** Formaté comme le reste de la fiche. */
+  shown: string;
+  /** Ce qui part dans le presse-papiers : IBAN compact, communication avec les +++, montant « 2,60 ». */
+  copy: string;
+  /** Nom accessible du bouton, stable pendant le retour « Copié ». */
+  action: string;
+  /** Annonce de la zone aria-live après la copie. */
+  done: string;
+}
+
+/** « 2,60 » : virgule, deux décimales, sans symbole, tel qu'une app bancaire l'accepte à la saisie. */
+const amountForCopy = (amount: number) => amount.toFixed(2).replace('.', ',');
+
 /**
  * Feuille basse sur le patron de CategoryDetailModal. Titre, montant, date limite, statut en texte, puis
  * les gestes : « Je l'ai payée », réversible au même endroit par « Finalement non », qui couvre aussi le
@@ -49,6 +69,9 @@ const statusFromDto = (status: string | undefined): AgendaStatus | null => {
  * feuille de saisie prend la place de celle-ci, et ne touche jamais au lien de paiement) et « Supprimer ».
  * Lot 3 : quand c'est le rapprocheur qui a lié la transaction (matchedAt), le statut dit « Vu sur le compte »
  * et montre le virement ; les clés saisies (IBAN, communication) s'affichent formatées quand elles existent.
+ * Fiche « prête à payer » (23/09) : tant que l'échéance est à payer, une section Payer copie chaque clé en un
+ * geste (repli execCommand pour la prod en HTTP) et montre un QR code EPC quand l'IBAN et le bénéficiaire sont
+ * là. L'app n'initie jamais le virement : elle le prépare, le rapprocheur constate ensuite qu'il est passé.
  */
 export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props) => {
   const queryClient = useQueryClient();
@@ -92,6 +115,72 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
   const amount = item ? item.amount : echeance?.amount ?? null;
   const dueDate = echeance?.dueDate ?? (item?.originalDate ?? item?.date);
   const transactionId = echeance?.transactionId ?? item?.transactionId ?? null;
+
+  // Section Payer : à payer ou en retard, et au moins une clé à copier. Une échéance payée ne la montre pas.
+  const payIban = echeance?.counterpartyIban ?? null;
+  const payCommunication = echeance?.structuredCommunication ?? null;
+  const payAmount = echeance?.amount ?? null;
+  const payName = echeance?.counterpartyName ?? null;
+  const payable = (status === 'due' || status === 'late') && (payIban != null || payCommunication != null || payAmount != null);
+  const payRows: PayRow[] = payable
+    ? [
+        ...(payIban ? [{ key: 'iban' as const, label: 'IBAN', shown: formatIban(payIban), copy: payIban, action: "Copier l'IBAN", done: 'IBAN copié' }] : []),
+        ...(payCommunication
+          ? [{ key: 'communication' as const, label: 'Communication', shown: formatStructuredCommunication(payCommunication), copy: formatStructuredCommunication(payCommunication), action: 'Copier la communication', done: 'Communication copiée' }]
+          : []),
+        ...(payAmount != null ? [{ key: 'amount' as const, label: 'Montant', shown: formatCurrency(payAmount), copy: amountForCopy(payAmount), action: 'Copier le montant', done: 'Montant copié' }] : []),
+      ]
+    : [];
+
+  const [copied, setCopied] = useState<PayKey | null>(null);
+  const [copyFailed, setCopyFailed] = useState<PayKey | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const copiedTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
+
+  const copyRow = async (row: PayRow) => {
+    const ok = await copyText(row.copy);
+    if (!ok) {
+      setCopied(null);
+      setCopyFailed(row.key);
+      setAnnouncement('Copie impossible, sélectionne le texte');
+      return;
+    }
+    setCopyFailed(null);
+    setCopied(row.key);
+    setAnnouncement(row.done);
+    window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopied(null), 2000);
+  };
+
+  // QR code EPC : IBAN et bénéficiaire nécessaires, montant et communication quand ils existent. La charge
+  // utile est une chaîne : l'effet ne repart que si elle change. `qrcode` s'importe à la demande, l'Agenda
+  // ne le porte pas dans son bundle.
+  const epcPayload = payable && payIban && payName
+    ? buildEpcPayload({ name: payName, iban: payIban, amount: payAmount, structuredCommunication: payCommunication, label: echeance?.label ?? '' })
+    : null;
+  const [qr, setQr] = useState<{ payload: string; dataUrl: string } | null>(null);
+  const [qrError, setQrError] = useState(false);
+  useEffect(() => {
+    if (!epcPayload) return;
+    let cancelled = false;
+    import('qrcode')
+      // Fond blanc et marge de quatre modules : l'app est sombre, un QR sur fond sombre ne se scanne pas.
+      .then((QRCode) => QRCode.toDataURL(epcPayload, { errorCorrectionLevel: 'M', width: 200, margin: 4, color: { dark: '#000000', light: '#ffffff' } }))
+      .then((dataUrl) => {
+        if (cancelled) return;
+        setQr({ payload: epcPayload, dataUrl });
+        setQrError(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // Charge utile hors capacité ou module absent : on le dit à l'écran, la charge utile ne passe pas dans les journaux.
+        console.warn('Génération du QR code de virement impossible', err instanceof Error ? err.message : err);
+        setQrError(true);
+      });
+    return () => { cancelled = true; };
+  }, [epcPayload]);
+  const qrReady = epcPayload && qr && qr.payload === epcPayload ? qr : null;
 
   const matched = !!echeance?.matchedAt && transactionId != null;
   const statusText = (() => {
@@ -167,6 +256,49 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
             </div>
           )}
         </dl>
+
+        {payable && (
+          <section aria-labelledby="echeance-pay-title" className="mb-5 rounded-xl border border-white/10 bg-white/5 p-4">
+            <h4 id="echeance-pay-title" className="text-sm font-semibold text-white mb-3">Payer</h4>
+            <ul className="space-y-2 text-sm">
+              {payRows.map((row) => (
+                <li key={row.key} className="flex items-center gap-2">
+                  <span className="text-white/40 shrink-0 w-28">{row.label}</span>
+                  <span className={`min-w-0 flex-1 text-white/80 tabular-nums break-all ${copyFailed === row.key ? 'select-all' : ''}`}>{row.shown}</span>
+                  <button
+                    type="button"
+                    aria-label={row.action}
+                    onClick={() => copyRow(row)}
+                    className="shrink-0 min-h-9 px-3 rounded-lg border border-white/10 text-xs text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                  >
+                    {copyFailed === row.key ? 'Copie impossible, sélectionne le texte' : copied === row.key ? 'Copié' : 'Copier'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p aria-live="polite" className="sr-only">{announcement}</p>
+
+            {qrReady && (
+              <figure className="mt-4 flex flex-col items-center">
+                <img
+                  src={qrReady.dataUrl}
+                  alt="QR code de virement"
+                  data-epc={qrReady.payload}
+                  width={200}
+                  height={200}
+                  className="rounded-lg bg-white p-1"
+                />
+                <figcaption className="mt-2 text-xs text-white/50">Scanne avec ton app bancaire</figcaption>
+              </figure>
+            )}
+            {epcPayload && !qrReady && (
+              <p className="mt-4 text-xs text-white/50 text-center">{qrError ? 'QR code indisponible, copie les champs.' : 'QR code en préparation…'}</p>
+            )}
+            {payIban && !payName && (
+              <p className="mt-4 text-xs text-white/50">Renseigne le bénéficiaire pour obtenir un QR code</p>
+            )}
+          </section>
+        )}
 
         {error && <p className="text-xs text-amber-300/90 mb-3">{error}</p>}
 
