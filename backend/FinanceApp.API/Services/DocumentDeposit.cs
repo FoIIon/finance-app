@@ -4,8 +4,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FinanceApp.API.Services;
 
-/// <summary>Ce qu'un appelant sait d'un fichier déjà reçu (StagedFile) et qu'il veut ranger.</summary>
-public sealed record DepositRequest(int DashboardId, int? EcheanceId, DocumentKind Kind, int? FiscalYear, string DisplayName, int UploadedByUserId);
+/// <summary>
+/// Ce qu'un appelant sait d'un fichier déjà reçu (StagedFile) et qu'il veut ranger. UploadedByUserId est
+/// null pour un dépôt par le service d'ingestion mail, MailMessageId ne sert qu'à la traçabilité.
+/// </summary>
+public sealed record DepositRequest(int DashboardId, int? EcheanceId, DocumentKind Kind, int? FiscalYear, string DisplayName, int? UploadedByUserId, DocumentSource Source, string? MailMessageId);
 
 public enum DepositOutcome
 {
@@ -77,6 +80,8 @@ public class DocumentDeposit
                 UploadedByUserId = request.UploadedByUserId,
                 CreatedAt = now,
                 StoredPath = string.Empty,
+                Source = request.Source,
+                MailMessageId = request.MailMessageId,
             };
 
             // La ligne d'abord (elle donne l'identifiant, donc le nom sur disque), le rangement ensuite,

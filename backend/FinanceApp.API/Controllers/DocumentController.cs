@@ -100,7 +100,7 @@ public class DocumentController : ApiControllerBase
         // Doublon, quota, ligne, rangement : DocumentDeposit, partagé avec l'ingestion par mail. Le .part est
         // effacé par lui sur toute sortie autre que Created.
         var deposited = await _deposit.DepositAsync(file,
-            new DepositRequest(dto.DashboardId, dto.EcheanceId, dto.Kind.Value, dto.FiscalYear, DisplayName(dto.File.FileName), userId), ct);
+            new DepositRequest(dto.DashboardId, dto.EcheanceId, dto.Kind.Value, dto.FiscalYear, DisplayName(dto.File.FileName), userId, DocumentSource.Upload, null), ct);
         switch (deposited.Outcome)
         {
             case DepositOutcome.Duplicate:

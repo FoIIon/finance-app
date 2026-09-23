@@ -23,10 +23,15 @@ public class Document
     public long SizeBytes { get; set; }
     /// <summary>SHA-256 du contenu, 64 caractères hexadécimaux minuscules. Unique par dashboard.</summary>
     public string Sha256 { get; set; } = string.Empty;
-    public int UploadedByUserId { get; set; }
+    /// <summary>Le membre qui a déposé le fichier. Null pour un dépôt par le service d'ingestion mail.</summary>
+    public int? UploadedByUserId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>Upload ou Mail. Toute ligne antérieure au lot mail vaut Upload.</summary>
+    public DocumentSource Source { get; set; } = DocumentSource.Upload;
+    /// <summary>En-tête Message-ID du mail d'origine, traçabilité seulement. Le doublon se tranche par Sha256.</summary>
+    public string? MailMessageId { get; set; }
 
     public Dashboard Dashboard { get; set; } = null!;
     public Echeance? Echeance { get; set; }
-    public User UploadedByUser { get; set; } = null!;
+    public User? UploadedByUser { get; set; }
 }

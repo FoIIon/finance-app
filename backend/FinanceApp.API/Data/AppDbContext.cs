@@ -32,6 +32,7 @@ public class AppDbContext : DbContext
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<CalendarSource> CalendarSources => Set<CalendarSource>();
     public DbSet<CalendarOccurrence> CalendarOccurrences => Set<CalendarOccurrence>();
+    public DbSet<MailSource> MailSources => Set<MailSource>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -573,11 +574,22 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.SetNull)
             .IsRequired(false);
 
+        // Lot 4 : un dépôt par le service d'ingestion mail n'a pas d'utilisateur, la relation devient facultative.
         modelBuilder.Entity<Document>()
             .HasOne(d => d.UploadedByUser)
             .WithMany()
             .HasForeignKey(d => d.UploadedByUserId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.Restrict)
+            .IsRequired(false);
+
+        modelBuilder.Entity<Document>()
+            .Property(d => d.Source)
+            .HasConversion<string>()
+            .HasMaxLength(10);
+
+        modelBuilder.Entity<Document>()
+            .Property(d => d.MailMessageId)
+            .HasMaxLength(300);
 
         // Le même contenu n'est rangé qu'une fois par dashboard (409 avec l'identifiant existant).
         modelBuilder.Entity<Document>()
@@ -610,6 +622,31 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<CalendarSource>()
             .HasIndex(s => s.DashboardId)
+            .IsUnique();
+
+        // MailSource : l'état du relevé de la boîte factures, une par (dashboard, adresse), aucun secret. La
+        // configuration porte hôte, compte et mot de passe. LastError borné, comme CalendarSource.
+        modelBuilder.Entity<MailSource>()
+            .Property(s => s.Address)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<MailSource>()
+            .Property(s => s.LastSyncStatus)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+        modelBuilder.Entity<MailSource>()
+            .Property(s => s.LastError)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<MailSource>()
+            .HasOne(s => s.Dashboard)
+            .WithMany()
+            .HasForeignKey(s => s.DashboardId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<MailSource>()
+            .HasIndex(s => new { s.DashboardId, s.Address })
             .IsUnique();
 
         // CalendarOccurrence : remplacées en bloc à chaque synchronisation. Une occurrence par instant et

@@ -15,7 +15,8 @@ public class DocumentDto
     public string ContentType { get; set; } = string.Empty;
     public long SizeBytes { get; set; }
     public string Sha256 { get; set; } = string.Empty;
-    public int UploadedByUserId { get; set; }
+    /// <summary>Null pour un document reçu par mail.</summary>
+    public int? UploadedByUserId { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
