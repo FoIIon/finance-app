@@ -220,6 +220,9 @@ const Transactions = () => {
         queryClient.invalidateQueries({ queryKey: ['project-envelopes'] });
       }
       setEditingRowId(null);
+      // Libellé et catégorie sont des colonnes de tri, la catégorie un filtre : la ligne peut avoir changé de
+      // rang ou quitté le périmètre côté serveur, même règle que pour une création ou une suppression.
+      reloadLoaded();
     } catch {
       showToast('Impossible de sauvegarder la modification', 'error');
     }
