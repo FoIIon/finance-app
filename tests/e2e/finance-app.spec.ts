@@ -618,7 +618,7 @@ test.describe.serial('FinanceApp E2E', () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test('Test 16 : Échéance prête à payer, trois boutons Copier, QR code EPC, IBAN copié, section Payer disparue après paiement', async () => {
+  test('Test 16 : Échéance prête à payer, trois boutons Copier, QR code EPC, IBAN copié, section Payer disparue après paiement', async ({ browser }) => {
     // Fiche « prête à payer » (23/09/2026) : tant que l'échéance est à payer, la fiche prépare le virement.
     // Le presse-papiers se lit avec la permission accordée au contexte, localhost:5173 est un contexte sécurisé.
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
@@ -681,12 +681,17 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(sheet.getByText('BE68 5390 0754 7034')).toHaveCount(1);
 
     // Le chemin de la prod : http://raspberrypi5:5001 n'est pas un contexte sécurisé, navigator.clipboard y est
-    // undefined et seul document.execCommand('copy') reste. Rejoué dans une page dédiée du même contexte
-    // (même localStorage, donc même session) pour que le script d'initialisation ne déborde sur aucun autre
-    // test. L'espion lit la sélection, pas la valeur : c'est la sélection que le vrai execCommand copie, et
-    // c'est elle que select() puis setSelectionRange (iOS) doivent avoir posée.
-    const httpPage = await page.context().newPage();
-    await httpPage.addInitScript(() => {
+    // undefined et seul document.execCommand('copy') reste. Rejoué dans un contexte dédié (la page partagée
+    // vient de browser.newPage(), son contexte implicite refuse newPage()), qui reçoit la session par
+    // localStorage, pour que le script d'initialisation ne déborde sur aucun autre test. L'espion lit la
+    // sélection, pas la valeur : c'est la sélection que le vrai execCommand copie, et c'est elle que select()
+    // puis setSelectionRange (iOS) doivent avoir posée.
+    const session = await page.evaluate(() => ({ token: localStorage.getItem('token'), email: localStorage.getItem('email') }));
+    expect(session.token).toBeTruthy();
+    const httpContext = await browser.newContext();
+    await httpContext.addInitScript((s: { token: string | null; email: string | null }) => {
+      if (s.token) localStorage.setItem('token', s.token);
+      if (s.email) localStorage.setItem('email', s.email);
       Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
       const copies: string[] = [];
       (window as unknown as { __copies: string[] }).__copies = copies;
@@ -696,7 +701,8 @@ test.describe.serial('FinanceApp E2E', () => {
         copies.push(active instanceof HTMLTextAreaElement ? active.value.slice(active.selectionStart, active.selectionEnd) : '');
         return true;
       };
-    });
+    }, session);
+    const httpPage = await httpContext.newPage();
     await httpPage.goto('/agenda');
     await expect(httpPage.getByRole('heading', { name: /^Aujourd'hui/ })).toBeVisible({ timeout: 10000 });
     expect(await httpPage.evaluate(() => navigator.clipboard)).toBeUndefined();
@@ -706,7 +712,7 @@ test.describe.serial('FinanceApp E2E', () => {
     await sheetHttp.getByRole('button', { name: 'Copier la communication' }).click();
     await expect(sheetHttp.getByRole('button', { name: 'Copier la communication' })).toHaveText('Copié');
     expect(await httpPage.evaluate(() => (window as unknown as { __copies: string[] }).__copies)).toEqual(['+++123/4567/89002+++']);
-    await httpPage.close();
+    await httpContext.close();
 
     // Payée : la section Payer disparaît, la fiche reste ouverte, l'IBAN revient dans la liste du haut.
     await sheet.getByRole('button', { name: "Je l'ai payée" }).click();
