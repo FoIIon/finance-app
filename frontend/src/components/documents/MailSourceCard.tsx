@@ -14,6 +14,10 @@ interface Props {
 const formatInstantDayMonth = (iso: string) =>
   new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' }).format(new Date(iso));
 
+/** En échec, la ligne dit quand on a essayé : sans ça, rien ne bouge à l'écran après « Relever maintenant ». */
+const withAttempt = (text: string, s: MailSource) =>
+  s.lastAttemptAt ? `${text} · dernière tentative ${formatRelative(s.lastAttemptAt)}` : text;
+
 /** Une ligne par statut. Le serveur ne rend que des dates et des types d'exception, jamais un objet de mail. */
 const statusLine = (s: MailSource): { text: string; warn: boolean } => {
   switch (s.lastSyncStatus) {
@@ -23,11 +27,11 @@ const statusLine = (s: MailSource): { text: string; warn: boolean } => {
       return { text: `${seen} · ${deposit}`, warn: false };
     }
     case 'AuthError':
-      return { text: "Mot de passe d'application refusé, à régénérer", warn: true };
+      return { text: withAttempt("Mot de passe d'application refusé, à régénérer", s), warn: true };
     case 'ConnectionError':
-      return { text: 'Boîte injoignable', warn: true };
+      return { text: withAttempt('Boîte injoignable', s), warn: true };
     case 'Error':
-      return { text: 'Relevé en échec', warn: true };
+      return { text: withAttempt('Relevé en échec', s), warn: true };
     default:
       return { text: 'Jamais relevée', warn: false };
   }
@@ -51,6 +55,11 @@ export const MailSourceCard = ({ dashboardId }: Props) => {
         queryClient.invalidateQueries({ queryKey: ['mail-source', dashboardId] }),
         queryClient.invalidateQueries({ queryKey: ['documents', dashboardId] }),
       ]);
+      // Le relevé répond 200 même quand la boîte n'a pas pu être ouverte : l'issue est dans le statut.
+      if (res.data && res.data.lastSyncStatus !== 'Ok') {
+        showToast(statusLine(res.data).text, 'error');
+        return;
+      }
       const created = res.data ? res.data.depositedCount - before : 0;
       if (created > 0) showToast(created === 1 ? '1 nouveau document' : `${created} nouveaux documents`, 'success');
       else showToast('Boîte relevée', 'success');
