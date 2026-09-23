@@ -532,6 +532,11 @@ public class AppDbContext : DbContext
             .Property(e => e.StructuredCommunication)
             .HasMaxLength(12);
 
+        // Nom du bénéficiaire pour le QR code EPC de la fiche : 70 caractères, la limite du format.
+        modelBuilder.Entity<Echeance>()
+            .Property(e => e.CounterpartyName)
+            .HasMaxLength(70);
+
         // Document : le fichier vit sous Documents:Root, la ligne ne porte qu'un chemin relatif.
         modelBuilder.Entity<Document>()
             .Property(d => d.Kind)

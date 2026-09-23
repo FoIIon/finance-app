@@ -69,6 +69,20 @@ public class EcheanceController : ApiControllerBase
         return (iban, communication, null);
     }
 
+    private const string InvalidCounterpartyNameMessage = "Nom du bénéficiaire invalide, septante caractères au plus, sans caractère de contrôle.";
+
+    /// <summary>
+    /// Le nom du bénéficiaire du QR code, trimé. Vide : null. Au-delà de 70 caractères (limite EPC) ou avec un
+    /// caractère de contrôle (il casserait les lignes de la charge utile) : un message, jamais la valeur saisie.
+    /// </summary>
+    private static (string? Name, string? Error) NormalizeCounterpartyName(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return (null, null);
+        var name = raw.Trim();
+        if (name.Length > 70 || name.Any(char.IsControl)) return (null, InvalidCounterpartyNameMessage);
+        return (name, null);
+    }
+
     private EcheancePaymentDto? PaymentOf(Echeance e)
     {
         if (e.Transaction == null) return null;
@@ -101,6 +115,7 @@ public class EcheanceController : ApiControllerBase
         TransactionId = e.TransactionId,
         CounterpartyIban = e.CounterpartyIban,
         StructuredCommunication = e.StructuredCommunication,
+        CounterpartyName = e.CounterpartyName,
         MatchedAt = e.MatchedAt.HasValue ? DateTime.SpecifyKind(e.MatchedAt.Value, DateTimeKind.Utc) : null,
         AutoMatchRefusedAt = e.AutoMatchRefusedAt.HasValue ? DateTime.SpecifyKind(e.AutoMatchRefusedAt.Value, DateTimeKind.Utc) : null,
         Payment = PaymentOf(e),
@@ -153,6 +168,8 @@ public class EcheanceController : ApiControllerBase
 
         var (iban, communication, keyError) = NormalizeKeys(dto.CounterpartyIban, dto.StructuredCommunication);
         if (keyError != null) return BadRequest(keyError);
+        var (counterpartyName, nameError) = NormalizeCounterpartyName(dto.CounterpartyName);
+        if (nameError != null) return BadRequest(nameError);
 
         var now = DateTime.UtcNow;
         var echeance = new Echeance
@@ -164,6 +181,7 @@ public class EcheanceController : ApiControllerBase
             Notes = dto.Notes,
             CounterpartyIban = iban,
             StructuredCommunication = communication,
+            CounterpartyName = counterpartyName,
             CreatedByUserId = userId,
             CreatedAt = now,
             UpdatedAt = now,
@@ -184,6 +202,8 @@ public class EcheanceController : ApiControllerBase
 
         var (iban, communication, keyError) = NormalizeKeys(dto.CounterpartyIban, dto.StructuredCommunication);
         if (keyError != null) return BadRequest(keyError);
+        var (counterpartyName, nameError) = NormalizeCounterpartyName(dto.CounterpartyName);
+        if (nameError != null) return BadRequest(nameError);
 
         // « Modifier » ne touche jamais au lien de paiement : PaidAt, TransactionId et MatchedAt restent tels
         // quels, seuls Pay et Unpay les changent. Une fiche ouverte avant une passe de rapprochement et
@@ -198,6 +218,8 @@ public class EcheanceController : ApiControllerBase
         echeance.Notes = dto.Notes;
         echeance.CounterpartyIban = iban;
         echeance.StructuredCommunication = communication;
+        // Le nom ne sert qu'au QR code : le changer ne touche ni au refus de rapprochement ni au lien.
+        echeance.CounterpartyName = counterpartyName;
         echeance.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();

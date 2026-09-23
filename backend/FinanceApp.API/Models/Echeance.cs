@@ -30,6 +30,10 @@ public class Echeance
     /// de chaque candidat, en mémoire.</summary>
     public string? StructuredCommunication { get; set; }
 
+    /// <summary>Nom du bénéficiaire tel que sa banque le connaît, 70 caractères au plus (limite EPC), trimé,
+    /// vide → null. Ne sert qu'au QR code de virement de la fiche, jamais au rapprochement.</summary>
+    public string? CounterpartyName { get; set; }
+
     /// <summary>Instant UTC où le rapprocheur a lié <see cref="TransactionId"/>. Null quand le lien est
     /// absent (ou posé à la main avant la v4, quand le PUT le permettait encore). Dit qui a lié, jamais si
     /// c'est payé : le statut reste dérivé par <see cref="Services.EcheanceStatusRules"/>.</summary>

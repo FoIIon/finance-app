@@ -20,6 +20,8 @@ public class EcheanceDto
     public string? CounterpartyIban { get; set; }
     /// <summary>Les douze chiffres de la communication structurée attendue. Null si non renseignée.</summary>
     public string? StructuredCommunication { get; set; }
+    /// <summary>Nom du bénéficiaire pour le QR code de virement, 70 caractères au plus. Null si non renseigné.</summary>
+    public string? CounterpartyName { get; set; }
     /// <summary>Instant UTC du rapprochement automatique. Null quand le lien est manuel ou absent.</summary>
     public DateTime? MatchedAt { get; set; }
     /// <summary>Instant UTC où l'utilisateur a défait un rapprochement automatique. Posé : le rapprocheur ignore
@@ -68,6 +70,10 @@ public class CreateEcheanceDto
     /// <summary>Saisie brute (« +++123/4567/89012+++ » accepté) : le contrôleur normalise et refuse un contrôle 97 faux.</summary>
     [MaxLength(20)]
     public string? StructuredCommunication { get; set; }
+
+    /// <summary>Saisie brute : le contrôleur trime et refuse au-delà de 70 caractères (limite EPC du nom de bénéficiaire).</summary>
+    [MaxLength(200)]
+    public string? CounterpartyName { get; set; }
 }
 
 /// <summary>
@@ -95,4 +101,7 @@ public class UpdateEcheanceDto
 
     [MaxLength(20)]
     public string? StructuredCommunication { get; set; }
+
+    [MaxLength(200)]
+    public string? CounterpartyName { get; set; }
 }
