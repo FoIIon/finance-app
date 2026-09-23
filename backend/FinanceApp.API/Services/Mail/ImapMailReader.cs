@@ -76,7 +76,8 @@ public sealed class ImapMailReader : IMailReader
         var attachments = message.BodyParts
             .OfType<MimePart>()
             .Where(p => p.IsAttachment || !string.IsNullOrEmpty(p.FileName))
-            .Select(p => new IncomingAttachment(p.FileName ?? string.Empty, () => p.Content.Open()))
+            // Une partie sans contenu rend un flux vide : StageAsync la classe Empty et le service l'écarte.
+            .Select(p => new IncomingAttachment(p.FileName ?? string.Empty, () => p.Content is null ? Stream.Null : p.Content.Open()))
             .ToList();
 
         return new IncomingMail(
