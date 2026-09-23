@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Text.Json;
 using FinanceApp.API.Data;
 using FinanceApp.API.Models;
@@ -45,12 +45,12 @@ public class MailIngestServiceTests : IDisposable
 
     private AppDbContext NewContext() => new(_options);
 
-    private (MailIngestService Service, IMailReader Reader, FixedTimeProvider Clock) Build(IMailReader? reader = null, MailIngestOptions? options = null)
+    private (MailIngestService Service, IMailReader Reader, FixedTimeProvider Clock) Build(IMailReader? reader = null, MailIngestOptions? options = null, (DocumentStorage Storage, DocumentStorageOptions Options)? storage = null)
     {
         var services = new ServiceCollection();
         services.AddDbContext<AppDbContext>(o => o.UseSqlite(_connection));
-        services.AddSingleton(_storage);
-        services.AddSingleton(_storageOptions);
+        services.AddSingleton(storage?.Storage ?? _storage);
+        services.AddSingleton(storage?.Options ?? _storageOptions);
         services.AddScoped<DocumentDeposit>();
         var provider = services.BuildServiceProvider();
 
@@ -169,6 +169,37 @@ public class MailIngestServiceTests : IDisposable
         Assert.Equal(MailSyncStatus.Ok, source.LastSyncStatus);
         Assert.Equal(0, source.DepositedCount);
         Assert.Null(source.LastDepositAt);
+    }
+
+    [Fact]
+    public async Task MailAccepteAvecPdfAuDelaDuPlafond_EstEnEchec_ResteRelisible_LastErrorLeDit()
+    {
+        var small = TestHousehold.TempStorage(maxFileBytes: 40);
+        try
+        {
+            var reader = new FakeMailReader().With(
+                Mail("gros", attachments: new[] { Pdf("decompte.pdf", "un contenu qui dépasse quarante octets, largement") }),
+                Mail("suivant", attachments: new[] { Pdf("rappel.pdf", "court") }));
+            var (service, _, _) = Build(reader, storage: (small.Storage, small.Options));
+
+            var summary = await service.RunOnceAsync(CancellationToken.None);
+
+            Assert.Equal(1, summary.Failed);
+            Assert.Equal(MailOutcome.Failed, reader.Outcomes["gros"]);
+            Assert.Equal(MailOutcome.Processed, reader.Outcomes["suivant"]);
+            var docs = await DocumentsAsync();
+            Assert.Single(docs);
+            Assert.Equal("rappel.pdf", docs[0].OriginalFileName);
+            var source = await SourceAsync();
+            Assert.Equal(MailSyncStatus.Ok, source.LastSyncStatus);
+            Assert.Contains("MailAttachmentTooLargeException", source.LastError);
+            Assert.DoesNotContain("decompte", source.LastError);
+            Assert.Empty(Directory.GetFiles(Path.Combine(small.Root, ".incoming")));
+        }
+        finally
+        {
+            TestHousehold.RemoveTemp(small.Root);
+        }
     }
 
     [Fact]

@@ -84,6 +84,22 @@ public class MailSourceEndpointTests : IDisposable
     }
 
     [Fact]
+    public async Task GetMailSource_DeuxAdresses_RendLaDerniereRelevee()
+    {
+        // L'adresse configurée a changé : l'ancienne ligne reste, la carte doit montrer celle qui est encore relevée.
+        using (var ctx = NewContext())
+        {
+            ctx.MailSources.Add(new MailSource { DashboardId = _a.DashboardId, Address = "ancienne@test.invalid", LastSyncStatus = MailSyncStatus.Ok, LastAttemptAt = new DateTime(2026, 6, 1, 8, 0, 0, DateTimeKind.Utc) });
+            ctx.MailSources.Add(new MailSource { DashboardId = _a.DashboardId, Address = Mailbox, LastSyncStatus = MailSyncStatus.ConnectionError, LastAttemptAt = new DateTime(2026, 9, 23, 8, 0, 0, DateTimeKind.Utc) });
+            await ctx.SaveChangesAsync();
+        }
+        using var check = NewContext();
+        var dto = (MailSourceDto)((OkObjectResult)(await Documents(check, _a.UserId).GetMailSource(_a.DashboardId)).Result!).Value!;
+        Assert.Equal(Mailbox, dto.Address);
+        Assert.Equal("ConnectionError", dto.LastSyncStatus);
+    }
+
+    [Fact]
     public async Task GetMailSource_AvecSource_Rend200_EnUtc_SansSecret()
     {
         var reader = new FakeMailReader().With(Mail("u1", attachments: new[] { Pdf("decompte.pdf", "get") }));

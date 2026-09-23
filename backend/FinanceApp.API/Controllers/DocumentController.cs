@@ -211,10 +211,22 @@ public class DocumentController : ApiControllerBase
     public async Task<ActionResult<MailSourceDto>> GetMailSource([FromQuery] int dashboardId)
     {
         if (!await IsMemberAsync(dashboardId, GetUserId())) return NotFound();
-        var source = await _context.MailSources.AsNoTracking().FirstOrDefaultAsync(s => s.DashboardId == dashboardId);
+        var source = await CurrentMailSourceAsync(dashboardId, CancellationToken.None);
         if (source == null) return NoContent();
         return Ok(MapMailSource(source));
     }
+
+    /// <summary>
+    /// La ligne active de la boîte du dashboard. La clé unique est (DashboardId, Address) : si l'adresse
+    /// configurée change un jour, une seconde ligne apparaît, et c'est la dernière relevée qui compte, pas la
+    /// première insérée. Le service de fond relève l'adresse courante toutes les six heures.
+    /// </summary>
+    private Task<MailSource?> CurrentMailSourceAsync(int dashboardId, CancellationToken ct) =>
+        _context.MailSources.AsNoTracking()
+            .Where(s => s.DashboardId == dashboardId)
+            .OrderByDescending(s => s.LastAttemptAt)
+            .ThenByDescending(s => s.Id)
+            .FirstOrDefaultAsync(ct);
 
     /// <summary>
     /// Relève la boîte maintenant, sous le sémaphore du service de fond. 404 si le service n'est pas configuré
@@ -232,7 +244,7 @@ public class DocumentController : ApiControllerBase
         if (summary == null) return Conflict("Relevé déjà en cours.");
 
         _context.ChangeTracker.Clear();
-        var source = await _context.MailSources.AsNoTracking().FirstOrDefaultAsync(s => s.DashboardId == dashboardId, ct);
+        var source = await CurrentMailSourceAsync(dashboardId, ct);
         if (source == null) return NoContent();
         return Ok(MapMailSource(source));
     }

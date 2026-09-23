@@ -10,9 +10,7 @@ public enum MailRejectReason
     /// <summary>Aucun X-Forwarded-For ne porte ForwardedFrom : le mail n'est pas passé par le transfert.</summary>
     PasTransfere,
     /// <summary>L'objet ne contient aucun des mots acceptés.</summary>
-    ObjetHorsListe,
-    /// <summary>Mail accepté mais sans pièce jointe PDF rangée ni doublon (posé par le service, jamais par Decide).</summary>
-    SansPdf
+    ObjetHorsListe
 }
 
 public sealed record MailDecision(bool Accepted, MailRejectReason? Reason)

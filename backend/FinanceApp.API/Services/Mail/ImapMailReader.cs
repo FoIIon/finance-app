@@ -83,7 +83,7 @@ public sealed class ImapMailReader : IMailReader
         return new IncomingMail(
             uid.ToString(),
             message.MessageId,
-            message.From?.ToString() ?? string.Empty,
+            message.From?.Mailboxes.FirstOrDefault()?.Address ?? string.Empty,
             forwardedFor,
             message.Subject ?? string.Empty,
             message.Date,

@@ -207,7 +207,11 @@ public class MailIngestService : BackgroundService
                 await using (var stream = attachment.Open())
                     staged = await run.Storage.StageAsync(stream, ct);
 
-                // Hors Ok, StageAsync a déjà effacé le .part. Un type reconnu mais pas PDF est écarté ici.
+                // Hors Ok, StageAsync a déjà effacé le .part. Une pièce au-delà du plafond met le mail en échec :
+                // il reste non lu, LastError le dit, et un plafond relevé le récupère au relevé suivant. Un contenu
+                // vide ou d'un type inconnu est écarté, et un type reconnu mais pas PDF l'est juste en dessous.
+                if (staged.Outcome == StageOutcome.TooLarge)
+                    throw new MailAttachmentTooLargeException();
                 if (staged.Outcome != StageOutcome.Ok)
                 {
                     run.SkippedAttachments++;
@@ -291,6 +295,12 @@ public class MailIngestService : BackgroundService
         value == null ? null : value.Length <= LastErrorMaxLength ? value : value[..LastErrorMaxLength];
 
     /// <summary>Tout ce qu'un relevé traîne d'un mail au suivant : les dépendances du scope et les compteurs.</summary>
+    /// <summary>Une pièce jointe au-delà de Documents:MaxFileBytes. Son nom de type suffit à LastError.</summary>
+    private sealed class MailAttachmentTooLargeException : Exception
+    {
+        public MailAttachmentTooLargeException() : base("Pièce jointe au-delà du plafond de taille des documents.") { }
+    }
+
     private sealed class RunState
     {
         public RunState(MailIngestOptions options, AppDbContext context, DocumentStorage storage, DocumentDeposit deposit, MailSource source)
