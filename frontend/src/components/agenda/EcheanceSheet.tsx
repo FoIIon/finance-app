@@ -263,20 +263,23 @@ export const EcheanceSheet = ({ echeanceId, item, dashboardId, onClose }: Props)
             <h4 id="echeance-pay-title" className="text-sm font-semibold text-white mb-3">Payer</h4>
             <ul className="space-y-2 text-sm">
               {payRows.map((row) => (
-                <li key={row.key} className="flex flex-wrap items-center gap-2">
-                  <span className="text-white/40 shrink-0 w-28">{row.label}</span>
-                  <span className={`min-w-0 flex-1 text-white/80 tabular-nums break-all ${copyFailed === row.key ? 'select-all' : ''}`}>{row.shown}</span>
+                <li key={row.key} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {/* Sur téléphone la valeur prend sa propre ligne sous le libellé : un IBAN coupé en plein groupe
+                      (« 0754 7 / 034 ») ne se recopie pas. À partir de sm, libellé, valeur et bouton sur une ligne.
+                      L'ordre du DOM reste libellé, valeur, bouton pour la lecture d'écran, l'ordre visuel suit `order`. */}
+                  <span className="order-1 text-white/40 shrink-0 w-28">{row.label}</span>
+                  <span className={`order-3 basis-full sm:order-2 sm:basis-0 sm:flex-1 min-w-0 text-white/80 tabular-nums break-words ${copyFailed === row.key ? 'select-all' : ''}`}>{row.shown}</span>
                   <button
                     type="button"
                     aria-label={row.action}
                     onClick={() => copyRow(row)}
-                    className="shrink-0 min-h-9 px-3 rounded-lg border border-white/10 text-xs text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                    className="order-2 ml-auto sm:order-3 sm:ml-0 shrink-0 min-h-9 px-3 rounded-lg border border-white/10 text-xs text-white/70 hover:text-white hover:bg-white/5 transition-colors"
                   >
                     {copied === row.key ? 'Copié' : 'Copier'}
                   </button>
                   {/* Sous la ligne, pas dans le bouton : à 360 px le bouton écraserait la valeur qu'on demande de sélectionner. */}
                   {copyFailed === row.key && (
-                    <span className="basis-full text-xs text-amber-300/90">Copie impossible, sélectionne le texte</span>
+                    <span className="order-4 basis-full text-xs text-amber-300/90">Copie impossible, sélectionne le texte</span>
                   )}
                 </li>
               ))}
