@@ -47,7 +47,7 @@ public class EcheanceDocumentAuthorizationTests : IDisposable
         new(ctx, Microsoft.Extensions.Options.Options.Create(AgendaTestSupport.Household())) { ControllerContext = TestHousehold.As(userId) };
 
     private DocumentController Documents(AppDbContext ctx, int userId) =>
-        new(ctx, _storage, _storageOptions) { ControllerContext = TestHousehold.As(userId) };
+        new(ctx, _storage, _storageOptions, new DocumentDeposit(ctx, _storage, _storageOptions)) { ControllerContext = TestHousehold.As(userId) };
 
     private async Task SeedAsync()
     {
@@ -478,7 +478,7 @@ public class EcheanceDocumentAuthorizationTests : IDisposable
         try
         {
             using var ctx = NewContext();
-            var ctl = new DocumentController(ctx, storage, options) { ControllerContext = TestHousehold.As(_a.UserId) };
+            var ctl = new DocumentController(ctx, storage, options, new DocumentDeposit(ctx, storage, options)) { ControllerContext = TestHousehold.As(_a.UserId) };
             var result = await ctl.Upload(new UploadDocumentDto
             {
                 DashboardId = _a.DashboardId, Kind = DocumentKind.Autre,

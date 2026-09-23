@@ -22,12 +22,14 @@ public class DocumentController : ApiControllerBase
     private readonly AppDbContext _context;
     private readonly DocumentStorage _storage;
     private readonly DocumentStorageOptions _options;
+    private readonly DocumentDeposit _deposit;
 
-    public DocumentController(AppDbContext context, DocumentStorage storage, DocumentStorageOptions options)
+    public DocumentController(AppDbContext context, DocumentStorage storage, DocumentStorageOptions options, DocumentDeposit deposit)
     {
         _context = context;
         _storage = storage;
         _options = options;
+        _deposit = deposit;
     }
 
     private Task<bool> IsMemberAsync(int dashboardId, int userId) =>
@@ -69,7 +71,8 @@ public class DocumentController : ApiControllerBase
 
     /// <summary>
     /// Réception d'un fichier. Ordre : appartenance, réception dans .incoming (type et empreinte au fil
-    /// de l'eau), doublon, quota, ligne, rangement. Toute sortie avant le rangement efface le .part.
+    /// de l'eau), puis DocumentDeposit pour doublon, quota, ligne, rangement. Toute sortie avant le
+    /// rangement efface le .part.
     /// </summary>
     [HttpPost]
     [RequestSizeLimit(DocumentStorageOptions.MaxRequestBytes)]
@@ -94,78 +97,19 @@ public class DocumentController : ApiControllerBase
         }
         var file = staged.File!;
 
-        string? storedPath = null;
-        try
+        // Doublon, quota, ligne, rangement : DocumentDeposit, partagé avec l'ingestion par mail. Le .part est
+        // effacé par lui sur toute sortie autre que Created.
+        var deposited = await _deposit.DepositAsync(file,
+            new DepositRequest(dto.DashboardId, dto.EcheanceId, dto.Kind.Value, dto.FiscalYear, DisplayName(dto.File.FileName), userId), ct);
+        switch (deposited.Outcome)
         {
-            var existingId = await _context.Documents
-                .Where(d => d.DashboardId == dto.DashboardId && d.Sha256 == file.Sha256)
-                .Select(d => (int?)d.Id)
-                .FirstOrDefaultAsync(ct);
-            if (existingId.HasValue)
-            {
-                _storage.Discard(file);
-                return Conflict(new DuplicateDocumentDto { ExistingDocumentId = existingId.Value, Message = "Ce fichier est déjà rangé dans ce dashboard." });
-            }
-
-            // Projection puis somme côté client, même discipline que les décimaux.
-            var used = (await _context.Documents
-                .Where(d => d.DashboardId == dto.DashboardId)
-                .Select(d => d.SizeBytes)
-                .ToListAsync(ct)).Sum();
-            if (used + file.SizeBytes > _options.QuotaBytesPerDashboard)
-            {
-                _storage.Discard(file);
+            case DepositOutcome.Duplicate:
+                return Conflict(new DuplicateDocumentDto { ExistingDocumentId = deposited.ExistingDocumentId!.Value, Message = "Ce fichier est déjà rangé dans ce dashboard." });
+            case DepositOutcome.QuotaExceeded:
                 return StatusCode(StatusCodes.Status507InsufficientStorage, "Quota de stockage du dashboard atteint.");
-            }
-
-            var now = DateTime.UtcNow;
-            var document = new Document
-            {
-                DashboardId = dto.DashboardId,
-                EcheanceId = dto.EcheanceId,
-                Kind = dto.Kind.Value,
-                FiscalYear = dto.FiscalYear,
-                OriginalFileName = DisplayName(dto.File.FileName),
-                ContentType = FileSignature.ContentType(file.Kind),
-                SizeBytes = file.SizeBytes,
-                Sha256 = file.Sha256,
-                UploadedByUserId = userId,
-                CreatedAt = now,
-                StoredPath = string.Empty,
-            };
-
-            // La ligne d'abord (elle donne l'identifiant, donc le nom sur disque), le rangement ensuite,
-            // le tout sous transaction : un déplacement raté annule la ligne, une ligne ratée garde le .part
-            // qui est effacé dans le catch.
-            await using var tx = await _context.Database.BeginTransactionAsync(ct);
-            _context.Documents.Add(document);
-            await _context.SaveChangesAsync(ct);
-            storedPath = _storage.Commit(file, document.Id, now.Year);
-            document.StoredPath = storedPath;
-            await _context.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
-
-            return CreatedAtAction(nameof(GetById), new { id = document.Id }, Map(document));
         }
-        catch (DbUpdateException)
-        {
-            // Course entre deux envois identiques : l'index unique tranche, on répond comme au doublon.
-            _storage.Discard(file);
-            if (storedPath != null) _storage.Delete(storedPath);
-            var winner = await _context.Documents
-                .Where(d => d.DashboardId == dto.DashboardId && d.Sha256 == file.Sha256)
-                .Select(d => (int?)d.Id)
-                .FirstOrDefaultAsync(CancellationToken.None);
-            if (winner.HasValue)
-                return Conflict(new DuplicateDocumentDto { ExistingDocumentId = winner.Value, Message = "Ce fichier est déjà rangé dans ce dashboard." });
-            throw;
-        }
-        catch
-        {
-            _storage.Discard(file);
-            if (storedPath != null) _storage.Delete(storedPath);
-            throw;
-        }
+        var document = deposited.Document!;
+        return CreatedAtAction(nameof(GetById), new { id = document.Id }, Map(document));
     }
 
     [HttpGet]

@@ -41,6 +41,7 @@ var documentsOptions = new DocumentStorageOptions
 };
 builder.Services.AddSingleton(documentsOptions);
 builder.Services.AddSingleton(new DocumentStorage(documentsOptions));
+builder.Services.AddScoped<DocumentDeposit>();
 // Un peu au-dessus de la limite du fichier : un fichier trop gros doit atteindre DocumentStorage, qui
 // répond 413 avec un message, au lieu d'un 400 du binder de formulaire.
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
