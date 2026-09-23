@@ -1,6 +1,6 @@
 import type { AxiosProgressEvent } from 'axios';
 import apiClient from './client';
-import type { Document, DocumentKind, UpdateDocument, UploadDocument } from '../types/documents';
+import type { Document, DocumentKind, MailSource, UpdateDocument, UploadDocument } from '../types/documents';
 
 export interface DocumentFilters {
   fiscalYear?: number;
@@ -37,4 +37,14 @@ export const documentsApi = {
   update: (id: number, data: UpdateDocument) => apiClient.put<Document>(`/documents/${id}`, data),
 
   remove: (id: number) => apiClient.delete<void>(`/documents/${id}`),
+
+  /** L'état de la boîte factures. 204 tant qu'aucun relevé n'a eu lieu : null, et la carte ne s'affiche pas. */
+  mailSource: async (dashboardId: number): Promise<MailSource | null> => {
+    const res = await apiClient.get<MailSource | ''>('/documents/mail-source', { params: { dashboardId } });
+    return res.status === 204 || !res.data ? null : res.data;
+  },
+
+  /** Relève la boîte maintenant. 409 si un relevé est déjà en cours, 404 si le service n'est pas configuré. */
+  refreshMailSource: (dashboardId: number) =>
+    apiClient.post<MailSource>('/documents/mail-source/refresh', undefined, { params: { dashboardId } }),
 };

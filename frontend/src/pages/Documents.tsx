@@ -11,6 +11,7 @@ import { EcheanceSheet } from '../components/agenda/EcheanceSheet';
 import { EcheanceFormSheet } from '../components/echeances/EcheanceFormSheet';
 import { Sheet } from '../components/echeances/Sheet';
 import { DocumentCard } from '../components/documents/DocumentCard';
+import { MailSourceCard } from '../components/documents/MailSourceCard';
 import { DocumentUpload } from '../components/documents/DocumentUpload';
 import { DocumentViewer } from '../components/documents/DocumentViewer';
 import { DOCUMENT_KIND_LABELS, fileNameWithoutExtension } from '../components/documents/documentFormat';
@@ -168,6 +169,8 @@ const Documents = () => {
           ))}
         </select>
       </div>
+
+      <MailSourceCard dashboardId={currentDashboard.id} />
 
       {justUploaded && (
         <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-sm">

@@ -270,6 +270,15 @@ export const useDocumentsQuery = (dashboardId: number | undefined, filters: Docu
     },
   });
 
+/** L'état de la boîte factures, null tant que le serveur n'en connaît pas (204). Une minute de fraîcheur. */
+export const useMailSourceQuery = (dashboardId: number | undefined) =>
+  useQuery({
+    queryKey: ['mail-source', dashboardId],
+    enabled: !!dashboardId,
+    staleTime: 60 * 1000,
+    queryFn: () => documentsApi.mailSource(dashboardId!),
+  });
+
 /** Toutes les échéances du dashboard, pour écrire le libellé sous un document rattaché. */
 export const useEcheancesQuery = (dashboardId: number | undefined) =>
   useQuery({

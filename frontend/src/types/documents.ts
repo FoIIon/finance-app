@@ -5,6 +5,9 @@ export type DocumentKind = 'Facture' | 'Fiscal' | 'Contrat' | 'Autre';
 
 export const DOCUMENT_KINDS: readonly DocumentKind[] = ['Facture', 'Fiscal', 'Contrat', 'Autre'];
 
+/** DocumentSource : déposé par un membre, ou pièce jointe d'un mail relevé par le serveur. */
+export type DocumentSource = 'Upload' | 'Mail';
+
 /** DocumentDto. Le type réel (contentType) est celui déduit par le serveur des octets de tête. */
 export interface Document {
   id: number;
@@ -16,9 +19,28 @@ export interface Document {
   contentType: string;
   sizeBytes: number;
   sha256: string;
-  uploadedByUserId: number;
+  /** Null pour un document reçu par mail. */
+  uploadedByUserId: number | null;
   /** ISO UTC. */
   createdAt: string;
+  source: DocumentSource;
+}
+
+/** MailSyncStatus, en texte. */
+export type MailSyncStatus = 'Pending' | 'Ok' | 'AuthError' | 'ConnectionError' | 'Error';
+
+/** MailSourceDto : l'état de la boîte factures. Adresse relevée et dates, jamais un secret ni un objet de mail. */
+export interface MailSource {
+  address: string;
+  /** ISO UTC, dernière tentative. */
+  lastAttemptAt: string | null;
+  /** ISO UTC, dernier relevé qui a ouvert la boîte. */
+  lastSyncAt: string | null;
+  lastSyncStatus: MailSyncStatus;
+  lastError: string | null;
+  /** ISO UTC, dernier document déposé. */
+  lastDepositAt: string | null;
+  depositedCount: number;
 }
 
 /** UploadDocumentDto, envoyé en multipart/form-data. Le fichier part tel quel, le serveur le type lui-même. */

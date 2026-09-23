@@ -433,6 +433,10 @@ test.describe.serial('FinanceApp E2E', () => {
     const card = page.locator('li', { hasText: 'facture-test.pdf' });
     await expect(card).toBeVisible({ timeout: 10000 });
     await expect(card).toContainText('Facture');
+    // Lot 4 : sans section MailIngest (le cas en E2E), la page ne montre pas la carte « Boîte factures », et un
+    // dépôt manuel ne porte pas la pastille « Reçu par mail ».
+    await expect(page.getByText('Boîte factures')).toHaveCount(0);
+    await expect(card).not.toContainText('Reçu par mail');
     await expect(page.getByRole('button', { name: String(new Date().getFullYear()), pressed: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Créer une échéance à partir de ce document' })).toBeVisible();
 

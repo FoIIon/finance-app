@@ -51,7 +51,11 @@ export const DocumentCard = ({ doc, dashboardId, echeance, onOpen, opening, onOp
       >
         <span className="block text-sm font-medium text-white break-words">{doc.originalFileName}</span>
         <span className="block text-xs text-white/50 mt-0.5">
-          {DOCUMENT_KIND_LABELS[doc.kind] ?? doc.kind} · {formatBytes(doc.sizeBytes)} · déposé le {formatInstantDay(doc.createdAt)}
+          {DOCUMENT_KIND_LABELS[doc.kind] ?? doc.kind}
+          {doc.source === 'Mail' && (
+            <span className="ml-1.5 px-1.5 py-px rounded-full bg-white/10 text-white/60 text-[10px] align-middle whitespace-nowrap">Reçu par mail</span>
+          )}
+          {' '}· {formatBytes(doc.sizeBytes)} · déposé le {formatInstantDay(doc.createdAt)}
           {opening && ' · ouverture…'}
         </span>
       </button>
