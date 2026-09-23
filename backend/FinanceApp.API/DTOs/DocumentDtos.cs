@@ -18,6 +18,24 @@ public class DocumentDto
     /// <summary>Null pour un document reçu par mail.</summary>
     public int? UploadedByUserId { get; set; }
     public DateTime CreatedAt { get; set; }
+    /// <summary>Upload ou Mail.</summary>
+    public string Source { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// L'état de la boîte factures d'un dashboard (GET et POST api/documents/mail-source). Adresse relevée et
+/// dates seulement : ni hôte, ni mot de passe, ni objet de mail. Dates en UTC explicite.
+/// </summary>
+public class MailSourceDto
+{
+    public string Address { get; set; } = string.Empty;
+    public DateTime? LastAttemptAt { get; set; }
+    public DateTime? LastSyncAt { get; set; }
+    /// <summary>Pending, Ok, AuthError, ConnectionError ou Error.</summary>
+    public string LastSyncStatus { get; set; } = string.Empty;
+    public string? LastError { get; set; }
+    public DateTime? LastDepositAt { get; set; }
+    public int DepositedCount { get; set; }
 }
 
 /// <summary>Envoi multipart : le fichier et ses métadonnées. Le type du fichier se déduit de son contenu, jamais de ce formulaire.</summary>

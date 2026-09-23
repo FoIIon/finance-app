@@ -2,8 +2,10 @@ using FinanceApp.API.Data;
 using FinanceApp.API.DTOs;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
+using FinanceApp.API.Services.Mail;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Net.Http.Headers;
 
@@ -56,6 +58,20 @@ public class DocumentController : ApiControllerBase
         // Relu de SQLite, le DateTime sort en Kind Unspecified, donc sans « Z » : « déposé le » glisserait d'un
         // jour entre 22 h et minuit. Même procédé qu'EcheanceController et AgendaCalendarStatus.From.
         CreatedAt = DateTime.SpecifyKind(d.CreatedAt, DateTimeKind.Utc),
+        Source = d.Source.ToString(),
+    };
+
+    private static DateTime? Utc(DateTime? value) => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : null;
+
+    private static MailSourceDto MapMailSource(MailSource s) => new()
+    {
+        Address = s.Address,
+        LastAttemptAt = Utc(s.LastAttemptAt),
+        LastSyncAt = Utc(s.LastSyncAt),
+        LastSyncStatus = s.LastSyncStatus.ToString(),
+        LastError = s.LastError,
+        LastDepositAt = Utc(s.LastDepositAt),
+        DepositedCount = s.DepositedCount,
     };
 
     /// <summary>Nom d'affichage : la dernière composante de ce que le client a envoyé, tronquée. Jamais un chemin.</summary>
@@ -188,5 +204,36 @@ public class DocumentController : ApiControllerBase
         await _context.SaveChangesAsync();
         _storage.Delete(document.StoredPath);
         return NoContent();
+    }
+
+    /// <summary>L'état de la boîte factures du dashboard. 204 tant qu'aucun relevé n'a créé la ligne : la carte ne s'affiche pas.</summary>
+    [HttpGet("mail-source")]
+    public async Task<ActionResult<MailSourceDto>> GetMailSource([FromQuery] int dashboardId)
+    {
+        if (!await IsMemberAsync(dashboardId, GetUserId())) return NotFound();
+        var source = await _context.MailSources.AsNoTracking().FirstOrDefaultAsync(s => s.DashboardId == dashboardId);
+        if (source == null) return NoContent();
+        return Ok(MapMailSource(source));
+    }
+
+    /// <summary>
+    /// Relève la boîte maintenant, sous le sémaphore du service de fond. 404 si le service n'est pas configuré
+    /// ou vise un autre dashboard, 409 sans attendre si un relevé est déjà en cours. Politique « login » (dix par
+    /// minute et par adresse) : chaque appel ouvre une connexion chez Gmail.
+    /// </summary>
+    [HttpPost("mail-source/refresh")]
+    [EnableRateLimiting("login")]
+    public async Task<ActionResult<MailSourceDto>> RefreshMailSource([FromQuery] int dashboardId, [FromServices] MailIngestService mailIngest, CancellationToken ct)
+    {
+        if (!await IsMemberAsync(dashboardId, GetUserId())) return NotFound();
+        if (!mailIngest.IsConfigured || mailIngest.ConfiguredDashboardId != dashboardId) return NotFound();
+
+        var summary = await mailIngest.TryRunOnceAsync(ct);
+        if (summary == null) return Conflict("Relevé déjà en cours.");
+
+        _context.ChangeTracker.Clear();
+        var source = await _context.MailSources.AsNoTracking().FirstOrDefaultAsync(s => s.DashboardId == dashboardId, ct);
+        if (source == null) return NoContent();
+        return Ok(MapMailSource(source));
     }
 }
