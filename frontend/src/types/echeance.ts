@@ -10,4 +10,6 @@ export interface CreateEcheance {
   /** Lot 3, facultatifs : saisie brute acceptée, le serveur normalise et refuse un contrôle 97 faux. */
   counterpartyIban: string | null;
   structuredCommunication: string | null;
+  /** Nom du bénéficiaire pour le QR code de virement, facultatif, 70 caractères au plus (le serveur trime et refuse au-delà). */
+  counterpartyName: string | null;
 }

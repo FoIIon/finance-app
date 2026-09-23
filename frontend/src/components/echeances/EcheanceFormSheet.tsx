@@ -6,6 +6,8 @@ import type { Echeance } from '../../types/agenda';
 import { addDays, formatShortDate } from '../agenda/agendaFormat';
 import { Sheet } from './Sheet';
 import {
+  COUNTERPARTY_NAME_HINT,
+  COUNTERPARTY_NAME_MAX,
   STRUCTURED_COMMUNICATION_HINT,
   amountToInput,
   fieldErrorsOf,
@@ -33,6 +35,7 @@ interface FormData {
   amount: number | null;
   counterpartyIban: string | null;
   structuredCommunication: string | null;
+  counterpartyName: string | null;
 }
 
 const inputClass =
@@ -41,8 +44,8 @@ const errorClass = 'text-xs text-amber-300/90 mt-1';
 
 /**
  * Libellé, date limite, montant facultatif, puis les deux clés du rapprochement automatique (lot 3), facultatives
- * aussi : l'IBAN du bénéficiaire et la communication structurée. Pas de notes (l'API les accepte, l'écran
- * attendra un besoin). Les refus du serveur s'écrivent sous le champ concerné. Après l'enregistrement,
+ * aussi : l'IBAN du bénéficiaire et la communication structurée. Le nom du bénéficiaire, facultatif, ne sert
+ * qu'au QR code de virement de la fiche. Pas de notes (l'API les accepte, l'écran attendra un besoin). Les refus du serveur s'écrivent sous le champ concerné. Après l'enregistrement,
  * l'agenda est invalidé et un toast dit pour quel jour.
  */
 export const EcheanceFormSheet = ({ dashboardId, initial, defaults, onClose, onSaved }: Props) => {
@@ -55,6 +58,7 @@ export const EcheanceFormSheet = ({ dashboardId, initial, defaults, onClose, onS
   const [amount, setAmount] = useState(amountToInput(initial?.amount ?? null));
   const [counterpartyIban, setCounterpartyIban] = useState(initial?.counterpartyIban ? formatIban(initial.counterpartyIban) : '');
   const [structuredCommunication, setStructuredCommunication] = useState(initial?.structuredCommunication ?? '');
+  const [counterpartyName, setCounterpartyName] = useState(initial?.counterpartyName ?? '');
   const [errors, setErrors] = useState<FieldErrors>({});
 
   const save = useMutation({
@@ -87,6 +91,9 @@ export const EcheanceFormSheet = ({ dashboardId, initial, defaults, onClose, onS
     // La communication se vérifie ici, avant l'envoi, avec le même contrôle 97 que le serveur.
     const digits = stripStructuredCommunication(structuredCommunication);
     if (digits && !isValidStructuredCommunication(digits)) next.structuredCommunication = STRUCTURED_COMMUNICATION_HINT;
+    // Même limite que le serveur (70, celle du format EPC), pour refuser avant l'envoi.
+    const name = counterpartyName.trim();
+    if (name.length > COUNTERPARTY_NAME_MAX) next.counterpartyName = COUNTERPARTY_NAME_HINT;
     setErrors(next);
     if (Object.keys(next).length || parsed === 'invalid') return;
     const iban = counterpartyIban.replace(/\s+/g, '');
@@ -96,6 +103,7 @@ export const EcheanceFormSheet = ({ dashboardId, initial, defaults, onClose, onS
       amount: parsed,
       counterpartyIban: iban ? iban : null,
       structuredCommunication: digits ? digits : null,
+      counterpartyName: name ? name : null,
     });
   };
 
@@ -173,6 +181,29 @@ export const EcheanceFormSheet = ({ dashboardId, initial, defaults, onClose, onS
             className={`${inputClass} tabular-nums uppercase`}
           />
           {errors.counterpartyIban && <p className={errorClass}>{errors.counterpartyIban}</p>}
+        </div>
+
+        <div>
+          <label htmlFor="echeance-counterparty-name" className="block text-white/40 text-sm mb-1">
+            Bénéficiaire <span className="text-white/30">(facultatif)</span>
+          </label>
+          <input
+            id="echeance-counterparty-name"
+            type="text"
+            autoCapitalize="words"
+            autoComplete="off"
+            maxLength={COUNTERPARTY_NAME_MAX}
+            value={counterpartyName}
+            onChange={(e) => setCounterpartyName(e.target.value)}
+            disabled={save.isPending}
+            placeholder="École communale"
+            aria-invalid={!!errors.counterpartyName}
+            className={inputClass}
+          />
+          {errors.counterpartyName && <p className={errorClass}>{errors.counterpartyName}</p>}
+          <p className="text-xs text-white/40 mt-2">
+            Le nom du destinataire tel que sa banque le connaît. Il sert au QR code.
+          </p>
         </div>
 
         <div>

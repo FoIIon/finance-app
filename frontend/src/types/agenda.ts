@@ -100,6 +100,8 @@ export interface Echeance {
   counterpartyIban: string | null;
   /** Les douze chiffres de la communication structurée attendue. */
   structuredCommunication: string | null;
+  /** Nom du bénéficiaire pour le QR code de virement, 70 caractères au plus. Null si non renseigné. */
+  counterpartyName: string | null;
   /** Instant ISO UTC du rapprochement automatique. Null quand le lien est manuel ou absent. */
   matchedAt: string | null;
   /** Instant ISO UTC où un rapprochement automatique a été défait : le serveur ne redevine plus tant qu'une clé ne change pas. */
@@ -127,4 +129,6 @@ export interface UpdateEcheance {
   /** Saisie brute acceptée, le serveur normalise. Null : effacé. */
   counterpartyIban: string | null;
   structuredCommunication: string | null;
+  /** Le serveur trime, refuse au-delà de 70 caractères. Null : effacé. */
+  counterpartyName: string | null;
 }

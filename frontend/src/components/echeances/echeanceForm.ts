@@ -9,8 +9,13 @@ export interface FieldErrors {
   amount?: string;
   counterpartyIban?: string;
   structuredCommunication?: string;
+  counterpartyName?: string;
   general?: string;
 }
+
+/** La limite EPC du nom de bénéficiaire, la même que le serveur. */
+export const COUNTERPARTY_NAME_MAX = 70;
+export const COUNTERPARTY_NAME_HINT = 'Septante caractères au plus.';
 
 /** L'exemple passe le contrôle 97 (1234567890 mod 97 = 2) : recopié tel quel, il est accepté. */
 export const STRUCTURED_COMMUNICATION_HINT = 'Douze chiffres, par exemple +++123/4567/89002+++.';
@@ -60,6 +65,7 @@ export const fieldErrorsOf = (err: unknown, fallback: string): FieldErrors => {
     // Les deux refus métier du lot 3 arrivent en texte brut : ils vont sous leur champ, pas en ligne générale.
     if (data.startsWith('Communication structurée')) return { structuredCommunication: data };
     if (data.startsWith('IBAN')) return { counterpartyIban: data };
+    if (data.startsWith('Nom du bénéficiaire')) return { counterpartyName: data };
     return { general: data };
   }
   if (data && typeof data === 'object' && 'errors' in data && data.errors && typeof data.errors === 'object') {
@@ -73,6 +79,7 @@ export const fieldErrorsOf = (err: unknown, fallback: string): FieldErrors => {
         case 'amount': out.amount = message; break;
         case 'counterpartyiban': out.counterpartyIban = message; break;
         case 'structuredcommunication': out.structuredCommunication = message; break;
+        case 'counterpartyname': out.counterpartyName = message; break;
         default: general.push(message);
       }
     }
