@@ -60,6 +60,11 @@ export const MailSourceCard = ({ dashboardId }: Props) => {
         showToast(statusLine(res.data).text, 'error');
         return;
       }
+      // Boîte ouverte mais un message laissé en échec (il sera retenté) : le statut est Ok, lastError le dit.
+      if (res.data?.lastError) {
+        showToast('Boîte relevée, un message reste en échec', 'error');
+        return;
+      }
       const created = res.data ? res.data.depositedCount - before : 0;
       if (created > 0) showToast(created === 1 ? '1 nouveau document' : `${created} nouveaux documents`, 'success');
       else showToast('Boîte relevée', 'success');
@@ -94,7 +99,7 @@ export const MailSourceCard = ({ dashboardId }: Props) => {
         </button>
       </div>
       <p className={`text-sm break-words min-h-11 flex items-center ${line.warn ? 'text-amber-300/90' : 'text-white/70'}`}>{line.text}</p>
-      {data.lastError && data.lastSyncStatus !== 'Ok' && (
+      {data.lastError && (
         <p className="text-xs text-white/40 break-words">{data.lastError}</p>
       )}
       <p className="text-xs text-white/40">

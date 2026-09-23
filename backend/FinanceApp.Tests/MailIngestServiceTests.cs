@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+using System.Net.Sockets;
 using System.Text.Json;
 using FinanceApp.API.Data;
 using FinanceApp.API.Models;

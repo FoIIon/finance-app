@@ -294,13 +294,13 @@ public class MailIngestService : BackgroundService
     private static string? Truncate(string? value) =>
         value == null ? null : value.Length <= LastErrorMaxLength ? value : value[..LastErrorMaxLength];
 
-    /// <summary>Tout ce qu'un relevé traîne d'un mail au suivant : les dépendances du scope et les compteurs.</summary>
     /// <summary>Une pièce jointe au-delà de Documents:MaxFileBytes. Son nom de type suffit à LastError.</summary>
     private sealed class MailAttachmentTooLargeException : Exception
     {
         public MailAttachmentTooLargeException() : base("Pièce jointe au-delà du plafond de taille des documents.") { }
     }
 
+    /// <summary>Tout ce qu'un relevé traîne d'un mail au suivant : les dépendances du scope et les compteurs.</summary>
     private sealed class RunState
     {
         public RunState(MailIngestOptions options, AppDbContext context, DocumentStorage storage, DocumentDeposit deposit, MailSource source)
