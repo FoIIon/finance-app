@@ -276,9 +276,14 @@ public class MailIngestService : BackgroundService
             run.FailureTypes.Add(ex.GetType().Name);
             _logger.LogWarning("Boîte factures : un message n'a pas pu être traité, {Type}.", ex.GetType().FullName);
             // Si c'est le save de la MailSource qui a lâché, elle reste Modified et chaque dépôt suivant du relevé
-            // buterait sur la garde de DocumentDeposit : on repart des valeurs en base, un mail perdu et pas dix.
-            if (run.Context.ChangeTracker.HasChanges())
-                await run.Context.Entry(run.Source).ReloadAsync(CancellationToken.None);
+            // buterait sur la garde de DocumentDeposit : on revient aux valeurs du dernier save accepté, sans
+            // toucher à la base (elle est peut-être justement occupée). Un mail perdu et pas dix.
+            var entry = run.Context.Entry(run.Source);
+            if (entry.State == EntityState.Modified)
+            {
+                entry.CurrentValues.SetValues(entry.OriginalValues);
+                entry.State = EntityState.Unchanged;
+            }
             return MailOutcome.Failed;
         }
     }

@@ -105,4 +105,21 @@ public class MailIngestRulesTests
         Assert.Equal("a@b.c", MailIngestRules.AddressOf("Un <a@b.c>, Deux <d@e.f>"));
         Assert.Equal(string.Empty, MailIngestRules.AddressOf(""));
     }
+
+    [Fact]
+    public void IsPlausibleMailDate_AccepteDe2000AuRelevePlusDeuxJours_RejetteLeReste()
+    {
+        var now = new DateTimeOffset(2026, 9, 24, 9, 0, 0, TimeSpan.Zero);
+
+        Assert.True(MailIngestRules.IsPlausibleMailDate(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero), now));
+        Assert.True(MailIngestRules.IsPlausibleMailDate(now, now));
+        Assert.True(MailIngestRules.IsPlausibleMailDate(now.AddDays(2), now));
+        // Le fuseau du mail ne change pas l'instant comparé : 10h00 à +02:00 le 26/09, c'est 08h00 UTC, dans la fenêtre.
+        Assert.True(MailIngestRules.IsPlausibleMailDate(new DateTimeOffset(2026, 9, 26, 10, 0, 0, TimeSpan.FromHours(2)), now));
+
+        Assert.False(MailIngestRules.IsPlausibleMailDate(new DateTimeOffset(1999, 12, 31, 23, 59, 59, TimeSpan.Zero), now));
+        Assert.False(MailIngestRules.IsPlausibleMailDate(now.AddDays(2).AddSeconds(1), now));
+        Assert.False(MailIngestRules.IsPlausibleMailDate(DateTimeOffset.MinValue, now));
+        Assert.False(MailIngestRules.IsPlausibleMailDate(DateTimeOffset.FromUnixTimeSeconds(0), now));
+    }
 }
