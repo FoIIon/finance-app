@@ -66,7 +66,7 @@ public class RecurringSettlementTests
     {
         var r = Engie();
         var parMot = Tx(40, new DateOnly(2026, 9, 24), 380m, "Engie");
-        var auMontant = Tx(41, new DateOnly(2026, 9, 2), 400m, "Carte");
+        var auMontant = Tx(41, new DateOnly(2026, 9, 20), 400m, "Carte");
         var lie = Tx(42, new DateOnly(2026, 9, 1), 5m, "Lien", recurringId: 1);
 
         Assert.Equal(40, RecurringSettlement.Settle(r, Le24Sept, new[] { parMot }, Claimed())!.Id);
@@ -114,9 +114,82 @@ public class RecurringSettlementTests
         Assert.Null(RecurringSettlement.Keyword("TV 12 ab"));
         var tv = new RecurringTransaction { Id = 4, Description = "TV 12 ab", Amount = 20m, Type = TransactionType.Expense, Frequency = RecurringFrequency.Monthly, DayOfMonth = 1, StartDate = new DateOnly(2025, 1, 1), IsActive = true };
         Assert.Null(RecurringSettlement.Settle(tv, new DateOnly(2026, 9, 1), new[] { Tx(71, new DateOnly(2026, 9, 1), 19m, "TV 12 ab") }, Claimed()));
-        // Le repli enlève les accents : « Crédit logement » cherche « credit ».
-        Assert.Equal("credit", RecurringSettlement.Keyword("Crédit logement"));
+        // Le repli enlève les accents et saute les mots génériques : « Crédit logement » cherche « logement ».
+        Assert.Equal("logement", RecurringSettlement.Keyword("Crédit logement"));
         Assert.Equal("engie", RecurringSettlement.Keyword("ENGIE — gaz/électricité"));
+    }
+
+    [Fact]
+    public void Mot_LesMotsGeneriquesSontSautes_SurLesOnzeRecurrentesReelles()
+    {
+        Assert.Contains("credit", RecurringSettlement.ExcludedKeywords);
+        Assert.Contains("salaire", RecurringSettlement.ExcludedKeywords);
+        Assert.Contains("epargne", RecurringSettlement.ExcludedKeywords);
+        Assert.Contains("mensualite", RecurringSettlement.ExcludedKeywords);
+        Assert.Equal(19, RecurringSettlement.ExcludedKeywords.Count);
+
+        Assert.Equal("engie", RecurringSettlement.Keyword("ENGIE — gaz/électricité"));
+        Assert.Equal("netflix", RecurringSettlement.Keyword("Netflix"));
+        Assert.Equal("besos", RecurringSettlement.Keyword("Besos"));
+        Assert.Equal("internet", RecurringSettlement.Keyword("Internet"));
+        Assert.Equal("logement", RecurringSettlement.Keyword("Crédit logement"));
+        Assert.Equal("sebastien", RecurringSettlement.Keyword("Salaire Sébastien"));
+        // « epargne » et « perso » sont génériques, « cbc » fait trois lettres : pas de mot, pas de règle 3.
+        Assert.Null(RecurringSettlement.Keyword("Épargne perso CBC"));
+        Assert.Null(RecurringSettlement.Keyword("Mensualité"));
+
+        var epargne = new RecurringTransaction { Id = 5, Description = "Épargne perso CBC", Amount = 200m, Type = TransactionType.Expense, Frequency = RecurringFrequency.Monthly, DayOfMonth = 5, StartDate = new DateOnly(2025, 1, 5), IsActive = true };
+        Assert.Null(RecurringSettlement.Settle(epargne, new DateOnly(2026, 9, 5), new[] { Tx(72, new DateOnly(2026, 9, 5), 180m, "Épargne perso CBC") }, Claimed()));
+        // Le montant au centime reste la règle 2, sans mot.
+        Assert.Equal(73, RecurringSettlement.Settle(epargne, new DateOnly(2026, 9, 5), new[] { Tx(73, new DateOnly(2026, 9, 5), 200m, "Virement") }, Claimed())!.Id);
+    }
+
+    [Fact]
+    public void Mot_Entier_PasUneSousChaine()
+    {
+        var r = Engie();
+        Assert.Null(RecurringSettlement.Settle(r, Le24Sept, new[] { Tx(74, new DateOnly(2026, 9, 16), 380m, "Domiciliation ENGIEX") }, Claimed()));
+        Assert.Null(RecurringSettlement.Settle(r, Le24Sept, new[] { Tx(75, new DateOnly(2026, 9, 16), 380m, "Paiement", counterparty: "REENGIE SA") }, Claimed()));
+        Assert.Equal(76, RecurringSettlement.Settle(r, Le24Sept, new[] { Tx(76, new DateOnly(2026, 9, 16), 380m, "Domiciliation ENGIE/Electrabel") }, Claimed())!.Id);
+
+        var logement = new RecurringTransaction { Id = 6, Description = "Crédit logement", Amount = 1232.72m, Type = TransactionType.Expense, Frequency = RecurringFrequency.Monthly, DayOfMonth = 10, StartDate = new DateOnly(2025, 1, 10), IsActive = true };
+        // Le décompte de la carte de crédit dans la fourchette : « creditcard » n'est pas « credit », et « credit » est générique de toute façon.
+        Assert.Null(RecurringSettlement.Settle(logement, new DateOnly(2026, 9, 10), new[] { Tx(77, new DateOnly(2026, 9, 10), 1300m, "Creditcard decompte") }, Claimed()));
+        Assert.Null(RecurringSettlement.Settle(logement, new DateOnly(2026, 9, 10), new[] { Tx(78, new DateOnly(2026, 9, 10), 1300m, "Accreditation logements") }, Claimed()));
+        Assert.Equal(79, RecurringSettlement.Settle(logement, new DateOnly(2026, 9, 10), new[] { Tx(79, new DateOnly(2026, 9, 10), 1300m, "Pret logement mensualite") }, Claimed())!.Id);
+    }
+
+    [Theory]
+    [InlineData(14, true)]
+    [InlineData(13, false)]
+    public void Proximite_DixJoursAuPlus_BorneBasseIncluse_PourLeMontantEtLeMot(int day, bool expected)
+    {
+        // Occurrence du 24 : le 14 est à dix jours, le 13 à onze.
+        var r = Engie();
+        var auMontant = RecurringSettlement.Settle(r, Le24Sept, new[] { Tx(80, new DateOnly(2026, 9, day), 400m, "Carte") }, Claimed());
+        Assert.Equal(expected, auMontant != null);
+        var parMot = RecurringSettlement.Settle(r, Le24Sept, new[] { Tx(81, new DateOnly(2026, 9, day), 380m, "Engie") }, Claimed());
+        Assert.Equal(expected, parMot != null);
+    }
+
+    [Fact]
+    public void Proximite_BorneHauteIncluse_EtLeLienNEstPasBorne()
+    {
+        var r = Engie();
+        var le15 = new DateOnly(2026, 9, 15);
+        Assert.Equal(10, RecurringSettlement.MaxDaysFromDue);
+        // Occurrence du 15 : le 25 est à dix jours, le 26 à onze, pour le montant comme pour le mot.
+        Assert.NotNull(RecurringSettlement.Settle(r, le15, new[] { Tx(82, new DateOnly(2026, 9, 25), 400m, "Carte") }, Claimed()));
+        Assert.Null(RecurringSettlement.Settle(r, le15, new[] { Tx(83, new DateOnly(2026, 9, 26), 400m, "Carte") }, Claimed()));
+        Assert.NotNull(RecurringSettlement.Settle(r, le15, new[] { Tx(87, new DateOnly(2026, 9, 25), 380m, "Engie") }, Claimed()));
+        Assert.Null(RecurringSettlement.Settle(r, le15, new[] { Tx(88, new DateOnly(2026, 9, 26), 380m, "Engie") }, Claimed()));
+        // Un lien règle à n'importe quelle distance dans le mois.
+        Assert.Equal(84, RecurringSettlement.Settle(r, le15, new[] { Tx(84, new DateOnly(2026, 9, 1), 12m, "Lien", recurringId: 1) }, Claimed())!.Id);
+
+        // Les deux cas du ménage : un virement à Audrey le 20 pour le 7, une dépense de 45,00 le 25, aucun ne règle.
+        var audrey = new RecurringTransaction { Id = 3, Description = "Audrey 45€ (Santé)", Amount = 45m, Type = TransactionType.Expense, Frequency = RecurringFrequency.Monthly, DayOfMonth = 7, StartDate = new DateOnly(2025, 1, 7), IsActive = true };
+        Assert.Null(RecurringSettlement.Settle(audrey, new DateOnly(2026, 9, 7), new[] { Tx(85, new DateOnly(2026, 9, 20), 45m, "Virement Audrey") }, Claimed()));
+        Assert.Null(RecurringSettlement.Settle(audrey, new DateOnly(2026, 9, 7), new[] { Tx(86, new DateOnly(2026, 9, 25), 45m, "Pharmacie") }, Claimed()));
     }
 
     [Fact]
@@ -146,7 +219,7 @@ public class RecurringSettlementTests
     public void Determinisme_DeuxCandidatsEquivalents_LePlusProcheDeLaDatePuisLePlusPetitId()
     {
         var r = Engie();
-        var loin = Tx(100, new DateOnly(2026, 9, 2), 400m);
+        var loin = Tx(100, new DateOnly(2026, 9, 15), 400m);
         var proche = Tx(101, new DateOnly(2026, 9, 23), 400m);
         Assert.Equal(101, RecurringSettlement.Settle(r, Le24Sept, new[] { loin, proche }, Claimed())!.Id);
         Assert.Equal(101, RecurringSettlement.Settle(r, Le24Sept, new[] { proche, loin }, Claimed())!.Id);
