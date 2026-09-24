@@ -196,9 +196,10 @@ public class MailIngestService : BackgroundService
                 return MailOutcome.Ignored;
             }
 
-            // Sans en-tête Date lisible, MimeKit rend MinValue, et janvier de l'an 1 donnerait l'année fiscale 0
-            // (une pastille « 0 » sur la page Documents). L'heure du relevé range alors le document.
-            var mailDate = mail.Date == DateTimeOffset.MinValue ? _clock.GetUtcNow() : mail.Date;
+            // Sans en-tête Date lisible, MimeKit rend MinValue (année fiscale 0), et un expéditeur mal réglé peut
+            // dater de 1970 ou de 2099 : hors d'une fenêtre plausible, l'heure du relevé range le document.
+            var now = _clock.GetUtcNow();
+            var mailDate = MailIngestRules.IsPlausibleMailDate(mail.Date, now) ? mail.Date : now;
             var fiscalYear = MailIngestRules.FiscalYearFor(mailDate, _household.Value.Zone);
             var messageId = mail.MessageId is { Length: > MailMessageIdMaxLength } ? mail.MessageId[..MailMessageIdMaxLength] : mail.MessageId;
             var deposited = 0;
@@ -236,6 +237,9 @@ public class MailIngestService : BackgroundService
                     case DepositOutcome.Created:
                         deposited++;
                         run.Created++;
+                        // Le Document rangé n'a plus rien à faire dans le contexte du relevé : le tracker ne suit
+                        // que la MailSource, et la garde HasChanges du dépôt suivant ne scanne pas tout le relevé.
+                        run.Context.Entry(result.Document!).State = EntityState.Detached;
                         run.Source.LastDepositAt = _clock.GetUtcNow().UtcDateTime;
                         run.Source.DepositedCount++;
                         // Écrit tout de suite : le dépôt suivant partage ce contexte et sauve sous sa propre
@@ -249,7 +253,7 @@ public class MailIngestService : BackgroundService
                         run.Duplicates++;
                         break;
                     case DepositOutcome.QuotaExceeded:
-                        throw new InvalidOperationException("Quota de stockage du dashboard atteint.");
+                        throw new StorageQuotaExceededException();
                 }
             }
 
@@ -271,6 +275,10 @@ public class MailIngestService : BackgroundService
             run.Failed++;
             run.FailureTypes.Add(ex.GetType().Name);
             _logger.LogWarning("Boîte factures : un message n'a pas pu être traité, {Type}.", ex.GetType().FullName);
+            // Si c'est le save de la MailSource qui a lâché, elle reste Modified et chaque dépôt suivant du relevé
+            // buterait sur la garde de DocumentDeposit : on repart des valeurs en base, un mail perdu et pas dix.
+            if (run.Context.ChangeTracker.HasChanges())
+                await run.Context.Entry(run.Source).ReloadAsync(CancellationToken.None);
             return MailOutcome.Failed;
         }
     }
@@ -304,6 +312,12 @@ public class MailIngestService : BackgroundService
     private sealed class MailAttachmentTooLargeException : Exception
     {
         public MailAttachmentTooLargeException() : base("Pièce jointe au-delà du plafond de taille des documents.") { }
+    }
+
+    /// <summary>Le quota de stockage du dashboard est atteint. LastError ne porte que des noms de types, celui-ci doit se distinguer des autres.</summary>
+    private sealed class StorageQuotaExceededException : Exception
+    {
+        public StorageQuotaExceededException() : base("Quota de stockage du dashboard atteint.") { }
     }
 
     /// <summary>Tout ce qu'un relevé traîne d'un mail au suivant : les dépendances du scope et les compteurs.</summary>

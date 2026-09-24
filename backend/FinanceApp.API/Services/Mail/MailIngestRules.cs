@@ -70,6 +70,13 @@ public static class MailIngestRules
         return sb.ToString().Normalize(NormalizationForm.FormC).ToLowerInvariant();
     }
 
+    /// <summary>
+    /// Une date de mail qu'on accepte pour l'année fiscale : après 2000 et pas plus de deux jours dans le futur
+    /// du relevé. MinValue (en-tête absent ou illisible), l'époque Unix et 2099 sont hors fenêtre.
+    /// </summary>
+    public static bool IsPlausibleMailDate(DateTimeOffset mailDate, DateTimeOffset now) =>
+        mailDate.Year >= 2000 && mailDate <= now.AddDays(2);
+
     /// <summary>L'année de la date du mail en heure locale, sauf janvier qui range en N-1 : une facture de décembre arrive en janvier.</summary>
     public static int FiscalYearFor(DateTimeOffset mailDate, TimeZoneInfo zone)
     {

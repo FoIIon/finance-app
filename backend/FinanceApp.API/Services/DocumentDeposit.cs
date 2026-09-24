@@ -20,6 +20,12 @@ public enum DepositOutcome
 /// <summary>Hors Created, Document est null. Sur Duplicate, ExistingDocumentId désigne la ligne déjà rangée.</summary>
 public sealed record DepositResult(DepositOutcome Outcome, Document? Document, int? ExistingDocumentId);
 
+/// <summary>Le contexte reçu par DocumentDeposit portait déjà des modifications. Type dédié : le service mail ne garde que le nom du type dans LastError.</summary>
+public sealed class PendingChangesException : InvalidOperationException
+{
+    public PendingChangesException() : base("Le contexte porte des modifications en attente, elles partiraient sous la transaction du dépôt.") { }
+}
+
 /// <summary>
 /// Le rangement d'un fichier déjà reçu, commun à l'envoi par formulaire (DocumentController.Upload) et à
 /// tout autre dépôt : doublon par empreinte dans le dashboard, quota, ligne puis rangement sous
@@ -50,7 +56,7 @@ public class DocumentDeposit
         if (_context.ChangeTracker.HasChanges())
         {
             _storage.Discard(file);
-            throw new InvalidOperationException("Le contexte porte des modifications en attente, elles partiraient sous la transaction du dépôt.");
+            throw new PendingChangesException();
         }
 
         string? storedPath = null;

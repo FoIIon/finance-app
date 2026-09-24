@@ -6,6 +6,7 @@ using FinanceApp.API.Services;
 using FinanceApp.API.Services.Mail;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -45,10 +46,14 @@ public class MailIngestServiceTests : IDisposable
 
     private AppDbContext NewContext() => new(_options);
 
-    private (MailIngestService Service, IMailReader Reader, FixedTimeProvider Clock) Build(IMailReader? reader = null, MailIngestOptions? options = null, (DocumentStorage Storage, DocumentStorageOptions Options)? storage = null)
+    private (MailIngestService Service, IMailReader Reader, FixedTimeProvider Clock) Build(IMailReader? reader = null, MailIngestOptions? options = null, (DocumentStorage Storage, DocumentStorageOptions Options)? storage = null, ISaveChangesInterceptor? interceptor = null)
     {
         var services = new ServiceCollection();
-        services.AddDbContext<AppDbContext>(o => o.UseSqlite(_connection));
+        services.AddDbContext<AppDbContext>(o =>
+        {
+            o.UseSqlite(_connection);
+            if (interceptor != null) o.AddInterceptors(interceptor);
+        });
         services.AddSingleton(storage?.Storage ?? _storage);
         services.AddSingleton(storage?.Options ?? _storageOptions);
         services.AddScoped<DocumentDeposit>();
@@ -304,11 +309,15 @@ public class MailIngestServiceTests : IDisposable
     [Fact]
     public async Task DeuxPdf_LeSecondRangementEchoue_LeCompteurDuPremierEstPersiste()
     {
-        // Le second PDF recevra l'Id 2 : un fichier déjà là sous 2026/2.pdf fait lever File.Move dans Commit, la
-        // transaction du dépôt s'annule. Le compteur posé après le premier PDF ne doit pas partir avec elle.
+        // Le second PDF recevra l'Id suivant le premier : un fichier déjà là sous {année}/{cet id}.pdf fait lever
+        // File.Move dans Commit, la transaction du dépôt s'annule. Le compteur posé après le premier PDF ne doit
+        // pas partir avec elle. L'année est celle de l'horloge système, comme dans DocumentDeposit.
+        int secondId;
+        using (var ctx = NewContext())
+            secondId = (await ctx.Documents.MaxAsync(d => (int?)d.Id) ?? 0) + 2;
         var year = DateTime.UtcNow.Year;
         Directory.CreateDirectory(Path.Combine(_root, year.ToString()));
-        var decoy = Path.Combine(_root, year.ToString(), "2.pdf");
+        var decoy = Path.Combine(_root, year.ToString(), $"{secondId}.pdf");
         await File.WriteAllBytesAsync(decoy, new byte[] { 1 });
         var reader = new FakeMailReader().With(Mail("deux", attachments: new[] { Pdf("decompte.pdf", "premier"), Pdf("rappel.pdf", "second") }));
         var (service, _, clock) = Build(reader);
@@ -331,17 +340,49 @@ public class MailIngestServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task MailSansDate_PrendLAnneeFiscaleDuReleve_PasZero()
+    public async Task MailSansDateOuDateAbsurde_PrendLAnneeFiscaleDuReleve()
     {
-        var reader = new FakeMailReader().With(Mail("sansdate", date: DateTimeOffset.MinValue, attachments: new[] { Pdf("decompte.pdf", "sansdate") }));
+        var reader = new FakeMailReader().With(
+            Mail("sansdate", date: DateTimeOffset.MinValue, attachments: new[] { Pdf("decompte.pdf", "sansdate") }),
+            Mail("epoque", date: DateTimeOffset.FromUnixTimeSeconds(0), attachments: new[] { Pdf("rappel.pdf", "epoque") }),
+            Mail("futur", date: new DateTimeOffset(2099, 1, 1, 0, 0, 0, TimeSpan.Zero), attachments: new[] { Pdf("facture.pdf", "futur") }));
         var (service, _, clock) = Build(reader);
         // Une année que l'horloge système n'a pas : un repli sur DateTimeOffset.UtcNow au lieu du TimeProvider se verrait.
         clock.Now = new DateTimeOffset(2031, 9, 9, 6, 0, 0, TimeSpan.Zero);
 
         await service.RunOnceAsync(CancellationToken.None);
 
-        var doc = Assert.Single(await DocumentsAsync());
-        Assert.Equal(2031, doc.FiscalYear);
+        var docs = await DocumentsAsync();
+        Assert.Equal(3, docs.Count);
+        Assert.All(docs, d => Assert.Equal(2031, d.FiscalYear));
+    }
+
+    [Fact]
+    public async Task LeSaveDeLaSourceEchoueUneFois_LeMailTombe_LesSuivantsPassent_LaCauseEstDansLastError()
+    {
+        // Le save posé après un Created lâche une fois. Sans rechargement de la MailSource, elle resterait Modified
+        // et la garde de DocumentDeposit ferait tomber tous les dépôts suivants du relevé en PendingChangesException.
+        var reader = new FakeMailReader().With(
+            Mail("premier", attachments: new[] { Pdf("decompte.pdf", "premier") }),
+            Mail("second", attachments: new[] { Pdf("rappel.pdf", "second") }));
+        var (service, _, _) = Build(reader, interceptor: new FailSourceSaveOnce());
+
+        var summary = await service.RunOnceAsync(CancellationToken.None);
+
+        Assert.Equal(1, summary.Failed);
+        Assert.Equal(1, summary.Processed);
+        Assert.Equal(2, summary.Created);
+        Assert.Equal(MailOutcome.Failed, reader.Outcomes["premier"]);
+        Assert.Equal(MailOutcome.Processed, reader.Outcomes["second"]);
+        Assert.Equal(2, (await DocumentsAsync()).Count);
+        Assert.Empty(Directory.GetFiles(Path.Combine(_root, ".incoming")));
+
+        var source = await SourceAsync();
+        Assert.Equal(MailSyncStatus.Ok, source.LastSyncStatus);
+        Assert.Contains("DbUpdateException", source.LastError);
+        Assert.DoesNotContain("PendingChangesException", source.LastError);
+        // L'incrément du premier est parti avec le save raté (compteur d'affichage, consigné), le second compte.
+        Assert.Equal(1, source.DepositedCount);
     }
 
     [Fact]
@@ -356,7 +397,7 @@ public class MailIngestServiceTests : IDisposable
         var staged = await _storage.StageAsync(new MemoryStream(TestHousehold.PdfBytes("attente")));
         var request = new DepositRequest(_h.DashboardId, null, DocumentKind.Facture, 2026, "x.pdf", null, DocumentSource.Mail, null);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => deposit.DepositAsync(staged.File!, request, CancellationToken.None));
+        await Assert.ThrowsAsync<PendingChangesException>(() => deposit.DepositAsync(staged.File!, request, CancellationToken.None));
 
         Assert.Empty(await DocumentsAsync());
         Assert.Empty(Directory.GetFiles(Path.Combine(_root, ".incoming")));
@@ -387,7 +428,7 @@ public class MailIngestServiceTests : IDisposable
             Assert.Equal(MailOutcome.Failed, reader.Outcomes["gros"]);
             Assert.Empty(await DocumentsAsync());
             Assert.Empty(Directory.GetFiles(Path.Combine(root, ".incoming")));
-            Assert.Contains("InvalidOperationException", (await SourceAsync()).LastError);
+            Assert.Contains("StorageQuotaExceededException", (await SourceAsync()).LastError);
         }
         finally { TestHousehold.RemoveTemp(root); }
     }
@@ -445,6 +486,28 @@ public class MailIngestServiceTests : IDisposable
         Assert.Equal(MailSyncStatus.ConnectionError, MailIngestService.Classify(new MailKit.Net.Imap.ImapProtocolException()).Status);
         Assert.Equal(MailSyncStatus.Error, MailIngestService.Classify(new InvalidOperationException("x")).Status);
         Assert.DoesNotContain("x", MailIngestService.Classify(new InvalidOperationException("x")).Error.Replace("Exception", ""));
+    }
+
+    /// <summary>
+    /// Fait échouer une seule fois le SaveChanges qui n'écrit que la MailSource (compteur modifié, aucun Document
+    /// ajouté) : c'est le save posé par le service après un Created, pas ceux du dépôt sous transaction.
+    /// </summary>
+    private sealed class FailSourceSaveOnce : SaveChangesInterceptor
+    {
+        private bool _fired;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            var tracker = eventData.Context!.ChangeTracker;
+            var sourceOnly = tracker.Entries<MailSource>().Any(e => e.State == EntityState.Modified && e.Property(s => s.DepositedCount).IsModified)
+                && !tracker.Entries<Document>().Any(e => e.State == EntityState.Added);
+            if (!_fired && sourceOnly)
+            {
+                _fired = true;
+                throw new DbUpdateException("Base occupée (simulée).");
+            }
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
     }
 
     /// <summary>Un lecteur qui reste dans la boîte tant qu'on ne le libère pas, pour tester le sémaphore.</summary>

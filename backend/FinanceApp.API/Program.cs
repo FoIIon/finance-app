@@ -168,50 +168,34 @@ builder.Services.AddRateLimiter(options =>
             ?? ctx.Connection.RemoteIpAddress?.ToString()
             ?? "inconnu";
 
-    options.AddPolicy("tr-login", httpContext =>
+    // Le budget commun aux actions qui ouvrent une connexion chez un tiers à chaque appel (Trade Republic,
+    // Google, Gmail) : cinq par minute et par utilisateur, sans file d'attente. Un seul endroit à régler.
+    static RateLimitPartition<string> CinqParMinuteParUtilisateur(HttpContext ctx) =>
         RateLimitPartition.GetFixedWindowLimiter(
-            ParUtilisateur(httpContext),
+            ParUtilisateur(ctx),
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 5,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
-            }));
+            });
+
+    options.AddPolicy("tr-login", httpContext =>
+        CinqParMinuteParUtilisateur(httpContext));
 
     options.AddPolicy("tr-verify", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            ParUtilisateur(httpContext),
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
+        CinqParMinuteParUtilisateur(httpContext));
 
     // Rafraîchissement manuel du calendrier : un téléchargement chez Google à chaque appel, même
     // budget serré que tr-login, par utilisateur.
     options.AddPolicy("calendar-refresh", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            ParUtilisateur(httpContext),
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
+        CinqParMinuteParUtilisateur(httpContext));
 
     // Relevé manuel de la boîte factures : une connexion chez Gmail à chaque appel. Par utilisateur, et
     // séparé de « login » : un ménage derrière une seule adresse IP qui clique plusieurs fois sur
     // « Relever maintenant » ne doit pas voir sa prochaine connexion refusée en 429.
     options.AddPolicy("mail-refresh", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            ParUtilisateur(httpContext),
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
+        CinqParMinuteParUtilisateur(httpContext));
 
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
