@@ -28,6 +28,8 @@ const labelOf = (c: RecurringCandidate) =>
  * Reconnue d'après le montant ou le libellé, sans lien : on le dit, et la liste des candidats reste là pour
  * désigner la bonne, le lien l'emportant sur la reconnaissance. Pas réglée : la liste des transactions du
  * mois, « C'est celle-ci » pose le lien. Chaque geste invalide l'agenda et la liste, le serveur recalcule.
+ * Une récurrente provisionnée en début de mois ne se lie ni ne se délie ici (le serveur répond 409) : la fiche
+ * le dit et ne propose aucun geste, le rapprochement passe par la provision.
  * Rien n'est décidé ici : le statut, le montant réel et la date réelle arrivent du serveur.
  */
 export const RecurringSheet = ({ item, dashboardId, onClose }: Props) => {
@@ -41,6 +43,7 @@ export const RecurringSheet = ({ item, dashboardId, onClose }: Props) => {
   const [error, setError] = useState<string | null>(null);
 
   const paid = item.status === 'paid';
+  const provisioned = recurring?.provisionAtMonthStart ?? false;
   const settled = paid && item.transactionId != null ? candidates?.find((c) => c.id === item.transactionId) ?? null : null;
   const settledLinked = settled?.linkedToThisRecurring ?? false;
   const plannedAmount = recurring?.amount ?? (paid ? null : item.amount);
@@ -143,7 +146,9 @@ export const RecurringSheet = ({ item, dashboardId, onClose }: Props) => {
 
       {error && <p className="text-xs text-amber-300/90 mb-3">{error}</p>}
 
-      {paid ? (
+      {provisioned ? (
+        <p className="text-sm text-white/60">Provisionnée en début de mois, rapprochée par la provision</p>
+      ) : paid ? (
         <section aria-labelledby="recurring-settled-title" className="rounded-xl border border-white/10 bg-white/5 p-4">
           <h4 id="recurring-settled-title" className="text-sm font-semibold text-white mb-2">Transaction reconnue</h4>
           <p className="flex flex-wrap items-baseline gap-x-2 text-sm">

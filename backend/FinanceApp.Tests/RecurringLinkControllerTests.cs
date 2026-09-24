@@ -156,9 +156,9 @@ public class RecurringLinkControllerTests : IDisposable
     {
         using var ctx = NewContext();
         var recurring = await RecurringAsync(ctx, _a);
-        // Le règlement le 2, puis vingt-cinq dépenses plus récentes qui l'auraient poussé hors des vingt.
-        var regle = await TransactionAsync(ctx, _a, 400m, Utc(2), "ENGIE ELECTRABEL");
-        for (var i = 0; i < 25; i++) await TransactionAsync(ctx, _a, 7m + i, Utc(3 + i % 27), $"Dépense {i}");
+        // Le règlement le 14 (dix jours avant le 24), puis vingt-cinq dépenses plus récentes qui le poussent hors des vingt.
+        var regle = await TransactionAsync(ctx, _a, 400m, Utc(14), "ENGIE ELECTRABEL");
+        for (var i = 0; i < 25; i++) await TransactionAsync(ctx, _a, 7m + i, Utc(15 + i % 16), $"Dépense {i}");
 
         var list = Ok(await Agenda(ctx, _a.UserId).Candidates(recurring, _a.DashboardId, "2026-09", CancellationToken.None));
 
@@ -270,6 +270,33 @@ public class RecurringLinkControllerTests : IDisposable
 
         // Délier une transaction qui n'est plus liée : 404.
         Assert.IsType<NotFoundResult>(await Agenda(ctx, _a.UserId).Unlink(engie, _a.DashboardId, tx, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Link_EtUnlink_SurUneRecurrenteProvisionnee_409_LeLienResteAuProvisionnement()
+    {
+        // Le lien manuel entrerait dans la moyenne des trois dernières réelles de ProvisionService (12 € liés au
+        // salaire font tomber la provision suivante) et un réel lié sur un autre compte ne réconcilierait jamais
+        // la provision : pour une récurrente provisionnée, le rapprochement passe par la provision, pas par ici.
+        using var ctx = NewContext();
+        var salaire = new RecurringTransaction
+        {
+            UserId = _a.UserId, DashboardId = _a.DashboardId, Description = "Salaire Sébastien", Amount = 3428m, Type = TransactionType.Income,
+            Frequency = RecurringFrequency.Monthly, DayOfMonth = 28, StartDate = new DateOnly(2025, 1, 28), IsActive = true, ProvisionAtMonthStart = true, CategoryId = 1,
+        };
+        ctx.RecurringTransactions.Add(salaire);
+        await ctx.SaveChangesAsync();
+        var petit = await TransactionAsync(ctx, _a, 12m, Utc(3), "Remboursement", type: TransactionType.Income);
+        var reel = await TransactionAsync(ctx, _a, 3428m, Utc(28), "Salaire", type: TransactionType.Income, recurringId: salaire.Id);
+
+        var ctl = Agenda(ctx, _a.UserId);
+        var conflit = Assert.IsType<ConflictObjectResult>((await ctl.Link(salaire.Id, Body(_a, petit), CancellationToken.None)).Result);
+        Assert.Contains("provisionnée", Assert.IsType<string>(conflit.Value));
+        Assert.IsType<ConflictObjectResult>(await ctl.Unlink(salaire.Id, _a.DashboardId, reel, CancellationToken.None));
+
+        using var check = NewContext();
+        Assert.Null((await check.Transactions.SingleAsync(t => t.Id == petit)).RecurringTransactionId);
+        Assert.Equal(salaire.Id, (await check.Transactions.SingleAsync(t => t.Id == reel)).RecurringTransactionId);
     }
 
     [Fact]

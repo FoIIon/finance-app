@@ -35,6 +35,14 @@ public class RecurringLinkService
     /// <summary>Au-delà, la liste des candidats ne dit plus rien : les vingt plus récentes du mois suffisent à retrouver un paiement.</summary>
     public const int MaxCandidates = 20;
 
+    /// <summary>
+    /// Une récurrente ProvisionAtMonthStart n'accepte ni lien ni délien manuels : ProvisionService estime la
+    /// provision suivante par la moyenne des trois dernières réelles estampillées (12 € liés au salaire feraient
+    /// tomber la provision d'octobre) et ne réconcilie que sur le même compte et la même catégorie, un réel lié
+    /// ailleurs laisserait la provision et le réel côte à côte dans le bilan.
+    /// </summary>
+    public const string ProvisionedMessage = "Cette récurrente est provisionnée, son rapprochement passe par la provision.";
+
     private readonly AppDbContext _context;
     private readonly HouseholdOptions _household;
 
@@ -84,14 +92,16 @@ public class RecurringLinkService
 
     /// <summary>
     /// Pose le lien. 404 hors périmètre (récurrente, transaction hors des comptes du dashboard). 409 si la
-    /// transaction règle déjà autre chose (autre récurrente, échéance), si elle est provisionnelle (elle est au
-    /// provisionnement, pas au ménage) ou si elle n'est pas du sens de la récurrente. Rend l'item d'Agenda
-    /// recalculé pour l'occurrence du mois de la transaction, null si la récurrente n'a pas d'occurrence ce mois-là.
+    /// récurrente est provisionnée (voir <see cref="ProvisionedMessage"/>), si la transaction règle déjà autre
+    /// chose (autre récurrente, échéance), si elle est provisionnelle (elle est au provisionnement, pas au ménage)
+    /// ou si elle n'est pas du sens de la récurrente. Rend l'item d'Agenda recalculé pour l'occurrence du mois de
+    /// la transaction, null si la récurrente n'a pas d'occurrence ce mois-là.
     /// </summary>
     public async Task<RecurringLinkResult> LinkAsync(int dashboardId, int recurringId, int transactionId, CancellationToken ct)
     {
         var recurring = await FindRecurringAsync(dashboardId, recurringId, ct);
         if (recurring == null) return RecurringLinkResult.NotFound;
+        if (recurring.ProvisionAtMonthStart) return RecurringLinkResult.Conflict(ProvisionedMessage);
 
         var accountIds = await AccountIdsAsync(dashboardId, ct);
         var tx = await _context.Transactions.FirstOrDefaultAsync(t => t.Id == transactionId && accountIds.Contains(t.AccountId), ct);
@@ -121,23 +131,24 @@ public class RecurringLinkService
     }
 
     /// <summary>
-    /// Remet le lien à null s'il valait cette récurrente sur une transaction des comptes du dashboard. Faux
-    /// (404) sinon, y compris pour une provision : son lien est au provisionnement, le défaire casserait la
-    /// réconciliation du versement réel.
+    /// Remet le lien à null s'il valait cette récurrente sur une transaction des comptes du dashboard. 404 sinon,
+    /// y compris pour une provision : son lien est au provisionnement, le défaire casserait la réconciliation du
+    /// versement réel. 409 sur une récurrente provisionnée, comme pour le lien.
     /// </summary>
-    public async Task<bool> UnlinkAsync(int dashboardId, int recurringId, int transactionId, CancellationToken ct)
+    public async Task<RecurringLinkResult> UnlinkAsync(int dashboardId, int recurringId, int transactionId, CancellationToken ct)
     {
         var recurring = await FindRecurringAsync(dashboardId, recurringId, ct);
-        if (recurring == null) return false;
+        if (recurring == null) return RecurringLinkResult.NotFound;
+        if (recurring.ProvisionAtMonthStart) return RecurringLinkResult.Conflict(ProvisionedMessage);
 
         var accountIds = await AccountIdsAsync(dashboardId, ct);
         var tx = await _context.Transactions.FirstOrDefaultAsync(
             t => t.Id == transactionId && accountIds.Contains(t.AccountId) && t.RecurringTransactionId == recurringId && !t.IsProvisional, ct);
-        if (tx == null) return false;
+        if (tx == null) return RecurringLinkResult.NotFound;
 
         tx.RecurringTransactionId = null;
         await _context.SaveChangesAsync(ct);
-        return true;
+        return RecurringLinkResult.Ok(null);
     }
 
     private Task<RecurringTransaction?> FindRecurringAsync(int dashboardId, int recurringId, CancellationToken ct) =>

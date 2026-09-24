@@ -143,13 +143,19 @@ public class AgendaController : ApiControllerBase
         };
     }
 
-    /// <summary>« Ce n'est pas celle-ci » : remet le lien à null s'il valait cette récurrente. 404 sinon.</summary>
+    /// <summary>« Ce n'est pas celle-ci » : remet le lien à null s'il valait cette récurrente. 404 sinon, 409 sur une récurrente provisionnée.</summary>
     [HttpDelete("recurring/{recurringId:int}/link")]
     public async Task<ActionResult> Unlink(int recurringId, [FromQuery] int dashboardId, [FromQuery] int transactionId, CancellationToken cancellationToken)
     {
         if (!await IsMemberAsync(dashboardId, GetUserId())) return NotFound();
-        if (!await _links.UnlinkAsync(dashboardId, recurringId, transactionId, cancellationToken)) return NotFound();
-        return NoContent();
+
+        var result = await _links.UnlinkAsync(dashboardId, recurringId, transactionId, cancellationToken);
+        return result.Outcome switch
+        {
+            RecurringLinkOutcome.NotFound => NotFound(),
+            RecurringLinkOutcome.Conflict => Conflict(result.Message),
+            _ => NoContent(),
+        };
     }
 
     /// <summary>yyyy-MM strict : quatre chiffres, un tiret, un mois de 01 à 12.</summary>
