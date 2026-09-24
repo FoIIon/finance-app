@@ -334,13 +334,33 @@ public class MailIngestServiceTests : IDisposable
     public async Task MailSansDate_PrendLAnneeFiscaleDuReleve_PasZero()
     {
         var reader = new FakeMailReader().With(Mail("sansdate", date: DateTimeOffset.MinValue, attachments: new[] { Pdf("decompte.pdf", "sansdate") }));
-        var (service, _, _) = Build(reader);
+        var (service, _, clock) = Build(reader);
+        // Une année que l'horloge système n'a pas : un repli sur DateTimeOffset.UtcNow au lieu du TimeProvider se verrait.
+        clock.Now = new DateTimeOffset(2031, 9, 9, 6, 0, 0, TimeSpan.Zero);
 
         await service.RunOnceAsync(CancellationToken.None);
 
-        // L'horloge de test est au 9 septembre 2026 : sans en-tête Date, c'est elle qui range le document.
         var doc = Assert.Single(await DocumentsAsync());
-        Assert.Equal(2026, doc.FiscalYear);
+        Assert.Equal(2031, doc.FiscalYear);
+    }
+
+    [Fact]
+    public async Task Deposit_RefuseUnContexteQuiPorteDesModificationsEnAttente()
+    {
+        using var ctx = NewContext();
+        var source = new MailSource { DashboardId = _h.DashboardId, Address = Mailbox, CreatedAt = AgendaTestSupport.Now.UtcDateTime };
+        ctx.MailSources.Add(source);
+        await ctx.SaveChangesAsync();
+        source.DepositedCount = 1;
+        var deposit = new DocumentDeposit(ctx, _storage, _storageOptions);
+        var staged = await _storage.StageAsync(new MemoryStream(TestHousehold.PdfBytes("attente")));
+        var request = new DepositRequest(_h.DashboardId, null, DocumentKind.Facture, 2026, "x.pdf", null, DocumentSource.Mail, null);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => deposit.DepositAsync(staged.File!, request, CancellationToken.None));
+
+        Assert.Empty(await DocumentsAsync());
+        Assert.Empty(Directory.GetFiles(Path.Combine(_root, ".incoming")));
+        Assert.Equal(0, (await SourceAsync()).DepositedCount);
     }
 
     [Fact]

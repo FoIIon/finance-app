@@ -29,7 +29,8 @@ public sealed record DepositResult(DepositOutcome Outcome, Document? Document, i
 /// Le contexte est celui de l'appelant, et SaveChangesAsync écrit tout ce qu'il suit : un appelant qui
 /// enchaîne plusieurs dépôts sur le même contexte (le service d'ingestion mail) ne doit rien laisser en
 /// attente entre deux, sinon ces modifications sont écrites sous la transaction du dépôt, acceptées par le
-/// tracker, et perdues en base si le rangement échoue et annule la transaction.
+/// tracker, et perdues en base si le rangement échoue et annule la transaction. DepositAsync le refuse
+/// d'entrée plutôt que de l'écrire en silence.
 /// </summary>
 public class DocumentDeposit
 {
@@ -46,6 +47,12 @@ public class DocumentDeposit
 
     public async Task<DepositResult> DepositAsync(StagedFile file, DepositRequest request, CancellationToken ct)
     {
+        if (_context.ChangeTracker.HasChanges())
+        {
+            _storage.Discard(file);
+            throw new InvalidOperationException("Le contexte porte des modifications en attente, elles partiraient sous la transaction du dépôt.");
+        }
+
         string? storedPath = null;
         Document? document = null;
         try
