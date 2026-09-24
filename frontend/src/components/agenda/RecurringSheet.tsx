@@ -18,6 +18,10 @@ interface Props {
 
 const capitalize = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
+/** Le texte d'un 409 tel que le serveur l'écrit (une phrase), sinon le repli. */
+const conflictMessage = (data: unknown, fallback: string) =>
+  typeof data === 'string' && data.trim() ? data.trim() : fallback;
+
 /** Le libellé d'une transaction sur une ligne : description, puis la contrepartie si elle ajoute quelque chose. */
 const labelOf = (c: RecurringCandidate) =>
   [c.description, c.counterpartyName].filter((s) => s && s.trim()).join(' · ');
@@ -44,6 +48,9 @@ export const RecurringSheet = ({ item, dashboardId, onClose }: Props) => {
 
   const paid = item.status === 'paid';
   const provisioned = recurring?.provisionAtMonthStart ?? false;
+  // Tant que la récurrente n'est pas chargée, on ne sait pas si elle est provisionnée : aucun geste, sinon
+  // un tap trop tôt sur le salaire reçoit le 409 du serveur avec un texte qui parle d'autre chose.
+  const gesturesReady = recurring != null && !provisioned;
   const settled = paid && item.transactionId != null ? candidates?.find((c) => c.id === item.transactionId) ?? null : null;
   const settledLinked = settled?.linkedToThisRecurring ?? false;
   const plannedAmount = recurring?.amount ?? (paid ? null : item.amount);
@@ -65,7 +72,7 @@ export const RecurringSheet = ({ item, dashboardId, onClose }: Props) => {
     },
     onError: async (err) => {
       if (isAxiosError(err) && err.response?.status === 409) {
-        showToast('Cette transaction règle déjà autre chose', 'warning');
+        showToast(conflictMessage(err.response.data, 'Cette transaction règle déjà autre chose'), 'warning');
         await invalidate();
         return;
       }
@@ -83,8 +90,13 @@ export const RecurringSheet = ({ item, dashboardId, onClose }: Props) => {
     },
     onError: async (err) => {
       setUnlinkAsked(false);
-      // 404 : le lien n'existait plus, l'écran était en retard sur le serveur.
+      // 404 : le lien n'existait plus, l'écran était en retard sur le serveur. 409 : le serveur refuse (provisionnée).
       if (isAxiosError(err) && err.response?.status === 404) {
+        await invalidate();
+        return;
+      }
+      if (isAxiosError(err) && err.response?.status === 409) {
+        showToast(conflictMessage(err.response.data, 'Ce lien ne peut pas être retiré'), 'warning');
         await invalidate();
         return;
       }
@@ -146,9 +158,7 @@ export const RecurringSheet = ({ item, dashboardId, onClose }: Props) => {
 
       {error && <p className="text-xs text-amber-300/90 mb-3">{error}</p>}
 
-      {provisioned ? (
-        <p className="text-sm text-white/60">Provisionnée en début de mois, rapprochée par la provision</p>
-      ) : paid ? (
+      {paid ? (
         <section aria-labelledby="recurring-settled-title" className="rounded-xl border border-white/10 bg-white/5 p-4">
           <h4 id="recurring-settled-title" className="text-sm font-semibold text-white mb-2">Transaction reconnue</h4>
           <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
@@ -159,7 +169,11 @@ export const RecurringSheet = ({ item, dashboardId, onClose }: Props) => {
             {settled ? labelOf(settled) : candidatesLoading ? '…' : `Transaction n° ${item.transactionId ?? '?'}`}
           </p>
 
-          {settledLinked ? (
+          {provisioned ? (
+            <p className="mt-3 text-xs text-white/50">Provisionnée en début de mois, rapprochée par la provision</p>
+          ) : !gesturesReady ? (
+            <p className="mt-3 text-xs text-white/40">…</p>
+          ) : settledLinked ? (
             unlinkAsked ? (
               <div className="mt-3 flex items-center gap-3 text-sm text-white/70 min-h-11">
                 <span>Retirer le lien ?</span>
@@ -199,6 +213,10 @@ export const RecurringSheet = ({ item, dashboardId, onClose }: Props) => {
             )
           )}
         </section>
+      ) : provisioned ? (
+        <p className="text-sm text-white/60">Provisionnée en début de mois, rapprochée par la provision</p>
+      ) : !gesturesReady ? (
+        <p className="text-sm text-white/40">…</p>
       ) : (
         <section aria-labelledby="recurring-candidates-title">
           <h4 id="recurring-candidates-title" className="text-sm font-semibold text-white mb-1">Aucune transaction reconnue ce mois-ci</h4>
