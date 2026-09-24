@@ -162,7 +162,7 @@ public class AgendaProjectorsTests
         var a = Engie(id: 1);
         var b = Engie(id: 2);
         b.Description = "Assurance";
-        var candidats = new[] { Tx(9, new DateOnly(2026, 9, 10), 400m, "Domiciliation") };
+        var candidats = new[] { Tx(9, new DateOnly(2026, 9, 20), 400m, "Domiciliation") };
 
         var items = AgendaProjectors.FromRecurring(new[] { b, a }, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), candidats);
 
@@ -171,20 +171,45 @@ public class AgendaProjectorsTests
     }
 
     [Fact]
-    public void FromRecurring_Hebdomadaire_ChaqueOccurrencePrendSaTransaction_ParDateCroissante()
+    public void FromRecurring_Hebdomadaire_LesOccurrencesDuMoisEntierReclamentDansLOrdre_MemeHorsFenetre()
     {
         var menage = new RecurringTransaction { Id = 8, Description = "Ménage", Amount = 60m, Type = TransactionType.Expense, Frequency = RecurringFrequency.Weekly, StartDate = new DateOnly(2026, 9, 1), IsActive = true };
-        // Mardis de septembre à partir du 8 : 8, 15, 22, 29. Deux virements, les 9 et 16.
+        // Mardis de septembre : 1, 8, 15, 22, 29. Deux virements, les 9 et 16. L'occurrence du 1er, hors de la
+        // fenêtre affichée, réclame d'abord (le 9, à huit jours), celle du 8 prend le 16, les suivantes n'ont rien.
         var candidats = new[] { Tx(21, new DateOnly(2026, 9, 16), 60m, "Ménage"), Tx(20, new DateOnly(2026, 9, 9), 60m, "Ménage") };
 
         var items = AgendaProjectors.FromRecurring(new[] { menage }, new DateOnly(2026, 9, 8), new DateOnly(2026, 9, 30), candidats)
             .OrderBy(i => i.Date).ToList();
 
         Assert.Equal(4, items.Count);
-        Assert.Equal(20, items[0].TransactionId);
-        Assert.Equal(21, items[1].TransactionId);
+        Assert.Equal(new DateOnly(2026, 9, 8), items[0].Date);
+        Assert.Equal(21, items[0].TransactionId);
+        Assert.Equal("planned", items[1].Status);
         Assert.Equal("planned", items[2].Status);
         Assert.Equal("planned", items[3].Status);
+        // Seules les occurrences de la fenêtre sont rendues.
+        Assert.DoesNotContain(items, i => i.Date < new DateOnly(2026, 9, 8));
+    }
+
+    [Fact]
+    public void FromRecurring_VueSemaineEtVueMois_ReglentLaMemeOccurrence()
+    {
+        var menage = new RecurringTransaction { Id = 8, Description = "Ménage", Amount = 60m, Type = TransactionType.Expense, Frequency = RecurringFrequency.Weekly, StartDate = new DateOnly(2026, 9, 1), IsActive = true };
+        // Un seul virement, le 9. Les occurrences réclament par date croissante : le 1er (huit jours) le prend,
+        // quelle que soit la fenêtre. La semaine du 8 ne le donne pas au 8, elle le voit déjà pris par le 1er.
+        var candidats = new[] { Tx(20, new DateOnly(2026, 9, 9), 60m, "Ménage") };
+
+        var mois = AgendaProjectors.FromRecurring(new[] { menage }, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), candidats);
+        var semaine = AgendaProjectors.FromRecurring(new[] { menage }, new DateOnly(2026, 9, 8), new DateOnly(2026, 9, 14), candidats);
+
+        var regleeMois = Assert.Single(mois, i => i.Status == "paid");
+        Assert.Equal(new DateOnly(2026, 9, 1), regleeMois.Date);
+        Assert.Equal(20, regleeMois.TransactionId);
+        var le8 = Assert.Single(semaine);
+        Assert.Equal(new DateOnly(2026, 9, 8), le8.Date);
+        Assert.Equal("planned", le8.Status);
+        Assert.Null(le8.TransactionId);
+        Assert.Equal(Assert.Single(mois, i => i.Date == new DateOnly(2026, 9, 8)).Status, le8.Status);
     }
 
     [Fact]

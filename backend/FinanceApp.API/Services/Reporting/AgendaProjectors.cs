@@ -76,8 +76,10 @@ public static class AgendaProjectors
     /// Même projection, puis chaque occurrence cherche dans les candidats la transaction de son mois qui la
     /// règle (<see cref="RecurringSettlement.Settle"/>). Réglée : statut paid, montant réel, date réelle dans
     /// OriginalDate, la date de l'item reste la date théorique parce que la routine est le plan. Les récurrentes
-    /// sont parcourues par Id croissant et leurs occurrences par date croissante, une transaction retenue ne
-    /// règle rien d'autre : le résultat ne dépend pas de l'ordre de lecture.
+    /// sont parcourues par Id croissant et leurs occurrences par date croissante sur les mois civils entiers que
+    /// la fenêtre touche, une transaction retenue ne règle rien d'autre, puis seules les occurrences de
+    /// [from, to] sont rendues : la même occurrence est réglée par la même transaction en vue semaine et en vue
+    /// mois, et le résultat ne dépend pas de l'ordre de lecture.
     /// </summary>
     public static List<AgendaItem> FromRecurring(IEnumerable<RecurringTransaction> actives, DateOnly from, DateOnly to, IEnumerable<SettlementCandidate> candidates)
     {
@@ -88,10 +90,12 @@ public static class AgendaProjectors
 
         var pool = candidates as IReadOnlyCollection<SettlementCandidate> ?? candidates.ToList();
         var claimed = new HashSet<int>();
+        var monthsFrom = new DateOnly(from.Year, from.Month, 1);
+        var monthsTo = new DateOnly(to.Year, to.Month, 1).AddMonths(1).AddDays(-1);
 
         foreach (var r in recurrings)
         {
-            foreach (var date in OccurrenceDates(r, from, to))
+            foreach (var date in OccurrenceDates(r, monthsFrom, monthsTo))
             {
                 var item = new AgendaItem
                 {
@@ -112,7 +116,8 @@ public static class AgendaProjectors
                     item.Amount = Math.Abs(settled.Amount);
                     item.OriginalDate = settled.Date;
                 }
-                result.Add(item);
+                // Réclamer d'abord, rendre ensuite : une occurrence hors fenêtre prend quand même sa transaction.
+                if (date >= from && date <= to) result.Add(item);
             }
         }
         return result;
