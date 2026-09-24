@@ -3,7 +3,9 @@
  * Le ToastProvider enregistre sa fonction showToast ici au montage.
  */
 
-type ShowToastFn = (message: string, variant?: 'error' | 'success') => void;
+import type { ToastVariant } from '../context/toast-context';
+
+type ShowToastFn = (message: string, variant?: ToastVariant) => void;
 
 let _showToast: ShowToastFn | null = null;
 
@@ -11,7 +13,7 @@ export const registerToast = (fn: ShowToastFn) => {
   _showToast = fn;
 };
 
-export const showToastOutsideReact = (message: string, variant: 'error' | 'success' = 'error') => {
+export const showToastOutsideReact = (message: string, variant: ToastVariant = 'error') => {
   if (_showToast) {
     _showToast(message, variant);
   }

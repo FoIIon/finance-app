@@ -4,6 +4,15 @@ import { ToastContext, type Toast, type ToastVariant } from './toast-context';
 
 let counter = 0;
 
+// Même ambre que les lignes d'état en avertissement des cartes (text-amber-300/90).
+const VARIANT_CLASS: Record<ToastVariant, string> = {
+  error: 'bg-red-900/80 border-red-500/40 text-red-200',
+  success: 'bg-emerald-900/80 border-emerald-500/40 text-emerald-200',
+  warning: 'bg-amber-900/80 border-amber-500/40 text-amber-200',
+};
+
+const VARIANT_ICON: Record<ToastVariant, string> = { error: '✗', success: '✓', warning: '!' };
+
 export const ToastProvider = ({ children }: { children: ReactNode }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -31,14 +40,10 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
           <div
             key={toast.id}
             role="alert"
-            className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border backdrop-blur-xl text-sm font-medium max-w-sm animate-[slideInRight_0.3s_ease-out] ${
-              toast.variant === 'error'
-                ? 'bg-red-900/80 border-red-500/40 text-red-200'
-                : 'bg-emerald-900/80 border-emerald-500/40 text-emerald-200'
-            }`}
+            className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border backdrop-blur-xl text-sm font-medium max-w-sm animate-[slideInRight_0.3s_ease-out] ${VARIANT_CLASS[toast.variant]}`}
           >
             <span className="text-base flex-shrink-0">
-              {toast.variant === 'error' ? '✗' : '✓'}
+              {VARIANT_ICON[toast.variant]}
             </span>
             <span>{toast.message}</span>
             <button

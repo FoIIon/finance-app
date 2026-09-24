@@ -62,7 +62,7 @@ export const MailSourceCard = ({ dashboardId }: Props) => {
       }
       // Boîte ouverte mais un message laissé en échec (il sera retenté) : le statut est Ok, lastError le dit.
       if (res.data?.lastError) {
-        showToast('Boîte relevée, un message reste en échec', 'error');
+        showToast('Boîte relevée, un message reste en échec', 'warning');
         return;
       }
       const created = res.data ? res.data.depositedCount - before : 0;
@@ -71,8 +71,10 @@ export const MailSourceCard = ({ dashboardId }: Props) => {
     },
     onError: (err) => {
       const status = isAxiosError(err) ? err.response?.status : undefined;
-      if (status === 409) showToast('Relevé déjà en cours');
-      else if (status === 429) showToast('Trop de relevés, réessaie dans une minute');
+      // 409 et 429 ne sont pas des échecs : un relevé tourne déjà, ou on a assez cliqué. En rouge, ils
+      // invitaient à recliquer, ce qui consomme le seau du 429.
+      if (status === 409) showToast('Relevé déjà en cours, il se termine seul', 'warning');
+      else if (status === 429) showToast('Trop de relevés, réessaie dans une minute', 'warning');
       else showToast('Relevé impossible, réessaie.');
     },
   });
