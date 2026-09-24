@@ -506,6 +506,62 @@ public class AgendaBuilderTests
         Assert.Empty(r.Upcoming.Items);
     }
 
+    /// <summary>Une occurrence de routine réglée : statut paid, montant réel, date réelle dans OriginalDate, date théorique conservée.</summary>
+    private static AgendaItem RecurringPaid(int id, DateOnly date, DateOnly settledOn, int transactionId, decimal amount = 357.06m, string title = "Engie") => new()
+    {
+        Id = $"recurring:{id}:{date:yyyy-MM-dd}", Kind = AgendaKinds.Recurring, Date = date, Title = title, Amount = amount,
+        Status = AgendaStatuses.Paid, OriginalDate = settledOn, TransactionId = transactionId,
+    };
+
+    [Fact]
+    public void RecurrenteReglee_ResteSurSaDateTheorique_GardeSaDateReelle_NEstPasPortee()
+    {
+        var le11 = new DateOnly(2026, 9, 11);
+        var items = new List<AgendaItem>
+        {
+            RecurringPaid(1, le11, new DateOnly(2026, 9, 3), 40),
+            RecurringPaid(2, new DateOnly(2026, 9, 2), new DateOnly(2026, 9, 1), 41, title: "Netflix"),
+        };
+        var r = AgendaBuilder.Build(WeekFrom, WeekTo, Today, AgendaView.Week, items);
+
+        var engie = Assert.Single(Day(r, le11).Items);
+        Assert.Equal("paid", engie.Status);
+        Assert.Equal(le11, engie.Date);
+        Assert.Equal(new DateOnly(2026, 9, 3), engie.OriginalDate);
+        Assert.Equal(40, engie.TransactionId);
+        // Réglée avant la semaine : elle n'est ni portée dans Aujourd'hui ni dans l'à venir. Seul un retard se porte.
+        Assert.DoesNotContain(Day(r, Today).Items, i => i.Id.StartsWith("recurring:2:"));
+        Assert.Empty(r.Upcoming.Items);
+    }
+
+    [Fact]
+    public void TriDansUnJour_RecurrenteReglee_AvecLesRecurrentes_PasEnTeteCommeUnRetardPorte()
+    {
+        // La date réelle vit dans OriginalDate, comme la date d'origine d'un retard porté : elle ne doit pas
+        // faire remonter la ligne en tête du jour, le groupe des retards est réservé au statut late.
+        var items = new List<AgendaItem>
+        {
+            RecurringPaid(1, Today, new DateOnly(2026, 9, 3), 40, title: "Engie réglée"),
+            Recurring(2, Today, title: "Prêt prévu"),
+            Echeance(1, Today, AgendaStatuses.Due, title: "Taxe"),
+            Event("a", Today, start: "08:30", title: "Matin"),
+            Echeance(2, new DateOnly(2026, 9, 1), AgendaStatuses.Late, title: "Retard"),
+        };
+        var r = AgendaBuilder.Build(WeekFrom, WeekTo, Today, AgendaView.Week, items);
+        var titres = Day(r, Today).Items.Select(i => i.Title).ToArray();
+        Assert.Equal(new[] { "Retard", "Matin", "Taxe", "Engie réglée", "Prêt prévu" }, titres);
+    }
+
+    [Fact]
+    public void VueMois_RecurrenteReglee_CompteCommeUnItemDuJour_LeJourNEstPasReplie()
+    {
+        var le3 = new DateOnly(2026, 9, 3);
+        var r = AgendaBuilder.Build(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), Today, AgendaView.Month,
+            new[] { RecurringPaid(1, le3, new DateOnly(2026, 9, 2), 40) });
+        Assert.Single(Day(r, le3).Items);
+        Assert.DoesNotContain(r.EmptyRanges, e => e.From <= le3 && le3 <= e.To);
+    }
+
     [Fact]
     public void LesItemsFournis_NeSontPasModifies()
     {

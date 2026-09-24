@@ -1,5 +1,4 @@
-using System.Globalization;
-using System.Text;
+using FinanceApp.API.Services.Text;
 
 namespace FinanceApp.API.Services.Mail;
 
@@ -57,18 +56,8 @@ public static class MailIngestRules
         return value.Trim();
     }
 
-    /// <summary>Minuscules sans marques diacritiques : « Décompte », « DECOMPTE » et « decompte » se confondent.</summary>
-    public static string Fold(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return string.Empty;
-        var decomposed = value.Normalize(NormalizationForm.FormD);
-        var sb = new StringBuilder(decomposed.Length);
-        foreach (var c in decomposed)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark) sb.Append(c);
-        }
-        return sb.ToString().Normalize(NormalizationForm.FormC).ToLowerInvariant();
-    }
+    /// <summary>Minuscules sans marques diacritiques : « Décompte », « DECOMPTE » et « decompte » se confondent. Délègue à <see cref="TextFold"/>.</summary>
+    public static string Fold(string? value) => TextFold.Fold(value);
 
     /// <summary>
     /// Une date de mail qu'on accepte pour l'année fiscale : après 2000 et pas plus de deux jours dans le futur

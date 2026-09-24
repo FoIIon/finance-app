@@ -67,38 +67,68 @@ public static class AgendaProjectors
 
     /// <summary>
     /// Une occurrence par jour rendu par BurndownBuilder.RecurringOccurrenceDays, mois par mois sur la
-    /// fenêtre. Lecture seule : ce sont les prêts, l'énergie, les assurances déjà en base.
+    /// fenêtre, toutes planifiées. Lecture seule : ce sont les prêts, l'énergie, les assurances déjà en base.
     /// </summary>
-    public static List<AgendaItem> FromRecurring(IEnumerable<RecurringTransaction> actives, DateOnly from, DateOnly to)
+    public static List<AgendaItem> FromRecurring(IEnumerable<RecurringTransaction> actives, DateOnly from, DateOnly to) =>
+        FromRecurring(actives, from, to, Array.Empty<SettlementCandidate>());
+
+    /// <summary>
+    /// Même projection, puis chaque occurrence cherche dans les candidats la transaction de son mois qui la
+    /// règle (<see cref="RecurringSettlement.Settle"/>). Réglée : statut paid, montant réel, date réelle dans
+    /// OriginalDate, la date de l'item reste la date théorique parce que la routine est le plan. Les récurrentes
+    /// sont parcourues par Id croissant et leurs occurrences par date croissante, une transaction retenue ne
+    /// règle rien d'autre : le résultat ne dépend pas de l'ordre de lecture.
+    /// </summary>
+    public static List<AgendaItem> FromRecurring(IEnumerable<RecurringTransaction> actives, DateOnly from, DateOnly to, IEnumerable<SettlementCandidate> candidates)
     {
         var result = new List<AgendaItem>();
         if (to < from) return result;
-        var recurrings = actives.Where(r => r.IsActive).ToList();
+        var recurrings = actives.Where(r => r.IsActive).OrderBy(r => r.Id).ToList();
         if (recurrings.Count == 0) return result;
 
+        var pool = candidates as IReadOnlyCollection<SettlementCandidate> ?? candidates.ToList();
+        var claimed = new HashSet<int>();
+
+        foreach (var r in recurrings)
+        {
+            foreach (var date in OccurrenceDates(r, from, to))
+            {
+                var item = new AgendaItem
+                {
+                    Id = $"recurring:{r.Id}:{date:yyyy-MM-dd}",
+                    Kind = AgendaKinds.Recurring,
+                    Date = date,
+                    Title = r.Description,
+                    Amount = r.Amount,
+                    Status = AgendaStatuses.Planned,
+                };
+
+                var settled = pool.Count == 0 ? null : RecurringSettlement.Settle(r, date, pool, claimed);
+                if (settled != null)
+                {
+                    claimed.Add(settled.Id);
+                    item.Status = AgendaStatuses.Paid;
+                    item.TransactionId = settled.Id;
+                    item.Amount = Math.Abs(settled.Amount);
+                    item.OriginalDate = settled.Date;
+                }
+                result.Add(item);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>Les dates d'occurrence d'une récurrente sur la fenêtre, mois par mois, en ordre croissant.</summary>
+    private static IEnumerable<DateOnly> OccurrenceDates(RecurringTransaction r, DateOnly from, DateOnly to)
+    {
         for (var month = new DateOnly(from.Year, from.Month, 1); month <= to; month = month.AddMonths(1))
         {
             var lastDay = DateTime.DaysInMonth(month.Year, month.Month);
             var fromDay = month.Year == from.Year && month.Month == from.Month ? from.Day : 1;
             var toDay = month.Year == to.Year && month.Month == to.Month ? to.Day : lastDay;
-            foreach (var r in recurrings)
-            {
-                foreach (var day in BurndownBuilder.RecurringOccurrenceDays(r, month.Year, month.Month, fromDay, toDay))
-                {
-                    var date = new DateOnly(month.Year, month.Month, day);
-                    result.Add(new AgendaItem
-                    {
-                        Id = $"recurring:{r.Id}:{date:yyyy-MM-dd}",
-                        Kind = AgendaKinds.Recurring,
-                        Date = date,
-                        Title = r.Description,
-                        Amount = r.Amount,
-                        Status = AgendaStatuses.Planned,
-                    });
-                }
-            }
+            foreach (var day in BurndownBuilder.RecurringOccurrenceDays(r, month.Year, month.Month, fromDay, toDay))
+                yield return new DateOnly(month.Year, month.Month, day);
         }
-        return result;
     }
 
     private static DateOnly Min(DateOnly a, DateOnly b) => a < b ? a : b;

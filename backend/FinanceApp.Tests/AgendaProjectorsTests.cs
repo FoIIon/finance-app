@@ -112,6 +112,91 @@ public class AgendaProjectorsTests
         Assert.DoesNotContain(items, i => i.Id.StartsWith("recurring:9:"));
     }
 
+    private static RecurringTransaction Engie(int id = 1, decimal amount = 400m) => new()
+    {
+        Id = id, Description = "ENGIE — gaz/électricité", Amount = amount, Type = TransactionType.Expense,
+        Frequency = RecurringFrequency.Monthly, DayOfMonth = 24, StartDate = new DateOnly(2025, 1, 24), IsActive = true,
+    };
+
+    private static SettlementCandidate Tx(int id, DateOnly date, decimal amount, string description = "ENGIE ELECTRABEL", int? recurringId = null) =>
+        new(id, date, amount, TransactionType.Expense, description, null, recurringId);
+
+    [Fact]
+    public void FromRecurring_AvecCandidats_LOccurrenceRegleePorteLeStatutLeMontantEtLaDateReels_SaDateResteTheorique()
+    {
+        var items = AgendaProjectors.FromRecurring(new[] { Engie() }, new DateOnly(2026, 9, 1), new DateOnly(2026, 10, 31),
+            new[] { Tx(5, new DateOnly(2026, 9, 16), 357.06m) });
+
+        Assert.Equal(2, items.Count);
+        var septembre = Assert.Single(items, i => i.Date.Month == 9);
+        Assert.Equal("recurring:1:2026-09-24", septembre.Id);
+        Assert.Equal(new DateOnly(2026, 9, 24), septembre.Date);
+        Assert.Equal("paid", septembre.Status);
+        Assert.Equal(5, septembre.TransactionId);
+        Assert.Equal(357.06m, septembre.Amount);
+        Assert.Equal(new DateOnly(2026, 9, 16), septembre.OriginalDate);
+        Assert.Equal("ENGIE — gaz/électricité", septembre.Title);
+
+        // Octobre n'a rien : planifiée, montant prévu, sans transaction ni date réelle.
+        var octobre = Assert.Single(items, i => i.Date.Month == 10);
+        Assert.Equal("planned", octobre.Status);
+        Assert.Null(octobre.TransactionId);
+        Assert.Equal(400m, octobre.Amount);
+        Assert.Null(octobre.OriginalDate);
+    }
+
+    [Fact]
+    public void FromRecurring_SansCandidats_LAncienneSignatureRendToutPlanifie()
+    {
+        var items = AgendaProjectors.FromRecurring(new[] { Engie() }, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30));
+        var seul = Assert.Single(items);
+        Assert.Equal("planned", seul.Status);
+        Assert.Null(seul.TransactionId);
+    }
+
+    [Fact]
+    public void FromRecurring_UneTransactionNeRegleQuUneRecurrente_ParIdCroissant()
+    {
+        // Deux récurrentes à 400 le même mois, une seule transaction à 400 : la plus petite par Id la prend,
+        // l'autre reste planifiée, quel que soit l'ordre de lecture des récurrentes.
+        var a = Engie(id: 1);
+        var b = Engie(id: 2);
+        b.Description = "Assurance";
+        var candidats = new[] { Tx(9, new DateOnly(2026, 9, 10), 400m, "Domiciliation") };
+
+        var items = AgendaProjectors.FromRecurring(new[] { b, a }, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), candidats);
+
+        Assert.Equal("paid", Assert.Single(items, i => i.Id.StartsWith("recurring:1:")).Status);
+        Assert.Equal("planned", Assert.Single(items, i => i.Id.StartsWith("recurring:2:")).Status);
+    }
+
+    [Fact]
+    public void FromRecurring_Hebdomadaire_ChaqueOccurrencePrendSaTransaction_ParDateCroissante()
+    {
+        var menage = new RecurringTransaction { Id = 8, Description = "Ménage", Amount = 60m, Type = TransactionType.Expense, Frequency = RecurringFrequency.Weekly, StartDate = new DateOnly(2026, 9, 1), IsActive = true };
+        // Mardis de septembre à partir du 8 : 8, 15, 22, 29. Deux virements, les 9 et 16.
+        var candidats = new[] { Tx(21, new DateOnly(2026, 9, 16), 60m, "Ménage"), Tx(20, new DateOnly(2026, 9, 9), 60m, "Ménage") };
+
+        var items = AgendaProjectors.FromRecurring(new[] { menage }, new DateOnly(2026, 9, 8), new DateOnly(2026, 9, 30), candidats)
+            .OrderBy(i => i.Date).ToList();
+
+        Assert.Equal(4, items.Count);
+        Assert.Equal(20, items[0].TransactionId);
+        Assert.Equal(21, items[1].TransactionId);
+        Assert.Equal("planned", items[2].Status);
+        Assert.Equal("planned", items[3].Status);
+    }
+
+    [Fact]
+    public void FromRecurring_UnCandidatLieALaRecurrente_ReglePlutotQueLeMontant()
+    {
+        var candidats = new[] { Tx(30, new DateOnly(2026, 9, 24), 400m, "Carte"), Tx(31, new DateOnly(2026, 9, 2), 12m, "Lien", recurringId: 1) };
+        var seul = Assert.Single(AgendaProjectors.FromRecurring(new[] { Engie() }, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), candidats));
+        Assert.Equal(31, seul.TransactionId);
+        Assert.Equal(12m, seul.Amount);
+        Assert.Equal(new DateOnly(2026, 9, 2), seul.OriginalDate);
+    }
+
     [Fact]
     public void FromRecurring_FenetreInversee_RendVide()
     {

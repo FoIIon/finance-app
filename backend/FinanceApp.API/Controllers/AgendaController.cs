@@ -86,16 +86,51 @@ public class AgendaController : ApiControllerBase
             .ToListAsync(cancellationToken);
         var source = await _context.CalendarSources.AsNoTracking()
             .FirstOrDefaultAsync(s => s.DashboardId == dashboardId, cancellationToken);
+        var candidates = recurrings.Count == 0
+            ? new List<SettlementCandidate>()
+            : await LoadSettlementCandidatesAsync(dashboardId, low, upTo, cancellationToken);
 
         var items = AgendaProjectors.FromCalendar(occurrences)
             .Concat(AgendaProjectors.FromEcheances(echeances, today))
-            .Concat(AgendaProjectors.FromRecurring(recurrings, low, upTo))
+            .Concat(AgendaProjectors.FromRecurring(recurrings, low, upTo, candidates))
             .ToList();
 
         var result = AgendaBuilder.Build(from, to, today, agendaView, items);
         result.TimeZone = _household.TimeZone;
         result.Calendar = AgendaCalendarStatus.From(source);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Les transactions qui peuvent régler une occurrence de routine : comptes du dashboard, du premier jour du
+    /// mois de <paramref name="low"/> au dernier jour du mois de <paramref name="upTo"/>, jamais provisionnelles,
+    /// jamais déjà la preuve d'une échéance (une transaction ne prouve qu'une chose). Lecture seule, rien n'est
+    /// suivi. La fenêtre SQL compare des instants UTC avec un jour de marge de chaque côté, la date du candidat
+    /// est ramenée au jour du ménage et c'est RecurringSettlement qui borne au mois calendaire.
+    /// </summary>
+    private async Task<List<SettlementCandidate>> LoadSettlementCandidatesAsync(int dashboardId, DateOnly low, DateOnly upTo, CancellationToken cancellationToken)
+    {
+        var accountIds = await _context.DashboardAccounts.AsNoTracking()
+            .Where(da => da.DashboardId == dashboardId)
+            .Select(da => da.AccountId)
+            .ToListAsync(cancellationToken);
+        if (accountIds.Count == 0) return new List<SettlementCandidate>();
+
+        var monthStart = new DateOnly(low.Year, low.Month, 1);
+        var monthEnd = new DateOnly(upTo.Year, upTo.Month, 1).AddMonths(1).AddDays(-1);
+        var from = monthStart.AddDays(-1).ToDateTime(TimeOnly.MinValue);
+        var toExclusive = monthEnd.AddDays(2).ToDateTime(TimeOnly.MinValue);
+
+        var rows = await _context.Transactions.AsNoTracking()
+            .Where(t => accountIds.Contains(t.AccountId) && !t.IsProvisional)
+            .Where(t => t.Date >= from && t.Date < toExclusive)
+            .Where(t => !_context.Echeances.Any(e => e.TransactionId == t.Id))
+            .Select(t => new { t.Id, t.Date, t.Amount, t.Type, t.Description, t.CounterpartyName, t.RecurringTransactionId })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(t => new SettlementCandidate(t.Id, _household.TodayLocal(t.Date), t.Amount, t.Type, t.Description, t.CounterpartyName, t.RecurringTransactionId))
+            .ToList();
     }
 
     private static DateOnly Max(DateOnly a, DateOnly b) => a > b ? a : b;

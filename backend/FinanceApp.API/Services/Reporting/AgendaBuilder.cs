@@ -161,10 +161,14 @@ public static class AgendaBuilder
         return result;
     }
 
-    /// <summary>Retards portés, puis journée entière, puis par heure, puis échéances sans heure, puis récurrentes planifiées.</summary>
+    /// <summary>
+    /// Retards portés, puis journée entière, puis par heure, puis échéances sans heure, puis récurrentes (réglées
+    /// ou planifiées). Une récurrente réglée porte sa date réelle dans OriginalDate : ce n'est pas un retard porté,
+    /// elle reste avec les récurrentes.
+    /// </summary>
     private static int SortGroup(AgendaItem i)
     {
-        if (i.OriginalDate.HasValue) return 0;
+        if (i.Status == AgendaStatuses.Late && i.OriginalDate.HasValue) return 0;
         if (i.IsAllDay) return 1;
         if (i.Start != null) return 2;
         if (i.Kind == AgendaKinds.Echeance) return 3;
@@ -172,9 +176,10 @@ public static class AgendaBuilder
         return 5;
     }
 
+    /// <summary>Dans un groupe, les retards portés par date d'origine ; la date réelle d'une récurrente réglée ne trie rien, le titre suffit.</summary>
     private static List<AgendaItem> SortDay(IEnumerable<AgendaItem> items) =>
         items.OrderBy(SortGroup)
-            .ThenBy(i => i.OriginalDate)
+            .ThenBy(i => i.Status == AgendaStatuses.Late ? i.OriginalDate : null)
             .ThenBy(i => i.Start, StringComparer.Ordinal)
             .ThenBy(i => i.Title, StringComparer.Ordinal)
             .ThenBy(i => i.Id, StringComparer.Ordinal)
