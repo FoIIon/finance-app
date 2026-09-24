@@ -732,4 +732,92 @@ test.describe.serial('FinanceApp E2E', () => {
     await expect(sheet).not.toBeVisible({ timeout: 5000 });
     await expect(page.getByRole('button', { name: /Test E2E virement/ })).toHaveCount(0);
   });
+
+  test('Test 17 : Routine, une récurrente réglée dans le mois dit « réglée le », le geste manuel lie puis délie', async () => {
+    // Lot routine réglée (24/09/2026). Les données sont semées par l'API avec le jeton de la session : deux
+    // récurrentes mensuelles au jour d'aujourd'hui et deux dépenses du jour. La première est reconnue par le
+    // montant au centime, la seconde n'a aucun candidat automatique (montant hors fourchette, libellé sans le
+    // mot) : c'est le geste manuel qui la règle, puis la délie.
+    const token = await page.evaluate(() => localStorage.getItem('token'));
+    expect(token).toBeTruthy();
+    const api = async <T>(method: 'GET' | 'POST', path: string, data?: unknown): Promise<T> => {
+      const res = await page.request.fetch(`http://localhost:5000/api${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        data: data === undefined ? undefined : JSON.stringify(data),
+      });
+      expect(res.ok(), `${method} ${path} → ${res.status()}`).toBeTruthy();
+      return (await res.json()) as T;
+    };
+
+    const dashboards = await api<{ id: number; isPersonal: boolean }[]>('GET', '/dashboard');
+    const dashboardId = (dashboards.find((d) => d.isPersonal) ?? dashboards[0]).id;
+    const detail = await api<{ accounts: { id: number }[] }>('GET', `/dashboard/${dashboardId}`);
+    const accountId = detail.accounts[0].id;
+    const categories = await api<{ id: number }[]>('GET', '/category');
+    const categoryId = categories[0].id;
+
+    const now = new Date();
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const stamp = Date.now();
+    const fixeLabel = `E2E Routine fixe ${stamp}`;
+    const manuelLabel = `E2E Routine manuelle ${stamp}`;
+    const recurringBody = (description: string, amount: number) => ({
+      dashboardId, description, amount, type: 'Expense', frequency: 'Monthly', dayOfMonth: now.getDate(), startDate: `${now.getFullYear()}-01-01`,
+    });
+    await api('POST', `/dashboards/${dashboardId}/recurring`, recurringBody(fixeLabel, 123.45));
+    await api('POST', `/dashboards/${dashboardId}/recurring`, recurringBody(manuelLabel, 77.77));
+    const transactionBody = (description: string, amount: number) => ({
+      amount, description, date: `${todayIso}T10:00:00Z`, type: 1, categoryId, accountId,
+    });
+    await api('POST', '/transaction', transactionBody(`Paiement carte ${stamp}`, 123.45));
+    await api('POST', '/transaction', transactionBody(`Retrait ${stamp}`, 33.33));
+
+    // Vue mois : le détail d'aujourd'hui sous la grille porte les deux occurrences. La première est réglée par
+    // le serveur (montant au centime), la ligne dit « réglée le » en vert et la case du jour porte le point vert.
+    await page.goto('/agenda?view=month');
+    await page.waitForURL(/view=month/);
+    await expect(page.getByRole('heading', { name: /^Aujourd'hui/ })).toBeVisible({ timeout: 10000 });
+    const fixe = page.getByRole('button', { name: new RegExp(fixeLabel) });
+    await expect(fixe).toBeVisible({ timeout: 10000 });
+    await expect(fixe).toContainText(/réglée le/);
+    await expect(fixe).toContainText(/123,45\s€/);
+    await expect(fixe.locator('.text-emerald-400')).toHaveCount(1);
+    const todayCell = page.getByRole('group', { name: 'Jours du mois' }).getByRole('button', { name: /aujourd'hui/ });
+    await expect(todayCell.locator('.bg-emerald-400').first()).toBeAttached();
+
+    // La seconde est prévue : la fiche dit qu'aucune transaction n'est reconnue et liste celles du mois.
+    const manuel = page.getByRole('button', { name: new RegExp(manuelLabel) });
+    await expect(manuel).toContainText(/prévu/);
+    await expect(manuel.locator('.text-emerald-400')).toHaveCount(0);
+    await manuel.click();
+    const sheet = page.getByRole('dialog', { name: manuelLabel });
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toContainText('Aucune transaction reconnue ce mois-ci');
+    await expect(sheet).toContainText(/77,77\s€/);
+    const candidate = sheet.locator('li', { hasText: `Retrait ${stamp}` });
+    await expect(candidate).toBeVisible();
+    await candidate.getByRole('button', { name: /^C'est celle-ci/ }).click();
+
+    // Le serveur recalcule : la fiche et la ligne passent en réglée, le lien est en base.
+    await expect(page.getByRole('alert').filter({ hasText: /^.?\s*Réglée le/ }).first()).toBeVisible({ timeout: 10000 });
+    await expect(sheet.getByRole('button', { name: "Ce n'est pas celle-ci" })).toBeVisible({ timeout: 10000 });
+    await expect(sheet).toContainText(/Réglée le/);
+    await expect(sheet).toContainText(/33,33\s€/);
+    await expect(manuel).toContainText(/réglée le/);
+    await expect(manuel.locator('.text-emerald-400')).toHaveCount(1);
+
+    // « Ce n'est pas celle-ci », confirmé en ligne : la ligne revient en prévu, la fiche à la liste.
+    await sheet.getByRole('button', { name: "Ce n'est pas celle-ci" }).click();
+    await sheet.getByRole('button', { name: 'Oui' }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Lien retiré' })).toBeVisible({ timeout: 10000 });
+    await expect(manuel).toContainText(/prévu/, { timeout: 10000 });
+    await expect(manuel.locator('.text-emerald-400')).toHaveCount(0);
+    await expect(sheet).toContainText('Aucune transaction reconnue ce mois-ci');
+    await expect(sheet.getByRole('button', { name: "Ce n'est pas celle-ci" })).toHaveCount(0);
+
+    // Fermer par la croix : aucun défilement horizontal n'a été introduit sur la page.
+    await sheet.getByRole('button', { name: 'Fermer' }).click();
+    await expect(sheet).not.toBeVisible();
+  });
 });
