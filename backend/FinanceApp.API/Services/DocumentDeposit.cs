@@ -25,6 +25,11 @@ public sealed record DepositResult(DepositOutcome Outcome, Document? Document, i
 /// tout autre dépôt : doublon par empreinte dans le dashboard, quota, ligne puis rangement sous
 /// transaction, rattrapage de la course entre deux dépôts identiques. Le .part est effacé sur toute sortie
 /// autre que Created. L'appartenance au dashboard et la réception restent à la charge de l'appelant.
+///
+/// Le contexte est celui de l'appelant, et SaveChangesAsync écrit tout ce qu'il suit : un appelant qui
+/// enchaîne plusieurs dépôts sur le même contexte (le service d'ingestion mail) ne doit rien laisser en
+/// attente entre deux, sinon ces modifications sont écrites sous la transaction du dépôt, acceptées par le
+/// tracker, et perdues en base si le rangement échoue et annule la transaction.
 /// </summary>
 public class DocumentDeposit
 {

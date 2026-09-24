@@ -200,6 +200,19 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             }));
 
+    // Relevé manuel de la boîte factures : une connexion chez Gmail à chaque appel. Par utilisateur, et
+    // séparé de « login » : un ménage derrière une seule adresse IP qui clique plusieurs fois sur
+    // « Relever maintenant » ne doit pas voir sa prochaine connexion refusée en 429.
+    options.AddPolicy("mail-refresh", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ParUtilisateur(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 

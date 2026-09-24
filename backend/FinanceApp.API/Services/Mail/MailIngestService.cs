@@ -196,7 +196,10 @@ public class MailIngestService : BackgroundService
                 return MailOutcome.Ignored;
             }
 
-            var fiscalYear = MailIngestRules.FiscalYearFor(mail.Date, _household.Value.Zone);
+            // Sans en-tête Date lisible, MimeKit rend MinValue, et janvier de l'an 1 donnerait l'année fiscale 0
+            // (une pastille « 0 » sur la page Documents). L'heure du relevé range alors le document.
+            var mailDate = mail.Date == DateTimeOffset.MinValue ? _clock.GetUtcNow() : mail.Date;
+            var fiscalYear = MailIngestRules.FiscalYearFor(mailDate, _household.Value.Zone);
             var messageId = mail.MessageId is { Length: > MailMessageIdMaxLength } ? mail.MessageId[..MailMessageIdMaxLength] : mail.MessageId;
             var deposited = 0;
             var duplicates = 0;
@@ -235,6 +238,10 @@ public class MailIngestService : BackgroundService
                         run.Created++;
                         run.Source.LastDepositAt = _clock.GetUtcNow().UtcDateTime;
                         run.Source.DepositedCount++;
+                        // Écrit tout de suite : le dépôt suivant partage ce contexte et sauve sous sa propre
+                        // transaction. Une modification laissée en attente y serait écrite puis acceptée par le
+                        // tracker, et perdue en base si le rangement du fichier suivant échoue et annule tout.
+                        await run.Context.SaveChangesAsync(ct);
                         break;
                     case DepositOutcome.Duplicate:
                         // Un mail relu après un plantage : le fichier est déjà là, le mail est traité.
@@ -253,7 +260,6 @@ public class MailIngestService : BackgroundService
             }
 
             run.Processed++;
-            await run.Context.SaveChangesAsync(ct);
             return MailOutcome.Processed;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

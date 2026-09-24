@@ -302,6 +302,48 @@ public class MailIngestServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task DeuxPdf_LeSecondRangementEchoue_LeCompteurDuPremierEstPersiste()
+    {
+        // Le second PDF recevra l'Id 2 : un fichier déjà là sous 2026/2.pdf fait lever File.Move dans Commit, la
+        // transaction du dépôt s'annule. Le compteur posé après le premier PDF ne doit pas partir avec elle.
+        var year = DateTime.UtcNow.Year;
+        Directory.CreateDirectory(Path.Combine(_root, year.ToString()));
+        var decoy = Path.Combine(_root, year.ToString(), "2.pdf");
+        await File.WriteAllBytesAsync(decoy, new byte[] { 1 });
+        var reader = new FakeMailReader().With(Mail("deux", attachments: new[] { Pdf("decompte.pdf", "premier"), Pdf("rappel.pdf", "second") }));
+        var (service, _, clock) = Build(reader);
+
+        var summary = await service.RunOnceAsync(CancellationToken.None);
+
+        Assert.Equal(1, summary.Created);
+        Assert.Equal(1, summary.Failed);
+        Assert.Equal(MailOutcome.Failed, reader.Outcomes["deux"]);
+        var doc = Assert.Single(await DocumentsAsync());
+        Assert.Equal("decompte.pdf", doc.OriginalFileName);
+        Assert.True(File.Exists(decoy));
+        Assert.Empty(Directory.GetFiles(Path.Combine(_root, ".incoming")));
+
+        var source = await SourceAsync();
+        Assert.Equal(1, source.DepositedCount);
+        Assert.Equal(clock.Now.UtcDateTime, source.LastDepositAt);
+        Assert.Equal(MailSyncStatus.Ok, source.LastSyncStatus);
+        Assert.Contains("IOException", source.LastError);
+    }
+
+    [Fact]
+    public async Task MailSansDate_PrendLAnneeFiscaleDuReleve_PasZero()
+    {
+        var reader = new FakeMailReader().With(Mail("sansdate", date: DateTimeOffset.MinValue, attachments: new[] { Pdf("decompte.pdf", "sansdate") }));
+        var (service, _, _) = Build(reader);
+
+        await service.RunOnceAsync(CancellationToken.None);
+
+        // L'horloge de test est au 9 septembre 2026 : sans en-tête Date, c'est elle qui range le document.
+        var doc = Assert.Single(await DocumentsAsync());
+        Assert.Equal(2026, doc.FiscalYear);
+    }
+
+    [Fact]
     public async Task QuotaAtteint_FaitTomberLeMailEnFailed_PasDeLigne()
     {
         var (storage, options, root) = TestHousehold.TempStorage(quota: 10);

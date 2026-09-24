@@ -230,11 +230,11 @@ public class DocumentController : ApiControllerBase
 
     /// <summary>
     /// Relève la boîte maintenant, sous le sémaphore du service de fond. 404 si le service n'est pas configuré
-    /// ou vise un autre dashboard, 409 sans attendre si un relevé est déjà en cours. Politique « login » (dix par
-    /// minute et par adresse) : chaque appel ouvre une connexion chez Gmail.
+    /// ou vise un autre dashboard, 409 sans attendre si un relevé est déjà en cours. Politique « mail-refresh »
+    /// (cinq par minute et par utilisateur) : chaque appel ouvre une connexion chez Gmail.
     /// </summary>
     [HttpPost("mail-source/refresh")]
-    [EnableRateLimiting("login")]
+    [EnableRateLimiting("mail-refresh")]
     public async Task<ActionResult<MailSourceDto>> RefreshMailSource([FromQuery] int dashboardId, [FromServices] MailIngestService mailIngest, CancellationToken ct)
     {
         if (!await IsMemberAsync(dashboardId, GetUserId())) return NotFound();
