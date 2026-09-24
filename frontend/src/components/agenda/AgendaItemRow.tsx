@@ -74,7 +74,7 @@ export const AgendaItemRow = ({ item, onOpenEcheance, onOpenRecurring, layout = 
         {/* Espace insécable plus marge : 8 px, et le montant reste collé au dernier mot du titre, il ne passe jamais seul à la ligne. */}
         <span className="text-sm text-white break-words">
           {item.title}
-          {' '}
+          {'\u00A0'}
           <span className="ml-1">{amount}</span>
         </span>
         {status && <span className={statusClass}>· {status}</span>}
