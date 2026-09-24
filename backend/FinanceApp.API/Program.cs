@@ -86,6 +86,7 @@ builder.Services.AddScoped<ProvisionService>();
 builder.Services.AddScoped<EcheanceReconciliationService>();
 builder.Services.AddScoped<FinanceApp.API.Services.Reporting.AccountBalanceService>();
 builder.Services.AddScoped<FinanceApp.API.Services.Reporting.ReportingService>();
+builder.Services.AddScoped<FinanceApp.API.Services.Reporting.RecurringLinkService>();
 builder.Services.AddHttpClient<GoCardlessClient>();
 builder.Services.AddDataProtection();
 // UseCookies = false : on gère les cookies manuellement via les headers

@@ -49,8 +49,11 @@ public class CalendarAgendaControllerTests : IDisposable
     private CalendarController Calendar(AppDbContext ctx, int userId) =>
         new(ctx, _protection, _sync, Options.Create(AgendaTestSupport.Options()), _clock) { ControllerContext = TestHousehold.As(userId) };
 
-    private AgendaController Agenda(AppDbContext ctx, int userId) =>
-        new(ctx, Options.Create(AgendaTestSupport.Household()), _clock) { ControllerContext = TestHousehold.As(userId) };
+    private AgendaController Agenda(AppDbContext ctx, int userId)
+    {
+        var household = Options.Create(AgendaTestSupport.Household());
+        return new AgendaController(ctx, household, _clock, new RecurringLinkService(ctx, household)) { ControllerContext = TestHousehold.As(userId) };
+    }
 
     private static T Ok<T>(ActionResult<T> result)
     {

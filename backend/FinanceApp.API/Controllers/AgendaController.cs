@@ -1,4 +1,5 @@
 using FinanceApp.API.Data;
+using FinanceApp.API.DTOs;
 using FinanceApp.API.Services.Calendar;
 using FinanceApp.API.Services.Reporting;
 using Microsoft.AspNetCore.Authorization;
@@ -11,7 +12,9 @@ namespace FinanceApp.API.Controllers;
 /// <summary>
 /// GET api/agenda : calendrier, échéances et récurrentes actives d'un dashboard fondus en une projection
 /// par jour. Le contrôleur charge et projette (AgendaProjectors), AgendaBuilder applique les règles. Toute
-/// date est dans le fuseau du ménage. Rien ici ne touche au bilan ni ne persiste un statut.
+/// date est dans le fuseau du ménage. Rien ici ne touche au bilan ni ne persiste un statut : le GET n'écrit
+/// rien, seuls les deux gestes de la routine (recurring/{id}/link, délégués à RecurringLinkService) posent ou
+/// retirent Transaction.RecurringTransactionId.
 /// </summary>
 [ApiController]
 [Route("api/agenda")]
@@ -24,12 +27,14 @@ public class AgendaController : ApiControllerBase
     private readonly AppDbContext _context;
     private readonly HouseholdOptions _household;
     private readonly TimeProvider _clock;
+    private readonly RecurringLinkService _links;
 
-    public AgendaController(AppDbContext context, IOptions<HouseholdOptions> household, TimeProvider clock)
+    public AgendaController(AppDbContext context, IOptions<HouseholdOptions> household, TimeProvider clock, RecurringLinkService links)
     {
         _context = context;
         _household = household.Value;
         _clock = clock;
+        _links = links;
     }
 
     private Task<bool> IsMemberAsync(int dashboardId, int userId) =>
@@ -99,6 +104,62 @@ public class AgendaController : ApiControllerBase
         result.TimeZone = _household.TimeZone;
         result.Calendar = AgendaCalendarStatus.From(source);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Les transactions du mois qu'on peut désigner comme règlement de la récurrente, voir
+    /// <see cref="RecurringLinkService.CandidatesAsync"/>. <paramref name="month"/> au format yyyy-MM.
+    /// </summary>
+    [HttpGet("recurring/{recurringId:int}/candidates")]
+    public async Task<ActionResult<List<RecurringCandidateDto>>> Candidates(
+        int recurringId,
+        [FromQuery] int dashboardId,
+        [FromQuery] string? month,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsMemberAsync(dashboardId, GetUserId())) return NotFound();
+        if (!TryParseMonth(month, out var year, out var monthOfYear)) return BadRequest("month doit être au format yyyy-MM.");
+
+        var candidates = await _links.CandidatesAsync(dashboardId, recurringId, year, monthOfYear, cancellationToken);
+        if (candidates == null) return NotFound();
+        return Ok(candidates);
+    }
+
+    /// <summary>
+    /// « C'est celle-ci » : pose Transaction.RecurringTransactionId. 404 hors périmètre, 409 si la transaction
+    /// règle déjà autre chose. Rend l'item d'Agenda recalculé pour l'occurrence du mois de la transaction.
+    /// </summary>
+    [HttpPost("recurring/{recurringId:int}/link")]
+    public async Task<ActionResult<AgendaItem>> Link(int recurringId, LinkRecurringDto dto, CancellationToken cancellationToken)
+    {
+        if (!await IsMemberAsync(dto.DashboardId, GetUserId())) return NotFound();
+
+        var result = await _links.LinkAsync(dto.DashboardId, recurringId, dto.TransactionId, cancellationToken);
+        return result.Outcome switch
+        {
+            RecurringLinkOutcome.NotFound => NotFound(),
+            RecurringLinkOutcome.Conflict => Conflict(result.Message),
+            _ => Ok(result.Item),
+        };
+    }
+
+    /// <summary>« Ce n'est pas celle-ci » : remet le lien à null s'il valait cette récurrente. 404 sinon.</summary>
+    [HttpDelete("recurring/{recurringId:int}/link")]
+    public async Task<ActionResult> Unlink(int recurringId, [FromQuery] int dashboardId, [FromQuery] int transactionId, CancellationToken cancellationToken)
+    {
+        if (!await IsMemberAsync(dashboardId, GetUserId())) return NotFound();
+        if (!await _links.UnlinkAsync(dashboardId, recurringId, transactionId, cancellationToken)) return NotFound();
+        return NoContent();
+    }
+
+    /// <summary>yyyy-MM strict : quatre chiffres, un tiret, un mois de 01 à 12.</summary>
+    private static bool TryParseMonth(string? value, out int year, out int month)
+    {
+        year = 0;
+        month = 0;
+        if (value == null || value.Length != 7 || value[4] != '-') return false;
+        if (!int.TryParse(value.AsSpan(0, 4), out year) || !int.TryParse(value.AsSpan(5, 2), out month)) return false;
+        return year is >= 1 and <= 9999 && month is >= 1 and <= 12;
     }
 
     /// <summary>
