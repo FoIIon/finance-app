@@ -9,6 +9,7 @@ import { investmentsApi } from '../api/investments';
 import { loansApi } from '../api/loans';
 import { agendaApi } from '../api/agenda';
 import { echeancesApi } from '../api/echeances';
+import { recurringTransactionsApi } from '../api/recurringTransactions';
 import { documentsApi, type DocumentFilters } from '../api/documents';
 import { calendarApi } from '../api/calendar';
 import type { AgendaView } from '../types/agenda';
@@ -239,6 +240,32 @@ export const useCalendarSourceQuery = (dashboardId: number | undefined) =>
     enabled: !!dashboardId,
     queryFn: async () => {
       const res = await calendarApi.getSource(dashboardId!);
+      return res.data;
+    },
+  });
+
+/**
+ * Les transactions du mois (yyyy-MM) qu'on peut désigner comme règlement d'une récurrente, chargées quand la
+ * fiche Routine s'ouvre. Clé ['recurring-candidates', dashboardId, recurringId, month] : un lien posé ou
+ * retiré invalide par préfixe.
+ */
+export const useRecurringCandidatesQuery = (dashboardId: number | undefined, recurringId: number | undefined, month: string) =>
+  useQuery({
+    queryKey: ['recurring-candidates', dashboardId, recurringId, month],
+    enabled: !!dashboardId && !!recurringId,
+    queryFn: async () => {
+      const res = await agendaApi.recurringCandidates(recurringId!, dashboardId!, month);
+      return res.data;
+    },
+  });
+
+/** Une récurrente, pour le montant prévu de la fiche Routine quand l'item porte le montant réel. */
+export const useRecurringQuery = (dashboardId: number | undefined, id: number | undefined) =>
+  useQuery({
+    queryKey: ['recurring', dashboardId, id],
+    enabled: !!dashboardId && !!id,
+    queryFn: async () => {
+      const res = await recurringTransactionsApi.getById(dashboardId!, id!);
       return res.data;
     },
   });

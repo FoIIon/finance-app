@@ -5,6 +5,7 @@ import { formatShortDate } from './agendaFormat';
 interface Props {
   upcoming: AgendaUpcoming;
   onOpenEcheance: (echeanceId: number) => void;
+  onOpenRecurring: (item: AgendaItem) => void;
 }
 
 interface Group {
@@ -27,7 +28,7 @@ const groupByDate = (items: AgendaItem[]): Group[] => {
  * « Et ensuite » : ce que la période affichée ne montre pas encore, jusqu'à trente jours. Le serveur a
  * déjà retiré ce que la période affiche. Vide, la section n'apparaît pas du tout.
  */
-export const AgendaUpcomingList = ({ upcoming, onOpenEcheance }: Props) => {
+export const AgendaUpcomingList = ({ upcoming, onOpenEcheance, onOpenRecurring }: Props) => {
   if (upcoming.items.length === 0) return null;
   const groups = groupByDate(upcoming.items);
   return (
@@ -44,6 +45,7 @@ export const AgendaUpcomingList = ({ upcoming, onOpenEcheance }: Props) => {
             day={{ date: g.date, isToday: false, items: g.items, routine: [] }}
             withMonth
             onOpenEcheance={onOpenEcheance}
+            onOpenRecurring={onOpenRecurring}
           />
         ))}
       </div>

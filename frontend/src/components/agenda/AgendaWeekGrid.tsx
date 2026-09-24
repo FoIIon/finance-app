@@ -1,5 +1,5 @@
 import type { Ref } from 'react';
-import type { AgendaDay } from '../../types/agenda';
+import type { AgendaDay, AgendaItem } from '../../types/agenda';
 import { AgendaDayBlock } from './AgendaDayBlock';
 import { sameMonth } from './agendaFormat';
 import { useIsDesktop } from './useIsDesktop';
@@ -11,6 +11,7 @@ interface Props {
   to: string;
   todayRef: Ref<HTMLElement>;
   onOpenEcheance: (echeanceId: number) => void;
+  onOpenRecurring: (item: AgendaItem) => void;
 }
 
 /**
@@ -18,7 +19,7 @@ interface Props {
  * sept colonnes égales, même hauteur, rien ne défile de côté. Le même DOM sert les deux, seul le gabarit
  * des jours change avec la largeur.
  */
-export const AgendaWeekGrid = ({ days, from, to, todayRef, onOpenEcheance }: Props) => {
+export const AgendaWeekGrid = ({ days, from, to, todayRef, onOpenEcheance, onOpenRecurring }: Props) => {
   const desktop = useIsDesktop();
   const withMonth = !sameMonth(from, to);
   return (
@@ -31,6 +32,7 @@ export const AgendaWeekGrid = ({ days, from, to, todayRef, onOpenEcheance }: Pro
           withMonth={withMonth}
           ref={day.isToday ? todayRef : undefined}
           onOpenEcheance={onOpenEcheance}
+          onOpenRecurring={onOpenRecurring}
         />
       ))}
     </div>

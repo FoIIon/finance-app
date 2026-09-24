@@ -106,7 +106,10 @@ export const latestInstant = (isos: (string | null | undefined)[]): string | nul
   return best;
 };
 
-/** Le mot de statut sous le montant. Le statut vient du serveur, on ne le déduit pas d'une date. */
+/**
+ * Le mot de statut sous le montant. Le statut vient du serveur, on ne le déduit pas d'une date. Une récurrente
+ * réglée porte dans originalDate la date réelle de la transaction : « réglée le 16 sept. ».
+ */
 export const statusLabel = (item: AgendaItem): string => {
   switch (item.status) {
     case 'due':
@@ -114,12 +117,19 @@ export const statusLabel = (item: AgendaItem): string => {
     case 'late':
       return item.originalDate ? `en retard depuis le ${formatShortDate(item.originalDate)}` : 'en retard';
     case 'paid':
-      return 'payée';
+      return item.kind === 'recurring' ? (item.originalDate ? `réglée le ${formatShortDate(item.originalDate)}` : 'réglée') : 'payée';
     case 'planned':
       return 'prévu';
     default:
       return '';
   }
+};
+
+/** L'identifiant de la récurrente porté par un item `recurring:<id>:<yyyy-MM-dd>`, null pour tout autre item. */
+export const recurringIdOf = (item: AgendaItem): number | null => {
+  if (item.kind !== 'recurring') return null;
+  const id = Number(item.id.split(':')[1]);
+  return Number.isInteger(id) && id > 0 ? id : null;
 };
 
 /** Une Date locale → yyyy-MM-dd, sans passage par l'UTC. Base de l'arithmétique de navigation. */

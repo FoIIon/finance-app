@@ -73,6 +73,24 @@ export interface AgendaResult {
   upcoming: AgendaUpcoming;
 }
 
+/** RecurringCandidateDto : une transaction du mois qu'on peut désigner comme règlement d'une récurrente. */
+export interface RecurringCandidate {
+  id: number;
+  /** yyyy-MM-dd dans le fuseau du ménage. */
+  date: string;
+  amount: number;
+  description: string;
+  counterpartyName: string | null;
+  /** Vrai quand la transaction porte déjà le lien vers cette récurrente (provisionnement ou geste manuel). */
+  linkedToThisRecurring: boolean;
+}
+
+/** LinkRecurringDto : corps de « C'est celle-ci ». */
+export interface LinkRecurring {
+  dashboardId: number;
+  transactionId: number;
+}
+
 /** EcheancePaymentDto : ce que la fiche montre de la transaction qui règle l'échéance. */
 export interface EcheancePayment {
   transactionId: number;

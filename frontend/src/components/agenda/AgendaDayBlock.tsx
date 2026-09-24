@@ -1,11 +1,12 @@
 import { useState, type Ref } from 'react';
-import type { AgendaDay } from '../../types/agenda';
+import type { AgendaDay, AgendaItem } from '../../types/agenda';
 import { AgendaItemRow, type AgendaRowLayout } from './AgendaItemRow';
 import { formatColumnHeading, formatDayHeading } from './agendaFormat';
 
 interface Props {
   day: AgendaDay;
   onOpenEcheance?: (echeanceId: number) => void;
+  onOpenRecurring?: (item: AgendaItem) => void;
   /** Posé sur le jour courant, pour que l'écran s'ouvre dessus. */
   ref?: Ref<HTMLElement>;
   /** Le mois dans l'en-tête, quand le titre du bandeau ne le porte pas pour ce jour. */
@@ -19,7 +20,7 @@ interface Props {
  * sur une seule ligne, sauf Aujourd'hui qui garde sa hauteur pleine. La routine (séries hebdomadaires,
  * calculée par le serveur) est repliée par défaut, son état n'est pas persisté.
  */
-export const AgendaDayBlock = ({ day, onOpenEcheance, ref, withMonth = false, layout = 'row' }: Props) => {
+export const AgendaDayBlock = ({ day, onOpenEcheance, onOpenRecurring, ref, withMonth = false, layout = 'row' }: Props) => {
   const [routineOpen, setRoutineOpen] = useState(false);
   const empty = day.items.length === 0 && day.routine.length === 0;
   const column = layout === 'column';
@@ -27,7 +28,7 @@ export const AgendaDayBlock = ({ day, onOpenEcheance, ref, withMonth = false, la
   const items = (
     <ul className="divide-y divide-white/5">
       {day.items.map((item) => (
-        <AgendaItemRow key={`${item.id}:${item.date}`} item={item} onOpenEcheance={onOpenEcheance} layout={layout} />
+        <AgendaItemRow key={`${item.id}:${item.date}`} item={item} onOpenEcheance={onOpenEcheance} onOpenRecurring={onOpenRecurring} layout={layout} />
       ))}
     </ul>
   );
