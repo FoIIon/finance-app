@@ -7,6 +7,62 @@ Gestion des finances d'un foyer : comptes bancaires synchronisés par Open Banki
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-4-06B6D4?logo=tailwindcss)
 
+## En bref
+
+Le foyer tenait ses comptes dans un classeur Excel, rempli à la main chaque mois. L'application récupère désormais les transactions des banques par l'API Open Banking, les catégorise par règles et produit le bilan que le classeur calculait. Elle tourne en production sur un Raspberry Pi 5 à la maison et sert au foyer au quotidien.
+
+- 633 tests unitaires xunit (10 secondes), 17 scénarios de bout en bout Playwright
+- 26 migrations de schéma depuis la baseline de juillet 2026, appliquées sur la base de production
+- Un générateur de données de démonstration (`tools/SeedDemo`) qui refuse de s'exécuter sur la base de production
+
+## Captures
+
+Captures réalisées sur le ménage fictif généré par `tools/SeedDemo`, montants et noms floutés.
+
+![Bilan mensuel en blocs](docs/captures/bilan.png)
+
+![Entrées et sorties par catégorie](docs/captures/entrees-sorties.png)
+
+![Transactions importées et catégorisées](docs/captures/transactions.png)
+
+## Comment elle est construite
+
+J'ai conçu l'application et je pilote son implémentation. Le code est produit par Claude Code, sous contrôle, lot par lot.
+
+1. **Conception.** Chaque lot part d'une spécification et d'un plan écrits avant le code (`docs/superpowers/specs`, `docs/superpowers/plans`) : périmètre, modèle de données, cas limites, critères d'acceptation.
+2. **Production.** L'IA écrit le code et les tests sur une branche dédiée, en suivant les règles du dépôt (`CLAUDE.md`).
+3. **Vérification.** Build, tests unitaires, lint et build du frontend sont relancés de façon indépendante. Les écrans sont capturés à 390 px et 1280 px avant de déclarer un lot livré.
+4. **Revue.** Une relecture critique du diff, classée par gravité, précède la fusion.
+5. **Déploiement.** Sauvegarde de la base, migration appliquée service arrêté, bascule du binaire, contrôle après redémarrage.
+
+Les arbitrages restent les miens : modèle de données, frontières entre services, ce qui entre dans un lot et ce qui en sort.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    GC[GoCardless<br/>Open Banking PSD2] -->|sync toutes les 6 h| SYNC
+    TR[Trade Republic<br/>API WebSocket] -->|import portefeuille| SYNC
+    subgraph Pi[Raspberry Pi 5]
+        SYNC[Synchronisation<br/>et rapprochement IBAN] --> DB[(SQLite)]
+        DB --> RULES[Catégorisation<br/>par règles]
+        RULES --> DB
+        DB --> REP[Reporting<br/>BilanClassifier]
+        REP --> API[API ASP.NET Core 8]
+        API --> SPA[Frontend React<br/>servi par l'API]
+    end
+    SPA --> U[Deux utilisateurs<br/>téléphone et PC]
+```
+
+## Décisions d'architecture
+
+- **Une seule fonction décide du bloc d'une transaction.** `BilanClassifier` range chaque ligne dans ENTRÉES, FIXE, MISES DE CÔTÉ, VARIABLE ou HORS BILAN, et toutes les vues en dérivent. Deux écrans ne peuvent pas afficher deux totaux différents pour le même mois.
+- **Services purs d'un côté, services avec état de l'autre.** La logique métier (classement, projections, rendements) ne touche ni la base ni le réseau. Elle se teste sans fixture, d'où 633 tests en 10 secondes.
+- **L'IBAN comme clé stable des comptes.** Une reconnexion Open Banking produit de nouveaux identifiants de compte. Le rapprochement par IBAN garde l'historique attaché au bon compte.
+- **SQLite sur le Pi.** Un foyer, deux utilisateurs : un fichier suffit, et la sauvegarde avant migration se résume à une copie.
+- **Pas de migration automatique au démarrage.** Le script SQL est généré, relu, puis appliqué service arrêté. Une migration ratée ne laisse pas l'application démarrer sur un schéma à moitié modifié.
+- **Pas de rendement annualisé sans date d'entrée.** Un chiffre faux est pire qu'une case vide.
+
 ## Ce que l'app suppose
 
 Elle est construite pour un foyer précis et ne prétend pas plus. Avant de l'installer ailleurs, savoir que :
@@ -42,7 +98,7 @@ Elle est construite pour un foyer précis et ne prétend pas plus. Avant de l'in
 | Style | Tailwind CSS 4 |
 | Données | @tanstack/react-query, axios |
 | Graphiques | Recharts |
-| Tests | xunit (~240 unitaires), Playwright (11 E2E) |
+| Tests | xunit (633 unitaires), Playwright (17 E2E) |
 
 ## Structure
 
@@ -54,7 +110,7 @@ finance-app/
 │   │   ├── Models/          # 21 entités EF Core
 │   │   ├── DTOs/            # Validation DataAnnotations
 │   │   ├── Data/            # AppDbContext (config, index, seed)
-│   │   ├── Migrations/      # 20 migrations depuis la baseline de juillet 2026
+│   │   ├── Migrations/      # 26 migrations depuis la baseline de juillet 2026
 │   │   ├── Services/        # Métier : purs (testés sans base) et stateful (EF, HTTP)
 │   │   │   └── Reporting/   # BilanClassifier, builders, ReportingService, AccountBalanceService
 │   │   └── Program.cs
@@ -131,7 +187,7 @@ cp -r ../../frontend/dist <dossier-publish>/wwwroot
 - Secrets : `appsettings.Production.json` posé sur le Pi, hors git
 - Service : systemd `finance-app` (`ASPNETCORE_ENVIRONMENT=Production`, `ASPNETCORE_URLS=http://0.0.0.0:5001`, restart auto)
 
-Une migration s'applique **service arrêté**, par script SQL généré avec `dotnet ef migrations script`, avant de basculer le binaire. La procédure complète vit dans le repo Yen (`.claude/skills/deployer-finance-app-pi`).
+Une migration s'applique **service arrêté**, par script SQL généré avec `dotnet ef migrations script`, avant de basculer le binaire.
 
 ## API
 
