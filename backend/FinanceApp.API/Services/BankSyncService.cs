@@ -228,6 +228,18 @@ public class BankSyncService : BackgroundService
                 ? DateTime.UtcNow.AddDays(-90)
                 : (lastSync < slidingWindowStart ? lastSync : slidingWindowStart);
 
+        // Comptes bancaires synchronisés de l'utilisateur, pour reconnaître un virement de l'un à l'autre
+        // (LateTransferReconciler.IsSameScopeTransfer). Les comptes manuels n'y sont pas, voulu.
+        var trackedAccounts = (await context.BankAccounts
+                .Where(ba => ba.IsActive && !ba.IsManual && ba.Iban != ""
+                          && (ba.UserId == connection.UserId
+                              || (ba.BankConnection != null && ba.BankConnection.UserId == connection.UserId)))
+                .Select(ba => new { ba.Iban, ba.IsPersonal })
+                .ToListAsync())
+            .Select(ba => (ba.Iban, ba.IsPersonal))
+            .ToList();
+        var virementInterneId = await SystemCategories.VirementInterneIdAsync(context);
+
         var anySyncFailed = false;
         foreach (var account in connection.BankAccounts.Where(a => a.IsActive))
         {
@@ -336,6 +348,15 @@ public class BankSyncService : BackgroundService
                     var categoryId = matchedRule?.CategoryId ?? defaultCategoryId;
                     var isFixed = matchedRule?.MarkAsFixed ?? false;
 
+                    // Un virement vers un autre compte suivi du même périmètre n'est ni une dépense ni un
+                    // revenu, quelle que soit la règle qui a matché. Cas vécu le 24/09/2026 : le joint Argenta
+                    // rembourse la CBC, le débit tombait en « Autres » et le crédit en « Épargne ».
+                    if (LateTransferReconciler.IsSameScopeTransfer(account.Iban, account.IsPersonal, counterpartyIban, trackedAccounts))
+                    {
+                        categoryId = virementInterneId;
+                        isFixed = false;
+                    }
+
                     var type = parsedAmount >= 0 ? TransactionType.Income : TransactionType.Expense;
                     var scope = PersoScopeRouter.Decide(account.IsPersonal, externalId, type, matchedRule);
 
@@ -370,6 +391,76 @@ public class BankSyncService : BackgroundService
         // au-delà des 14 jours glissants ne serait jamais re-fetchée sinon.
         if (!anySyncFailed)
             connection.LastSyncAt = DateTime.UtcNow;
+        await context.SaveChangesAsync();
+
+        await ReconcileLateBrokerLegsAsync(context, connection.UserId, virementInterneId);
+    }
+
+    /// <summary>
+    /// Fenêtre de la reprise des jambes tardives. Une jambe bancaire arrive au plus quelques jours après sa
+    /// ligne TR, et au-delà on risquerait de réveiller des lignes que personne ne regarde plus.
+    /// </summary>
+    private const int LateLegWindowDays = 30;
+
+    /// <summary>
+    /// Neutralise les débits bancaires arrivés après la ligne Trade Republic qu'ils financent
+    /// (LateTransferReconciler.FindLateLegs). Tourne après chaque sync GoCardless, c'est elle qui amène ces jambes.
+    /// </summary>
+    private async Task ReconcileLateBrokerLegsAsync(AppDbContext context, int userId, int virementInterneId)
+    {
+        var brokerAccountIds = await context.BankAccounts
+            .Where(ba => ba.BankConnection != null
+                      && ba.BankConnection.UserId == userId
+                      && ba.BankConnection.Provider == BankProvider.TradeRepublic)
+            .Select(ba => ba.Id)
+            .ToListAsync();
+
+        var since = DateTime.UtcNow.Date.AddDays(-LateLegWindowDays);
+        var brokerLines = await context.Transactions
+            .Where(t => t.Account.UserId == userId
+                     && t.Date >= since
+                     && t.CategoryId == virementInterneId
+                     && t.ExternalId != null && t.ExternalId.StartsWith(PersoScopeRouter.TradeRepublicExternalIdPrefix))
+            .ToListAsync();
+        if (brokerLines.Count == 0) return;
+
+        var windowStart = since.AddDays(-InternalTransferReconciler.MaxDayGap);
+        var legEntities = await context.Transactions
+            .Where(t => t.Account.UserId == userId
+                     && t.BankAccountId != null
+                     && !brokerAccountIds.Contains(t.BankAccountId.Value)
+                     && (t.ExternalId == null || !t.ExternalId.StartsWith(PersoScopeRouter.TradeRepublicExternalIdPrefix))
+                     && t.Date >= windowStart)
+            .ToListAsync();
+
+        var ownerNames = (await context.BankAccounts
+                .Where(ba => ba.UserId == userId
+                          || (ba.BankConnection != null && ba.BankConnection.UserId == userId))
+                .Select(ba => new { ba.OwnerName, ba.AccountName })
+                .ToListAsync())
+            .SelectMany(ba => new[] { ba.OwnerName, ba.AccountName })
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct()
+            .ToList();
+
+        var toNeutralize = LateTransferReconciler.FindLateLegs(
+            brokerLines.Select(t => new BrokerTransferLine(t.Id, t.Date, t.Amount, t.Type == TransactionType.Income, t.CreatedAt)),
+            legEntities.Select(t => new LateBankLeg(
+                t.Id, t.Date, t.Amount, t.Type == TransactionType.Expense, t.CounterpartyName, t.CreatedAt,
+                IsNeutralized: t.CategoryId == virementInterneId,
+                IsManuallyCategorized: t.CategorySetManuallyAt != null)).ToList(),
+            ownerNames);
+        if (toNeutralize.Count == 0) return;
+
+        foreach (var leg in legEntities.Where(t => toNeutralize.Contains(t.Id)))
+        {
+            _logger.LogInformation(
+                "Jambe tardive rapprochee : transaction bancaire {LegId} du {LegDate:yyyy-MM-dd} ({Amount} EUR, {Leg}) "
+                + "passe de la categorie {OldCategory} a Virement interne, importee apres sa ligne Trade Republic.",
+                leg.Id, leg.Date, leg.Amount, leg.Description, leg.CategoryId);
+            leg.CategoryId = virementInterneId;
+            leg.IsFixed = false;
+        }
         await context.SaveChangesAsync();
     }
 
