@@ -232,6 +232,7 @@ public class BankSyncService : BackgroundService
         // (LateTransferReconciler.IsSameScopeTransfer). Les comptes manuels n'y sont pas, voulu.
         var trackedAccounts = (await context.BankAccounts
                 .Where(ba => ba.IsActive && !ba.IsManual && ba.Iban != ""
+                          && ba.BankConnection != null && ba.BankConnection.Provider != BankProvider.TradeRepublic
                           && (ba.UserId == connection.UserId
                               || (ba.BankConnection != null && ba.BankConnection.UserId == connection.UserId)))
                 .Select(ba => new { ba.Iban, ba.IsPersonal })
@@ -351,7 +352,8 @@ public class BankSyncService : BackgroundService
                     // Un virement vers un autre compte suivi du même périmètre n'est ni une dépense ni un
                     // revenu, quelle que soit la règle qui a matché. Cas vécu le 24/09/2026 : le joint Argenta
                     // rembourse la CBC, le débit tombait en « Autres » et le crédit en « Épargne ».
-                    if (LateTransferReconciler.IsSameScopeTransfer(account.Iban, account.IsPersonal, counterpartyIban, trackedAccounts))
+                    if (LateTransferReconciler.IsSameScopeTransfer(
+                            account.Iban, account.IsPersonal, counterpartyIban, trackedAccounts, matchedRule?.Keyword))
                     {
                         categoryId = virementInterneId;
                         isFixed = false;
@@ -406,6 +408,21 @@ public class BankSyncService : BackgroundService
     /// Neutralise les débits bancaires arrivés après la ligne Trade Republic qu'ils financent
     /// (LateTransferReconciler.FindLateLegs). Tourne après chaque sync GoCardless, c'est elle qui amène ces jambes.
     /// </summary>
+    /// <summary>
+    /// Noms des titulaires de tous les comptes suivis : c'est ce qui permet de reconnaître qu'un libellé
+    /// désigne un mouvement interne et non un commerçant.
+    /// </summary>
+    private static async Task<List<string>> OwnerNamesAsync(AppDbContext context, int userId) =>
+        (await context.BankAccounts
+            .Where(ba => ba.UserId == userId
+                      || (ba.BankConnection != null && ba.BankConnection.UserId == userId))
+            .Select(ba => new { ba.OwnerName, ba.AccountName })
+            .ToListAsync())
+        .SelectMany(ba => new[] { ba.OwnerName, ba.AccountName })
+        .Where(n => !string.IsNullOrWhiteSpace(n))
+        .Distinct()
+        .ToList();
+
     private async Task ReconcileLateBrokerLegsAsync(AppDbContext context, int userId, int virementInterneId)
     {
         var brokerAccountIds = await context.BankAccounts
@@ -424,6 +441,16 @@ public class BankSyncService : BackgroundService
             .ToListAsync();
         if (brokerLines.Count == 0) return;
 
+        var paymentsSince = since.AddDays(-LateTransferReconciler.CardPaymentLookbackDays);
+        var cardPayments = await context.Transactions
+            .Where(t => t.Account.UserId == userId
+                     && t.Date >= paymentsSince
+                     && t.Type == TransactionType.Expense
+                     && !t.Category.IsTransfer
+                     && t.ExternalId != null && t.ExternalId.StartsWith(PersoScopeRouter.TradeRepublicExternalIdPrefix))
+            .Select(t => new BrokerCardPayment(t.Date, t.Amount))
+            .ToListAsync();
+
         var windowStart = since.AddDays(-InternalTransferReconciler.MaxDayGap);
         var legEntities = await context.Transactions
             .Where(t => t.Account.UserId == userId
@@ -433,15 +460,7 @@ public class BankSyncService : BackgroundService
                      && t.Date >= windowStart)
             .ToListAsync();
 
-        var ownerNames = (await context.BankAccounts
-                .Where(ba => ba.UserId == userId
-                          || (ba.BankConnection != null && ba.BankConnection.UserId == userId))
-                .Select(ba => new { ba.OwnerName, ba.AccountName })
-                .ToListAsync())
-            .SelectMany(ba => new[] { ba.OwnerName, ba.AccountName })
-            .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Distinct()
-            .ToList();
+        var ownerNames = await OwnerNamesAsync(context, userId);
 
         var toNeutralize = LateTransferReconciler.FindLateLegs(
             brokerLines.Select(t => new BrokerTransferLine(t.Id, t.Date, t.Amount, t.Type == TransactionType.Income, t.CreatedAt)),
@@ -449,17 +468,24 @@ public class BankSyncService : BackgroundService
                 t.Id, t.Date, t.Amount, t.Type == TransactionType.Expense, t.CounterpartyName, t.CreatedAt,
                 IsNeutralized: t.CategoryId == virementInterneId,
                 IsManuallyCategorized: t.CategorySetManuallyAt != null)).ToList(),
+            cardPayments,
             ownerNames);
         if (toNeutralize.Count == 0) return;
 
-        foreach (var leg in legEntities.Where(t => toNeutralize.Contains(t.Id)))
+        foreach (var (legId, brokerLineId) in toNeutralize)
         {
+            var leg = legEntities.First(t => t.Id == legId);
+            // Pas de libellé ni de montant au journal : les Id suffisent pour retrouver les lignes.
             _logger.LogInformation(
-                "Jambe tardive rapprochee : transaction bancaire {LegId} du {LegDate:yyyy-MM-dd} ({Amount} EUR, {Leg}) "
-                + "passe de la categorie {OldCategory} a Virement interne, importee apres sa ligne Trade Republic.",
-                leg.Id, leg.Date, leg.Amount, leg.Description, leg.CategoryId);
+                "Jambe tardive rapprochee : transaction {LegId} passe de la categorie {OldCategory} a Virement interne, "
+                + "ligne Trade Republic {BrokerLineId}.",
+                leg.Id, leg.CategoryId, brokerLineId);
             leg.CategoryId = virementInterneId;
             leg.IsFixed = false;
+
+            // Les deux moitiés d'un même mouvement appartiennent au même périmètre, comme à l'import
+            // (scopeDeLaJambe) : sinon une jambe venue du perso laisse sa ligne TR au Commun.
+            brokerLines.First(t => t.Id == brokerLineId).AccountId = leg.AccountId;
         }
         await context.SaveChangesAsync();
     }
@@ -605,17 +631,7 @@ public class BankSyncService : BackgroundService
                 .FirstOrDefault(ba => ba.IsActive && !TradeRepublicCashAccount.IsCashAccount(ba));
             var trBankAccountIsPersonal = trBankAccount?.IsPersonal ?? false;
 
-            // Noms des titulaires de tous les comptes suivis : c'est ce qui permet de reconnaître
-            // qu'un libellé TR désigne un mouvement interne et non un commerçant.
-            var ownerNames = (await context.BankAccounts
-                    .Where(ba => ba.UserId == connection.UserId
-                              || (ba.BankConnection != null && ba.BankConnection.UserId == connection.UserId))
-                    .Select(ba => new { ba.OwnerName, ba.AccountName })
-                    .ToListAsync())
-                .SelectMany(ba => new[] { ba.OwnerName, ba.AccountName })
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .Distinct()
-                .ToList();
+            var ownerNames = await OwnerNamesAsync(context, connection.UserId);
 
             // Noms d'instruments du portefeuille, pour reconnaître un achat de titres au libellé
             // quand TR ne fournit pas d'eventType.

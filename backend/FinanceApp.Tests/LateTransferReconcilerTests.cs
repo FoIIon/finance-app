@@ -28,6 +28,14 @@ public class LateTransferReconcilerTests
         string contrepartie = "SEBASTIEN JEAN R DUPONT") =>
         new(id, Sept24, montant, IsExpense: true, contrepartie, importee ?? ImportCbc, neutralise, manuel);
 
+    private static BrokerCardPayment Carte(decimal montant, int jour = 18) => new(new DateTime(2026, 9, jour), montant);
+
+    /// <summary>Un paiement carte TR pour chaque montant, le 18/09, comme dans le cas réel.</summary>
+    private static BrokerCardPayment[] Cartes(params decimal[] montants) => montants.Select(m => Carte(m)).ToArray();
+
+    private static int[] Jambes(IReadOnlyList<(int LegId, int BrokerLineId)> result) =>
+        result.Select(r => r.LegId).OrderBy(i => i).ToArray();
+
     [Fact]
     public void FindLateLegs_DebitsCbcImportesApresLesArriveesTr_SontNeutralises()
     {
@@ -45,9 +53,12 @@ public class LateTransferReconcilerTests
             DebitCbc(2350, 4.05m, contrepartie: "WEX SANDWICHS"),
         };
 
-        var result = LateTransferReconciler.FindLateLegs(tr, cbc, Titulaires);
+        var cartes = Cartes(17.80m, 2.85m, 39.58m, 15.84m, 21.01m, 110.40m, 4.05m);
 
-        Assert.Equal(new[] { 2335, 2336, 2337, 2338, 2339, 2340, 2341 }, result.OrderBy(i => i));
+        var result = LateTransferReconciler.FindLateLegs(tr, cbc, cartes, Titulaires);
+
+        Assert.Equal(new[] { 2335, 2336, 2337, 2338, 2339, 2340, 2341 }, Jambes(result));
+        Assert.Contains((2340, 2327), result);
     }
 
     [Fact]
@@ -58,7 +69,7 @@ public class LateTransferReconcilerTests
         var tr = new[] { ArriveeTr(1, 60.62m, importee: ImportCbc) };
         var cbc = new[] { DebitCbc(2, 60.62m, importee: ImportTr) };
 
-        Assert.Empty(LateTransferReconciler.FindLateLegs(tr, cbc, Titulaires));
+        Assert.Empty(LateTransferReconciler.FindLateLegs(tr, cbc, Cartes(tr[0].Amount), Titulaires));
     }
 
     [Fact]
@@ -69,7 +80,7 @@ public class LateTransferReconcilerTests
         var tr = new[] { ArriveeTr(1, 19.90m) };
         var cbc = new[] { DebitCbc(10, 19.90m, neutralise: true), DebitCbc(11, 19.90m) };
 
-        Assert.Empty(LateTransferReconciler.FindLateLegs(tr, cbc, Titulaires));
+        Assert.Empty(LateTransferReconciler.FindLateLegs(tr, cbc, Cartes(tr[0].Amount), Titulaires));
     }
 
     [Fact]
@@ -78,7 +89,7 @@ public class LateTransferReconcilerTests
         var tr = new[] { ArriveeTr(1, 50.00m) };
         var cbc = new[] { DebitCbc(10, 50.00m, manuel: true) };
 
-        Assert.Empty(LateTransferReconciler.FindLateLegs(tr, cbc, Titulaires));
+        Assert.Empty(LateTransferReconciler.FindLateLegs(tr, cbc, Cartes(tr[0].Amount), Titulaires));
     }
 
     [Fact]
@@ -87,9 +98,38 @@ public class LateTransferReconcilerTests
         var tr = new[] { ArriveeTr(1, 4.05m), ArriveeTr(2, 4.05m) };
         var cbc = new[] { DebitCbc(10, 4.05m), DebitCbc(11, 4.05m), DebitCbc(12, 4.05m) };
 
-        var result = LateTransferReconciler.FindLateLegs(tr, cbc, Titulaires);
+        var result = LateTransferReconciler.FindLateLegs(tr, cbc, Cartes(4.05m, 4.05m), Titulaires);
 
-        Assert.Equal(new[] { 10, 11 }, result.OrderBy(i => i));
+        Assert.Equal(new[] { 10, 11 }, Jambes(result));
+    }
+
+    [Fact]
+    public void FindLateLegs_SansPaiementCarteTr_LeDebitResteLaSeuleTraceDeLaDepense()
+    {
+        // Alimentation TR sans paiement carte en base : rien n'est compté deux fois, le débit reste.
+        var tr = new[] { ArriveeTr(1, 60.62m) };
+        var cbc = new[] { DebitCbc(10, 60.62m) };
+
+        Assert.Empty(LateTransferReconciler.FindLateLegs(tr, cbc, [], Titulaires));
+    }
+
+    [Fact]
+    public void FindLateLegs_PaiementCarteTropAncien_NeComptePas()
+    {
+        var tr = new[] { ArriveeTr(1, 60.62m) };
+        var cbc = new[] { DebitCbc(10, 60.62m) };
+
+        Assert.Empty(LateTransferReconciler.FindLateLegs(tr, cbc, [Carte(60.62m, jour: 5)], Titulaires));
+    }
+
+    [Fact]
+    public void FindLateLegs_ArgentQuiSortDeTr_NeNeutraliseJamaisUnCredit()
+    {
+        // 800 sortis de TR, puis 800 d'apport d'Audrey sur le joint au nom du couple : un vrai revenu.
+        var tr = new[] { new BrokerTransferLine(1, Sept24, 800m, IsIncome: false, ImportTr) };
+        var joint = new[] { new LateBankLeg(10, Sept24, 800m, IsExpense: false, "DUPONT - MARTIN", ImportCbc, false, false) };
+
+        Assert.Empty(LateTransferReconciler.FindLateLegs(tr, joint, [Carte(800m)], Titulaires));
     }
 
     private static readonly (string Iban, bool IsPersonal)[] Comptes =
@@ -126,6 +166,16 @@ public class LateTransferReconcilerTests
     {
         // Le livret Argenta est un compte manuel, absent de la liste : « Gros chat » garde sa catégorie.
         Assert.False(LateTransferReconciler.IsSameScopeTransfer("BE19973176751212", false, "BE83973176751515", Comptes));
+    }
+
+    [Fact]
+    public void IsSameScopeTransfer_RegleExpliciteSurCetIban_LEmporte()
+    {
+        Assert.False(LateTransferReconciler.IsSameScopeTransfer(
+            "BE19973176751212", false, "BE42732050362754", Comptes, matchedRuleKeyword: "BE42 7320 5036 2754"));
+        // Une règle sur un mot du libellé, elle, ne dit rien de l'IBAN.
+        Assert.True(LateTransferReconciler.IsSameScopeTransfer(
+            "BE19973176751212", false, "BE42732050362754", Comptes, matchedRuleKeyword: "LIBERT - LAMBRECHT"));
     }
 
     [Fact]
